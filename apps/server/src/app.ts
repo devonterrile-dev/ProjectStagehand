@@ -4,11 +4,22 @@ import fastifyStatic from '@fastify/static';
 import { healthResponseSchema, type HealthResponse } from '@stagehand/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import type { Database, DbHandle } from './db/client';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Drizzle client. Only present when the app was built with a database. */
+    db?: Database;
+  }
+}
+
 export interface BuildAppOptions {
   /** Fastify logger setting; off by default so tests stay quiet. */
   logger?: FastifyServerOptions['logger'];
   /** Absolute path to the built web client (apps/web/dist). When unset, no SPA is served. */
   webDistDir?: string | undefined;
+  /** Database handle. The app takes ownership and ends the pool when it closes. */
+  db?: DbHandle | undefined;
 }
 
 /** Path prefixes owned by the server; these never fall back to the SPA. */
@@ -19,6 +30,15 @@ const SERVER_PREFIXES = ['/api', '/health'];
  */
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
+
+  const handle = options.db;
+  if (handle !== undefined) {
+    app.decorate('db', handle.db);
+    // Runs on app.close(), which graceful shutdown already calls.
+    app.addHook('onClose', async () => {
+      await handle.pool.end();
+    });
+  }
 
   // Polled every few seconds by the Docker healthcheck, so keep it out of the request logs.
   app.get('/health', { logLevel: 'silent' }, (): HealthResponse =>

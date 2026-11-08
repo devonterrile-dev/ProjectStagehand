@@ -16,11 +16,12 @@ const envSchema = z
     WEB_DIST_DIR: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === 'production' && env.DATABASE_URL === undefined) {
+    // Only unit tests may run without a database (they build the app without one).
+    if (env.NODE_ENV !== 'test' && env.DATABASE_URL === undefined) {
       ctx.addIssue({
         code: 'custom',
         path: ['DATABASE_URL'],
-        message: 'is required when NODE_ENV=production',
+        message: `is required when NODE_ENV=${env.NODE_ENV}`,
       });
     }
   });

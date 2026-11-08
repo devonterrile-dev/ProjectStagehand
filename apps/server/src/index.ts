@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 
 import { buildApp } from './app';
 import { ConfigError, loadConfig } from './config';
+import { createDb } from './db/client';
 
 function start(): void {
   let config;
@@ -18,6 +19,8 @@ function start(): void {
   const app = buildApp({
     logger: { level: config.logLevel },
     webDistDir: config.webDistDir === undefined ? undefined : resolve(config.webDistDir),
+    // Migrations are applied separately (pnpm db:migrate / the `migrate` service), never here.
+    db: config.databaseUrl === undefined ? undefined : createDb(config.databaseUrl),
   });
 
   // Close cleanly on `docker stop` (SIGTERM) and Ctrl+C (SIGINT): stop accepting

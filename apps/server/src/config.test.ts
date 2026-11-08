@@ -3,13 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from './config';
 
 describe('loadConfig', () => {
-  it('applies defaults for an empty environment', () => {
-    expect(loadConfig({})).toEqual({
+  const DEV_DB = 'postgres://stagehand:stagehand@127.0.0.1:5432/stagehand_dev';
+
+  it('applies defaults when only DATABASE_URL is set', () => {
+    expect(loadConfig({ DATABASE_URL: DEV_DB })).toEqual({
       nodeEnv: 'development',
       host: '0.0.0.0',
       port: 3000,
       logLevel: 'info',
-      databaseUrl: undefined,
+      databaseUrl: DEV_DB,
       webDistDir: undefined,
     });
   });
@@ -35,13 +37,13 @@ describe('loadConfig', () => {
   });
 
   it('accepts the postgresql:// scheme', () => {
-    expect(loadConfig({ DATABASE_URL: 'postgresql://localhost/db' }).databaseUrl).toBe(
-      'postgresql://localhost/db',
-    );
+    expect(
+      loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'postgresql://localhost/db' }).databaseUrl,
+    ).toBe('postgresql://localhost/db');
   });
 
   it('treats empty strings as unset', () => {
-    expect(loadConfig({ PORT: '', DATABASE_URL: '' })).toMatchObject({
+    expect(loadConfig({ NODE_ENV: 'test', PORT: '', DATABASE_URL: '' })).toMatchObject({
       port: 3000,
       databaseUrl: undefined,
     });
@@ -51,6 +53,14 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ NODE_ENV: 'production' })).toThrow(
       /DATABASE_URL: is required when NODE_ENV=production/,
     );
+  });
+
+  it('requires DATABASE_URL in development, the default', () => {
+    expect(() => loadConfig({})).toThrow(/DATABASE_URL: is required when NODE_ENV=development/);
+  });
+
+  it('allows a missing DATABASE_URL only in test', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }).databaseUrl).toBeUndefined();
   });
 
   it('rejects a non-postgres DATABASE_URL', () => {

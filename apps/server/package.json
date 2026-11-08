@@ -4,22 +4,32 @@
   "private": true,
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "drizzle"
   ],
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "build": "tsx scripts/build.ts",
     "start": "node --enable-source-maps dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file-if-exists=.env src/migrate-cli.ts",
+    "db:check": "drizzle-kit check",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@fastify/static": "^10.1.10",
     "@stagehand/shared": "workspace:*",
+    "drizzle-orm": "~0.45.4",
     "fastify": "^5.12.8",
+    "pg": "^8.23.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "~0.31.11",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15"
   }

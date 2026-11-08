@@ -1,7 +1,7 @@
 # Stagehand production stack: app + PostgreSQL + Cloudflare Tunnel (governance §15).
 #
 #   cp infra/.env.example infra/.env   # then fill it in
-#   pnpm stack:up                      # app + postgres
+#   pnpm stack:up                      # postgres, then migrate (one-shot), then app
 #   docker compose -f infra/docker-compose.yml --env-file infra/.env --profile tunnel up -d
 #                                      # ...plus the tunnel, once F0.5 provides a token
 #
@@ -34,6 +34,23 @@ services:
     # No published ports: only the app reaches the database, over the internal network.
     logging: *logging
 
+  # One-shot: applies pending Drizzle migrations, then exits. The app starts only if it
+  # succeeds, so a failed migration leaves the app down with the error in `docker compose logs migrate`.
+  migrate:
+    # Same image as `app`, which is the only service that builds it (two services building
+    # one tag can race). Compose builds images before creating any container.
+    image: stagehand-app:local
+    pull_policy: never
+    restart: 'no'
+    init: true
+    command: ['node', '--enable-source-maps', 'dist/migrate.js']
+    environment:
+      DATABASE_URL: &database-url postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
   app:
     build:
       context: ..
@@ -44,10 +61,12 @@ services:
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: *database-url
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       # Localhost only, for checking the stack by hand. Public traffic arrives via cloudflared.
       - 127.0.0.1:${APP_PORT:-8080}:3000

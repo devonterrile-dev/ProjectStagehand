@@ -64,7 +64,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 
 - [x] F0.1 Monorepo, TypeScript strict mode, lint/format, CI (lint, typecheck, tests)
 - [x] F0.2 Docker Compose: app server, PostgreSQL, Cloudflare Tunnel
-- [ ] F0.3 Database migrations pipeline (Drizzle Kit)
+- [x] F0.3 Database migrations pipeline (Drizzle Kit)
 - [ ] F0.4 Sign in with Discord, session handling, user profile
 - [ ] F0.5 Domain + tunnel live over HTTPS from the home PC
 - [ ] F0.6 Nightly backup script (database dump + asset folder)

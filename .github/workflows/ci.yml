@@ -17,6 +17,23 @@ jobs:
     name: Lint, typecheck, test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # Integration tests create (and drop) a throwaway database on this server.
+      postgres:
+        image: postgres:18.6-trixie
+        env:
+          POSTGRES_USER: stagehand
+          POSTGRES_PASSWORD: stagehand
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stagehand"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_ADMIN_URL: postgres://stagehand:stagehand@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v7
 
@@ -42,6 +59,23 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Migrations are consistent
+        run: pnpm db:check
+
+      # Governance §15: database changes only through committed Drizzle migrations.
+      # Regenerating from the schema must produce nothing new.
+      - name: No schema change without a committed migration
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain -- apps/server/drizzle)" ]; then
+            echo "::error::The Drizzle schema has changes with no committed migration. Run 'pnpm db:generate' and commit the result."
+            git status --porcelain -- apps/server/drizzle
+            exit 1
+          fi
+
+      - name: Integration tests
+        run: pnpm test:integration
+
       - name: Build web
         run: pnpm --filter @stagehand/web build
 
@@ -54,8 +88,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build and start app + postgres
+      - name: Build and start postgres, migrate, app
         run: $COMPOSE up -d --build --wait --wait-timeout 120
+
+      - name: Migrations applied
+        run: |
+          test "$(docker inspect "$($COMPOSE ps -aq migrate)" --format '{{.State.ExitCode}}')" = 0
+          $COMPOSE logs --no-log-prefix migrate
+          $COMPOSE exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select extname from pg_extension"' | grep -qx pg_trgm
 
       - name: Health endpoint
         run: curl -fsS http://127.0.0.1:8080/health | tee /dev/stderr | grep -q '"status":"ok"'

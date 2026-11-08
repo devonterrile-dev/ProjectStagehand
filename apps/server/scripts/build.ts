@@ -1,5 +1,5 @@
 /**
- * Production build: bundles the server into dist/index.js.
+ * Production build: bundles the server into dist/index.js and the migrator into dist/migrate.js.
  *
  * Workspace packages (@stagehand/*) are shipped as TypeScript source, so they are inlined.
  * Every other runtime dependency stays external and is installed into the image's
@@ -25,8 +25,9 @@ const external = Object.keys(pkg.dependencies ?? {}).filter(
 
 await build({
   absWorkingDir: packageDir,
-  entryPoints: ['src/index.ts'],
-  outfile: 'dist/index.js',
+  // dist/index.js: the server. dist/migrate.js: the one-shot migration runner.
+  entryPoints: { index: 'src/index.ts', migrate: 'src/migrate-cli.ts' },
+  outdir: 'dist',
   bundle: true,
   platform: 'node',
   format: 'esm',
