@@ -1,0 +1,6 @@
+# Authored in an external doc tool; reformatting it would only add noise.
+Project Stagehand — Technical Governance Document.md
+
+pnpm-lock.yaml
+dist/
+coverage/
