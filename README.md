@@ -19,12 +19,45 @@ The single source of truth for scope, features and technology is [Project Stageh
   corepack enable pnpm --install-directory "$env:APPDATA\npm"
   ```
 
+- **Docker** with Compose v2. On Windows: Docker Desktop on WSL2.
+
 ## Getting started
 
 ```sh
 pnpm install
 pnpm check        # format check, lint, typecheck, tests (same as CI)
 ```
+
+## Development
+
+```sh
+pnpm db:up                              # dev Postgres on 127.0.0.1:5432 (separate from production)
+pnpm --filter @stagehand/server dev     # API on http://localhost:3000
+pnpm --filter @stagehand/web dev        # Vite on http://localhost:5173, proxies /api and /health
+pnpm db:down
+```
+
+The server reads its settings from environment variables (see [apps/server/.env.example](apps/server/.env.example)) and refuses to start if any are invalid.
+
+## Production stack (Docker Compose)
+
+The home-PC deployment is three containers defined in [infra/docker-compose.yml](infra/docker-compose.yml): `app` (Fastify API plus the built web client), `postgres`, and `cloudflared`.
+
+```sh
+cp infra/.env.example infra/.env        # fill in a real POSTGRES_PASSWORD
+pnpm stack:up                           # build + start app and postgres, wait until healthy
+curl http://127.0.0.1:8080/health       # app is published on localhost only
+pnpm stack:logs
+pnpm stack:down                         # data persists in the stagehand_pgdata volume
+```
+
+The tunnel container sits behind the `tunnel` Compose profile until F0.5 sets up the domain and token:
+
+```sh
+docker compose -f infra/docker-compose.yml --env-file infra/.env --profile tunnel up -d
+```
+
+Moving to a VPS means copying `infra/docker-compose.yml`, `infra/.env` and the `pgdata` volume.
 
 ## Layout
 
@@ -34,7 +67,8 @@ apps/
   server/     Fastify API                          (@stagehand/server)
 packages/
   shared/     Zod schemas, types, shared logic     (@stagehand/shared)
-infra/        Docker Compose, tunnel, backups      (from F0.2)
+infra/        Docker Compose (production + dev DB), env templates
+Dockerfile    App image (server + web client)
 docs/decisions/  Optional detail for Decision log entries
 ```
 
@@ -53,11 +87,20 @@ Run from the repo root:
 | `pnpm test`         | Vitest across all workspaces                     |
 | `pnpm test:watch`   | Vitest in watch mode                             |
 
+| Script            | What it does                                        |
+| ----------------- | --------------------------------------------------- |
+| `pnpm db:up`      | Start the dev Postgres and wait until it is healthy |
+| `pnpm db:down`    | Stop the dev Postgres (data kept)                   |
+| `pnpm stack:up`   | Build and start the production stack                |
+| `pnpm stack:down` | Stop the production stack (data kept)               |
+| `pnpm stack:logs` | Follow production stack logs                        |
+
 Per app:
 
 ```sh
-pnpm --filter @stagehand/server dev   # http://localhost:3000/health
-pnpm --filter @stagehand/web dev      # Vite dev server
+pnpm --filter @stagehand/server dev     # tsx watch
+pnpm --filter @stagehand/server build   # esbuild bundle to apps/server/dist
+pnpm --filter @stagehand/server start   # run the bundle with plain node
 pnpm --filter @stagehand/web build
 ```
 
@@ -74,6 +117,15 @@ From governance §15:
 
 Per governance §1, assumptions the build relies on:
 
-- **Workspace packages are consumed as TypeScript source.** `@stagehand/shared` exports `./src/index.ts` directly, with no build step. Vite and Vitest compile it; the server runs through `tsx`. The server's production build (bundling) is decided in F0.2 with the Dockerfile.
+- **Workspace packages are consumed as TypeScript source.** `@stagehand/shared` exports `./src/index.ts` directly, with no build step. Vite and Vitest compile it; the server runs through `tsx` in dev.
+
+## Working assumptions (F0.2)
+
+- **The server's production build is an esbuild bundle** ([apps/server/scripts/build.ts](apps/server/scripts/build.ts)). `@stagehand/*` packages are inlined; every other runtime dependency stays external and is installed into the image by `pnpm deploy --prod`. This keeps native and worker-based packages (pino transports, and later sharp and pg-boss) working.
+- **One origin.** The app container serves the built web client next to the API. API routes live under `/api`; any other GET that asks for HTML falls back to `index.html` for client-side routing. In dev, Vite proxies `/api` and `/health` to the server.
+- **Cloudflare Tunnel is token-based** (configured in the Cloudflare dashboard, with the token in `infra/.env`). F0.5 may switch to a locally managed config file if version-controlled ingress rules become useful.
+- **Logs are pino JSON on stdout,** kept by Docker's `json-file` driver with rotation (5 × 10 MB per container). This is how §6's "structured logs to file" is met.
+- **Dev and production databases are separate Compose projects** (`stagehand-dev` / `stagehand`) with separate volumes, so both can run on the same PC.
+- **Images are pinned by exact tag:** `node:24.22.1-trixie-slim`, `postgres:18.6-trixie`, `cloudflare/cloudflared:2026.10.7`.
 - **TypeScript is pinned to 6.0.x**, not 7.x, because typescript-eslint supports TypeScript below 6.1 only. Revisit when typescript-eslint supports 7.
 - **pnpm build scripts are opt-in.** Dependencies that need install scripts are listed under `allowBuilds` in `pnpm-workspace.yaml` (currently only `esbuild`).

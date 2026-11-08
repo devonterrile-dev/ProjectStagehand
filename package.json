@@ -16,7 +16,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
-    "prepare": "husky"
+    "prepare": "husky",
+    "db:up": "docker compose -f infra/docker-compose.dev.yml up -d --wait",
+    "db:down": "docker compose -f infra/docker-compose.dev.yml down",
+    "stack:up": "docker compose -f infra/docker-compose.yml --env-file infra/.env up -d --build --wait",
+    "stack:down": "docker compose -f infra/docker-compose.yml --env-file infra/.env down",
+    "stack:logs": "docker compose -f infra/docker-compose.yml --env-file infra/.env logs -f"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",

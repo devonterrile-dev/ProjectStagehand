@@ -1,0 +1,29 @@
+# Development database only (governance §15: `pnpm dev` + Postgres in Docker).
+# A separate Compose project and volume, so dev data never mixes with production data.
+#
+#   pnpm db:up     pnpm db:down
+#
+# Connection string: postgres://stagehand:stagehand@127.0.0.1:5432/stagehand_dev
+
+name: stagehand-dev
+
+services:
+  postgres:
+    image: postgres:18.6-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stagehand
+      POSTGRES_PASSWORD: stagehand
+      POSTGRES_DB: stagehand_dev
+    volumes:
+      - pgdata-dev:/var/lib/postgresql
+    ports:
+      - 127.0.0.1:5432:5432
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stagehand -d stagehand_dev']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata-dev:

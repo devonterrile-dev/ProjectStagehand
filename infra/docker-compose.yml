@@ -1,0 +1,69 @@
+# Stagehand production stack: app + PostgreSQL + Cloudflare Tunnel (governance §15).
+#
+#   cp infra/.env.example infra/.env   # then fill it in
+#   pnpm stack:up                      # app + postgres
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env --profile tunnel up -d
+#                                      # ...plus the tunnel, once F0.5 provides a token
+#
+# To move to a VPS: copy this file, infra/.env and the pgdata volume.
+
+name: stagehand
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
+
+services:
+  postgres:
+    image: postgres:18.6-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in infra/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in infra/.env}
+    volumes:
+      # Postgres 18+ images keep data in a versioned subdirectory of /var/lib/postgresql.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No published ports: only the app reaches the database, over the internal network.
+    logging: *logging
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: stagehand-app:local
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Localhost only, for checking the stack by hand. Public traffic arrives via cloudflared.
+      - 127.0.0.1:${APP_PORT:-8080}:3000
+    logging: *logging
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    profiles: [tunnel]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      app:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  pgdata:

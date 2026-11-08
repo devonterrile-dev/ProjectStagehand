@@ -12,6 +12,8 @@ coverage/
 .env
 .env.*
 !.env.example
+# Throwaway CI-only credentials for the Docker smoke test.
+!infra/.env.ci
 
 # Logs
 *.log

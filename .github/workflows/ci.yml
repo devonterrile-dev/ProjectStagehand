@@ -44,3 +44,37 @@ jobs:
 
       - name: Build web
         run: pnpm --filter @stagehand/web build
+
+  docker:
+    name: Docker image + Compose smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE: docker compose -f infra/docker-compose.yml --env-file infra/.env.ci
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and start app + postgres
+        run: $COMPOSE up -d --build --wait --wait-timeout 120
+
+      - name: Health endpoint
+        run: curl -fsS http://127.0.0.1:8080/health | tee /dev/stderr | grep -q '"status":"ok"'
+
+      - name: SPA served, including client-side routes
+        run: |
+          curl -fsS -H 'accept: text/html' http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          curl -fsS -H 'accept: text/html' http://127.0.0.1:8080/campaigns/1 | grep -q '<div id="root">'
+
+      - name: App runs as non-root
+        run: test "$($COMPOSE exec -T app id -un)" = node
+
+      - name: Tunnel service config is valid
+        run: $COMPOSE --profile tunnel config --quiet
+
+      - name: Logs on failure
+        if: failure()
+        run: $COMPOSE logs
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
