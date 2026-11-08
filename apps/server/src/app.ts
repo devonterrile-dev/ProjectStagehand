@@ -4,7 +4,12 @@ import fastifyStatic from '@fastify/static';
 import { healthResponseSchema, type HealthResponse } from '@stagehand/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { AUTH_BASE_PATH, type Auth } from './auth/auth';
+import { registerAuthRoutes } from './auth/routes';
 import type { Database, DbHandle } from './db/client';
+import { registerCsrfProtection } from './http/csrf';
+import { serializeRequest } from './http/log';
+import { registerMeRoutes } from './routes/me';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -20,6 +25,10 @@ export interface BuildAppOptions {
   webDistDir?: string | undefined;
   /** Database handle. The app takes ownership and ends the pool when it closes. */
   db?: DbHandle | undefined;
+  /** Sign-in, sessions and the user API. Requires `db` and `publicUrl`. */
+  auth?: Auth | undefined;
+  /** The app's own origin (PUBLIC_URL), used for CSRF checks. */
+  publicUrl?: string | undefined;
 }
 
 /** Path prefixes owned by the server; these never fall back to the SPA. */
@@ -29,7 +38,7 @@ const SERVER_PREFIXES = ['/api', '/health'];
  * Builds the Fastify app without starting it, so tests can drive it with `inject()`.
  */
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({ logger: withRequestRedaction(options.logger ?? false) });
 
   const handle = options.db;
   if (handle !== undefined) {
@@ -45,11 +54,30 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     healthResponseSchema.parse({ status: 'ok' }),
   );
 
+  if (options.auth !== undefined) {
+    if (handle === undefined || options.publicUrl === undefined) {
+      throw new Error('buildApp: `auth` requires `db` and `publicUrl`');
+    }
+    // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
+    registerCsrfProtection(app, { publicUrl: options.publicUrl, exempt: [`${AUTH_BASE_PATH}/`] });
+    registerAuthRoutes(app, options.auth);
+    registerMeRoutes(app, { auth: options.auth, db: handle.db });
+  }
+
   if (options.webDistDir !== undefined) {
     registerSpa(app, options.webDistDir);
   }
 
   return app;
+}
+
+/** Applies our request serializer (no OAuth codes in logs) to any enabled logger. */
+function withRequestRedaction(
+  logger: NonNullable<FastifyServerOptions['logger']>,
+): FastifyServerOptions['logger'] {
+  if (logger === false) return false;
+  const base = logger === true ? {} : logger;
+  return { ...base, serializers: { ...base.serializers, req: serializeRequest } };
 }
 
 function registerSpa(app: FastifyInstance, root: string): void {

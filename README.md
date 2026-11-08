@@ -31,15 +31,37 @@ pnpm check        # format check, lint, typecheck, tests (same as CI)
 ## Development
 
 ```sh
-cp apps/server/.env.example apps/server/.env   # once
+cp apps/server/.env.example apps/server/.env   # once; fill in the auth settings (see Authentication)
 pnpm db:up                              # dev Postgres on 127.0.0.1:5432 (separate from production)
 pnpm db:migrate                         # apply migrations to the dev database
 pnpm --filter @stagehand/server dev     # API on http://localhost:3000
-pnpm --filter @stagehand/web dev        # Vite on http://localhost:5173, proxies /api and /health
+pnpm --filter @stagehand/web dev        # open http://localhost:5173 (proxies /api and /health)
 pnpm db:down
 ```
 
 The server reads its settings from environment variables (see [apps/server/.env.example](apps/server/.env.example)) and refuses to start if any are invalid. In dev, `apps/server/.env` is loaded automatically; production never reads `.env` files.
+
+Open the app at **http://localhost:5173**, not :3000. Sign-in cookies and the Discord redirect are tied to that origin.
+
+## Authentication
+
+Sign in with Discord only, via [Better Auth](https://www.better-auth.com) (governance D-05, D-18). Sessions are rows in the `sessions` table, referenced by an HTTP-only, SameSite=Lax cookie. Sessions last 30 days and roll forward daily.
+
+### Discord application (once)
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) → **New Application** ("Stagehand").
+2. **OAuth2** → copy the **Client ID**; **Reset Secret** and copy the **Client Secret**.
+3. **OAuth2 → Redirects**, add one per place the app runs:
+   - `http://localhost:5173/api/auth/callback/discord` (dev)
+   - `http://localhost:8080/api/auth/callback/discord` (local production stack)
+   - `https://<domain>/api/auth/callback/discord` (F0.5)
+4. Put the values in `apps/server/.env` (dev) and `infra/.env` (stack), with `PUBLIC_URL` set to the matching origin and a generated `BETTER_AUTH_SECRET`.
+
+### Rules for new API routes
+
+- Routes that need a signed-in user use the `requireSession(auth)` preHandler; the user is on `request.auth`.
+- State-changing requests (POST/PUT/PATCH/DELETE) under `/api/` must come from `PUBLIC_URL`. A CSRF hook rejects any other `Origin` with 403. `fetch` from the web app sends the right header automatically.
+- User-editable fields go through our own routes with shared Zod schemas, never through Better Auth's generic user endpoints. Those are disabled.
 
 ## Database
 
@@ -165,3 +187,14 @@ Per governance §1, assumptions the build relies on:
 - **The first migration only enables `pg_trgm`**, for search (F1.6) and duplicate-name flagging (F1.8). Better Auth's tables come with F0.4.
 - **`DATABASE_URL` is required outside unit tests** (`NODE_ENV=test`), so a misconfigured dev or production server fails at startup rather than on its first query.
 - **The server never migrates itself.** Migrations run as a separate step (`pnpm db:migrate`, or the `migrate` Compose service) so a failed migration can't leave a half-started app.
+
+## Working assumptions (F0.4)
+
+- **Discord scopes are `identify email`** (D-18). Phone-only Discord accounts have no email, but Better Auth requires one, so they get a non-deliverable placeholder `<discordId>@discord.invalid`. Nothing in Stagehand sends email.
+- **Better Auth's tables are generated, then adjusted.** [apps/server/src/db/schema/auth.ts](apps/server/src/db/schema/auth.ts) comes from `pnpm --filter @stagehand/server auth:generate`; every timestamp was then changed to `timestamptz`. Re-apply that if you regenerate.
+- **`discordId` and `discordUsername` are `input: true`** in Better Auth's config, because `mapProfileToUser` output counts as input. They stay safe only while every endpoint that accepts user input from a client stays disabled (`/update-user`, `/sign-up/email`). An integration test checks a client can't smuggle them in.
+- **Discord OAuth tokens are encrypted at rest** (`encryptOAuthTokens`). Stagehand doesn't use them after sign-in.
+- **Rate limiting keys on `cf-connecting-ip`**, which Cloudflare Tunnel sets (confirm in F0.5). It's on in production only, with in-memory storage, fine for one server process.
+- **Display names**: `name` and `image` refresh from Discord on every sign-in; a custom `displayName` set in Stagehand overrides the name and survives sign-ins.
+- **Not yet built: account deletion.** §14's privacy notes promise it ("notes become Former player"). It needs player notes to exist first (F3.5).
+- **The web client uses React Router (declarative mode), TanStack Query, Tailwind v4 and shadcn/ui** (radix base). Components live in `apps/web/src/components/ui/` and are added with `pnpm dlx shadcn@4.23.0 add <name>` from `apps/web`.

@@ -48,6 +48,13 @@ export default defineConfig(
     languageOptions: { globals: globals.browser },
   },
 
+  // shadcn/ui components are vendored from the registry and export variants (e.g.
+  // buttonVariants) next to components, which react-refresh flags.
+  {
+    files: ['apps/web/src/components/ui/**'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
+
   // Must stay last: turns off rules that would fight Prettier.
   prettier,
 );

@@ -65,7 +65,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F0.1 Monorepo, TypeScript strict mode, lint/format, CI (lint, typecheck, tests)
 - [x] F0.2 Docker Compose: app server, PostgreSQL, Cloudflare Tunnel
 - [x] F0.3 Database migrations pipeline (Drizzle Kit)
-- [ ] F0.4 Sign in with Discord, session handling, user profile
+- [x] F0.4 Sign in with Discord, session handling, user profile
 - [ ] F0.5 Domain + tunnel live over HTTPS from the home PC
 - [ ] F0.6 Nightly backup script (database dump + asset folder)
 
@@ -149,6 +149,7 @@ Everything is TypeScript, with React on the client, Fastify and Socket.IO on the
 | UI kit | Tailwind CSS + shadcn/ui | Fast, consistent forms and panels for a solo dev | MUI, Chakra |
 | Rich text fields | TipTap | Notes fields with formatting and @-mention links | Plain textareas, Lexical |
 | Client data | TanStack Query + Zustand | Server cache and live-session state, kept separate | Redux |
+| Routing | React Router (declarative mode) | Most widely used React router; plain library mode keeps the SPA simple (D-17) | TanStack Router |
 | 2D drag and drop | dnd-kit | Scene builder tray and lists | react-dnd |
 | 3D stage | Three.js via React Three Fiber + drei | Mature WebGL in the browser, React-friendly, cutouts are simple textured planes | Babylon.js, PlayCanvas, Godot web export |
 | Backend | Node.js LTS + Fastify | Fast, typed, plugin-based; long-running process suits live rooms | Express, NestJS, Next.js API routes |
@@ -298,7 +299,7 @@ In a battle, each copy of a monster on stage tracks its own HP and Stress. The s
 
 | Table | Holds |
 | --- | --- |
-| users | Account, Discord ID, display name, avatar |
+| users | Account, Discord ID, Discord username, display name, avatar, email (placeholder for phone-only Discord accounts, D-18) |
 | campaigns | Name, GM user, ruleset config version, archived flag |
 | campaign\_members | User, campaign, role (gm, player), assigned PC |
 | invites | Code, campaign, expiry, revoked flag |
@@ -668,6 +669,8 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 
 | ID | Date | Decision | Why | Rejected options |
 | --- | --- | --- | --- | --- |
+| D-18 | 2026-11-08 | Discord sign-in requests `identify email`. Accounts without an email (phone-only) get a placeholder `<discordId>@discord.invalid`, because Better Auth requires an email | Keeps a real email when one exists, in case email features are wanted later | `identify` only with placeholder emails for everyone |
+| D-17 | 2026-11-08 | Client routing: React Router in declarative mode | Boring, widely documented; the SPA needs only basic routing for now | TanStack Router |
 | D-16 | 2026-11-07 | Fear: GM starts each session with 3, cap 12; Hope cap 6; criticals give the player 1 Hope | Homebrew rules as stated by the designer | — |
 | D-15 | 2026-11-07 | Locations have exactly two levels: Area and Spot | Enough for play; deeper nesting adds complexity | Arbitrary nesting |
 | D-14 | 2026-11-07 | One GM per campaign | Simpler permissions | Co-GM roles |

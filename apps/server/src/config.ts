@@ -14,15 +14,31 @@ const envSchema = z
       .default('info'),
     DATABASE_URL: postgresUrl,
     WEB_DIST_DIR: z.string().min(1).optional(),
+    PUBLIC_URL: z
+      .url({ protocol: /^https?$/, error: 'must be an http(s) URL' })
+      .transform((value) => new URL(value).origin)
+      .optional(),
+    BETTER_AUTH_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
+    DISCORD_CLIENT_ID: z.string().min(1).optional(),
+    DISCORD_CLIENT_SECRET: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
-    // Only unit tests may run without a database (they build the app without one).
-    if (env.NODE_ENV !== 'test' && env.DATABASE_URL === undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['DATABASE_URL'],
-        message: `is required when NODE_ENV=${env.NODE_ENV}`,
-      });
+    // Only unit tests may run without a database or auth (they build the app without them).
+    if (env.NODE_ENV === 'test') return;
+    for (const key of [
+      'DATABASE_URL',
+      'PUBLIC_URL',
+      'BETTER_AUTH_SECRET',
+      'DISCORD_CLIENT_ID',
+      'DISCORD_CLIENT_SECRET',
+    ] as const) {
+      if (env[key] === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `is required when NODE_ENV=${env.NODE_ENV}`,
+        });
+      }
     }
   });
 
@@ -33,6 +49,16 @@ export interface Config {
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   databaseUrl: string | undefined;
   webDistDir: string | undefined;
+  /** Origin users reach the app at (no trailing slash), e.g. http://localhost:5173. */
+  publicUrl: string | undefined;
+  /** Present outside unit tests. */
+  auth:
+    | {
+        secret: string;
+        discordClientId: string;
+        discordClientSecret: string;
+      }
+    | undefined;
 }
 
 export class ConfigError extends Error {
@@ -63,5 +89,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: parsed.LOG_LEVEL,
     databaseUrl: parsed.DATABASE_URL,
     webDistDir: parsed.WEB_DIST_DIR,
+    publicUrl: parsed.PUBLIC_URL,
+    auth:
+      parsed.BETTER_AUTH_SECRET !== undefined &&
+      parsed.DISCORD_CLIENT_ID !== undefined &&
+      parsed.DISCORD_CLIENT_SECRET !== undefined
+        ? {
+            secret: parsed.BETTER_AUTH_SECRET,
+            discordClientId: parsed.DISCORD_CLIENT_ID,
+            discordClientSecret: parsed.DISCORD_CLIENT_SECRET,
+          }
+        : undefined,
   };
 }

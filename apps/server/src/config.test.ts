@@ -2,44 +2,76 @@ import { describe, expect, it } from 'vitest';
 
 import { ConfigError, loadConfig } from './config';
 
-describe('loadConfig', () => {
-  const DEV_DB = 'postgres://stagehand:stagehand@127.0.0.1:5432/stagehand_dev';
+/** The minimum a dev or production server needs. */
+const REQUIRED = {
+  DATABASE_URL: 'postgres://stagehand:stagehand@127.0.0.1:5432/stagehand_dev',
+  PUBLIC_URL: 'http://localhost:5173',
+  BETTER_AUTH_SECRET: 'x'.repeat(32),
+  DISCORD_CLIENT_ID: 'client-id',
+  DISCORD_CLIENT_SECRET: 'client-secret',
+};
 
-  it('applies defaults when only DATABASE_URL is set', () => {
-    expect(loadConfig({ DATABASE_URL: DEV_DB })).toEqual({
+function captureError(fn: () => unknown): ConfigError {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof ConfigError) return error;
+    throw error;
+  }
+  throw new Error('expected a ConfigError');
+}
+
+describe('loadConfig', () => {
+  it('applies defaults when only the required values are set', () => {
+    expect(loadConfig(REQUIRED)).toEqual({
       nodeEnv: 'development',
       host: '0.0.0.0',
       port: 3000,
       logLevel: 'info',
-      databaseUrl: DEV_DB,
+      databaseUrl: REQUIRED.DATABASE_URL,
       webDistDir: undefined,
+      publicUrl: 'http://localhost:5173',
+      auth: {
+        secret: REQUIRED.BETTER_AUTH_SECRET,
+        discordClientId: 'client-id',
+        discordClientSecret: 'client-secret',
+      },
     });
   });
 
   it('reads and coerces provided values', () => {
     const config = loadConfig({
+      ...REQUIRED,
       NODE_ENV: 'production',
       HOST: '127.0.0.1',
       PORT: '8080',
       LOG_LEVEL: 'debug',
       DATABASE_URL: 'postgres://user:pass@postgres:5432/stagehand',
       WEB_DIST_DIR: '/app/web',
+      PUBLIC_URL: 'https://stagehand.example',
     });
 
-    expect(config).toEqual({
+    expect(config).toMatchObject({
       nodeEnv: 'production',
       host: '127.0.0.1',
       port: 8080,
       logLevel: 'debug',
       databaseUrl: 'postgres://user:pass@postgres:5432/stagehand',
       webDistDir: '/app/web',
+      publicUrl: 'https://stagehand.example',
     });
   });
 
+  it('normalises PUBLIC_URL to an origin', () => {
+    expect(loadConfig({ ...REQUIRED, PUBLIC_URL: 'https://stagehand.example/' }).publicUrl).toBe(
+      'https://stagehand.example',
+    );
+  });
+
   it('accepts the postgresql:// scheme', () => {
-    expect(
-      loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'postgresql://localhost/db' }).databaseUrl,
-    ).toBe('postgresql://localhost/db');
+    expect(loadConfig({ ...REQUIRED, DATABASE_URL: 'postgresql://localhost/db' }).databaseUrl).toBe(
+      'postgresql://localhost/db',
+    );
   });
 
   it('treats empty strings as unset', () => {
@@ -49,41 +81,55 @@ describe('loadConfig', () => {
     });
   });
 
-  it('requires DATABASE_URL in production', () => {
-    expect(() => loadConfig({ NODE_ENV: 'production' })).toThrow(
-      /DATABASE_URL: is required when NODE_ENV=production/,
+  it.each(Object.keys(REQUIRED))('requires %s in production', (key) => {
+    const env = Object.fromEntries(
+      Object.entries({ ...REQUIRED, NODE_ENV: 'production' }).filter(([name]) => name !== key),
     );
+
+    expect(() => loadConfig(env)).toThrow(`${key}: is required when NODE_ENV=production`);
   });
 
-  it('requires DATABASE_URL in development, the default', () => {
-    expect(() => loadConfig({})).toThrow(/DATABASE_URL: is required when NODE_ENV=development/);
+  it('requires the same values in development, the default', () => {
+    const message = captureError(() => loadConfig({})).message;
+
+    for (const key of Object.keys(REQUIRED)) {
+      expect(message).toContain(`${key}: is required when NODE_ENV=development`);
+    }
   });
 
-  it('allows a missing DATABASE_URL only in test', () => {
-    expect(loadConfig({ NODE_ENV: 'test' }).databaseUrl).toBeUndefined();
+  it('allows missing database and auth settings only in test', () => {
+    expect(loadConfig({ NODE_ENV: 'test' })).toMatchObject({
+      databaseUrl: undefined,
+      publicUrl: undefined,
+      auth: undefined,
+    });
   });
 
   it('rejects a non-postgres DATABASE_URL', () => {
-    expect(() => loadConfig({ DATABASE_URL: 'mysql://localhost/db' })).toThrow(/DATABASE_URL/);
+    expect(() => loadConfig({ ...REQUIRED, DATABASE_URL: 'mysql://localhost/db' })).toThrow(
+      /DATABASE_URL/,
+    );
+  });
+
+  it('rejects a non-http PUBLIC_URL and a short BETTER_AUTH_SECRET', () => {
+    const message = captureError(() =>
+      loadConfig({ ...REQUIRED, PUBLIC_URL: 'ftp://example.com', BETTER_AUTH_SECRET: 'short' }),
+    ).message;
+
+    expect(message).toContain('PUBLIC_URL');
+    expect(message).toContain('BETTER_AUTH_SECRET: must be at least 32 characters');
   });
 
   it('rejects an out-of-range or non-numeric PORT', () => {
-    expect(() => loadConfig({ PORT: '70000' })).toThrow(ConfigError);
-    expect(() => loadConfig({ PORT: 'abc' })).toThrow(/PORT/);
+    expect(() => loadConfig({ ...REQUIRED, PORT: '70000' })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...REQUIRED, PORT: 'abc' })).toThrow(/PORT/);
   });
 
   it('lists every problem in one error', () => {
-    const error: unknown = (() => {
-      try {
-        loadConfig({ PORT: 'abc', LOG_LEVEL: 'loud', NODE_ENV: 'staging' });
-      } catch (caught) {
-        return caught;
-      }
-      return undefined;
-    })();
+    const message = captureError(() =>
+      loadConfig({ PORT: 'abc', LOG_LEVEL: 'loud', NODE_ENV: 'staging' }),
+    ).message;
 
-    expect(error).toBeInstanceOf(ConfigError);
-    const message = (error as ConfigError).message;
     expect(message).toContain('PORT');
     expect(message).toContain('LOG_LEVEL');
     expect(message).toContain('NODE_ENV');

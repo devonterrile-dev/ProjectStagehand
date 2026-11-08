@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 
 import { buildApp } from './app';
+import { createAuth } from './auth/auth';
 import { ConfigError, loadConfig } from './config';
 import { createDb } from './db/client';
 
@@ -16,11 +17,29 @@ function start(): void {
     throw error;
   }
 
+  // Migrations are applied separately (pnpm db:migrate / the `migrate` service), never here.
+  const db = config.databaseUrl === undefined ? undefined : createDb(config.databaseUrl);
+
+  // loadConfig guarantees these outside NODE_ENV=test.
+  const auth =
+    db !== undefined && config.auth !== undefined && config.publicUrl !== undefined
+      ? createAuth({
+          db: db.db,
+          publicUrl: config.publicUrl,
+          secret: config.auth.secret,
+          discord: {
+            clientId: config.auth.discordClientId,
+            clientSecret: config.auth.discordClientSecret,
+          },
+        })
+      : undefined;
+
   const app = buildApp({
     logger: { level: config.logLevel },
     webDistDir: config.webDistDir === undefined ? undefined : resolve(config.webDistDir),
-    // Migrations are applied separately (pnpm db:migrate / the `migrate` service), never here.
-    db: config.databaseUrl === undefined ? undefined : createDb(config.databaseUrl),
+    db,
+    auth,
+    publicUrl: config.publicUrl,
   });
 
   // Close cleanly on `docker stop` (SIGTERM) and Ctrl+C (SIGINT): stop accepting
