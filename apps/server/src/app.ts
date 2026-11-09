@@ -10,6 +10,7 @@ import type { Database, DbHandle } from './db/client';
 import { registerCsrfProtection } from './http/csrf';
 import { serializeRequest } from './http/log';
 import { registerSecurityHeaders } from './http/security-headers';
+import { registerCampaignRoutes } from './routes/campaigns';
 import { registerMeRoutes } from './routes/me';
 
 declare module 'fastify' {
@@ -83,6 +84,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerCsrfProtection(app, { publicUrl: options.publicUrl, exempt: [`${AUTH_BASE_PATH}/`] });
     registerAuthRoutes(app, options.auth);
     registerMeRoutes(app, { auth: options.auth, db: handle.db });
+    registerCampaignRoutes(app, { auth: options.auth, db: handle.db });
   }
 
   if (options.webDistDir !== undefined) {

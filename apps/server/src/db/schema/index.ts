@@ -9,3 +9,4 @@
  * - Change tables here, then run `pnpm db:generate` and commit the generated SQL with the code.
  */
 export * from './auth';
+export * from './campaigns';

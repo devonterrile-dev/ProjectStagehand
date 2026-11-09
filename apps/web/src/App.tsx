@@ -2,6 +2,7 @@ import { Link, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
+import { CampaignPage } from '@/pages/CampaignPage';
 import { HomePage } from '@/pages/HomePage';
 import { ProfilePage } from '@/pages/ProfilePage';
 
@@ -15,6 +16,14 @@ export function App() {
           element={
             <RequireAuth>
               <ProfilePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId"
+          element={
+            <RequireAuth>
+              <CampaignPage />
             </RequireAuth>
           }
         />

@@ -58,6 +58,12 @@ export function requireSession(auth: Auth) {
   };
 }
 
+/** The session `requireSession` attached; throws if a route forgot the preHandler. */
+export function sessionOf(request: FastifyRequest): AuthSession {
+  if (request.auth === null) throw new Error('route is missing the requireSession preHandler');
+  return request.auth;
+}
+
 function forwardHeaders(headers: Headers, reply: FastifyReply): void {
   headers.forEach((value, key) => {
     // set-cookie is handled below: Headers joins multiple cookies into one value.

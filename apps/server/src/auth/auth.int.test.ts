@@ -3,102 +3,30 @@
  * Postgres, with Discord's token and profile endpoints faked (CI can't do real OAuth).
  */
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, inject, it, vi } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { buildApp } from '../app';
-import { createDb, type DbHandle } from '../db/client';
+import {
+  buildTestApp,
+  DISCORD_CLIENT_ID,
+  discordUser,
+  PUBLIC_URL,
+  SAME_ORIGIN,
+  signIn as signInAs,
+  startSignIn as startSignInOn,
+  type FakeDiscordUser,
+} from '../../test/auth-helpers';
+import type { DbHandle } from '../db/client';
 import { accounts, sessions, users } from '../db/schema';
 
-import { createAuth, placeholderEmail } from './auth';
-
-const PUBLIC_URL = 'http://localhost:5173';
-const DISCORD_CLIENT_ID = 'test-client-id';
-const SAME_ORIGIN = { origin: PUBLIC_URL };
-
-interface FakeDiscordUser {
-  id: string;
-  username: string;
-  global_name: string | null;
-  avatar: string | null;
-  email: string | null;
-  verified: boolean;
-}
-
-function discordUser(overrides: Partial<FakeDiscordUser> & { id: string }): FakeDiscordUser {
-  return {
-    username: `user${overrides.id}`,
-    global_name: `User ${overrides.id}`,
-    avatar: 'abc123',
-    email: `user${overrides.id}@example.com`,
-    verified: true,
-    ...overrides,
-  };
-}
-
-/** Routes Discord API calls to a fake; everything else goes to the real fetch. */
-function fakeDiscord(user: FakeDiscordUser): void {
-  const realFetch = globalThis.fetch;
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.hostname !== 'discord.com') return realFetch(input, init);
-    // Better Auth requests `/users/@me` with the `@` percent-encoded.
-    const path = decodeURIComponent(url.pathname);
-
-    if (path === '/api/oauth2/token') {
-      return Response.json({
-        access_token: `access-${user.id}`,
-        refresh_token: `refresh-${user.id}`,
-        token_type: 'Bearer',
-        expires_in: 604800,
-        scope: 'identify email',
-      });
-    }
-    if (path === '/api/users/@me') {
-      return Response.json({
-        discriminator: '0',
-        mfa_enabled: false,
-        banner: null,
-        accent_color: null,
-        locale: 'en-US',
-        flags: 0,
-        premium_type: 0,
-        public_flags: 0,
-        ...user,
-      });
-    }
-    return new Response('unexpected Discord call', { status: 500 });
-  });
-}
-
-/** name=value pairs from Set-Cookie headers, merged into a Cookie header value. */
-function cookieHeader(...responses: LightMyRequestResponse[]): string {
-  const jar = new Map<string, string>();
-  for (const response of responses) {
-    const raw = response.headers['set-cookie'];
-    for (const cookie of Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]) {
-      const [pair] = cookie.split(';');
-      const [name, ...value] = (pair ?? '').split('=');
-      if (name) jar.set(name.trim(), value.join('='));
-    }
-  }
-  return [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
-}
+import { placeholderEmail } from './auth';
 
 describe('Sign in with Discord', () => {
   let handle: DbHandle;
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    handle = createDb(inject('databaseUrl'), { max: 2 });
-    const auth = createAuth({
-      db: handle.db,
-      publicUrl: PUBLIC_URL,
-      secret: 'integration-test-secret-at-least-32-chars',
-      discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' },
-    });
-    app = buildApp({ db: handle, auth, publicUrl: PUBLIC_URL });
-    await app.ready();
+    ({ app, handle } = await buildTestApp());
   });
 
   afterAll(async () => {
@@ -109,39 +37,12 @@ describe('Sign in with Discord', () => {
     vi.restoreAllMocks();
   });
 
-  async function startSignIn(extra: Record<string, unknown> = {}) {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/auth/sign-in/social',
-      headers: SAME_ORIGIN,
-      payload: { provider: 'discord', callbackURL: '/', ...extra },
-    });
-    expect(response.statusCode).toBe(200);
-    const { url } = response.json<{ url: string }>();
-    return { response, authorizeUrl: new URL(url) };
+  function startSignIn(extra: Record<string, unknown> = {}) {
+    return startSignInOn(app, extra);
   }
 
-  /** Full sign-in as `user`; returns the Cookie header for the new session. */
-  async function signIn(
-    user: FakeDiscordUser,
-    extra: Record<string, unknown> = {},
-  ): Promise<string> {
-    fakeDiscord(user);
-    const { response: start, authorizeUrl } = await startSignIn(extra);
-    const state = authorizeUrl.searchParams.get('state') ?? '';
-
-    const callback = await app.inject({
-      method: 'GET',
-      url: `/api/auth/callback/discord?code=fake-code&state=${encodeURIComponent(state)}`,
-      headers: { cookie: cookieHeader(start) },
-    });
-
-    expect(callback.statusCode).toBe(302);
-    // Better Auth reports callback failures as a redirect to /api/auth/error?error=<code>.
-    const location = String(callback.headers.location);
-    expect(location.includes('/error'), `callback failed: ${location}`).toBe(false);
-    vi.restoreAllMocks();
-    return cookieHeader(callback);
+  function signIn(user: FakeDiscordUser, extra: Record<string, unknown> = {}): Promise<string> {
+    return signInAs(app, user, extra);
   }
 
   async function getMe(cookie: string) {

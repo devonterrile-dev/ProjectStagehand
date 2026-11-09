@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 
+import { CampaignList } from '@/components/campaigns/CampaignList';
 import { UserAvatar } from '@/components/UserAvatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,22 +38,25 @@ export function HomePage() {
   if (me === null) return <SignInCard callbackError={signInError} />;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center gap-4">
-        <UserAvatar me={me} className="size-14" />
-        <div>
-          <CardTitle>
-            <h1 className="text-2xl">Welcome, {me.displayName}</h1>
-          </CardTitle>
-          <CardDescription>Your campaigns will live here.</CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <Button asChild variant="outline">
-          <Link to="/profile">Edit profile</Link>
-        </Button>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <UserAvatar me={me} className="size-14" />
+            <div>
+              <CardTitle>
+                <h1 className="text-2xl">Welcome, {me.displayName}</h1>
+              </CardTitle>
+              <CardDescription>Pick up a campaign, or start a new one.</CardDescription>
+            </div>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/profile">Edit profile</Link>
+          </Button>
+        </CardHeader>
+      </Card>
+      <CampaignList />
+    </div>
   );
 }
 

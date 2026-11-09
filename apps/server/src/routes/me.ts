@@ -1,11 +1,12 @@
 import { meResponseSchema, updateMeRequestSchema, type MeResponse } from '@stagehand/shared';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
 import { type Auth } from '../auth/auth';
-import { requireSession, type AuthSession } from '../auth/routes';
+import { requireSession, sessionOf } from '../auth/routes';
 import type { Database } from '../db/client';
 import { users } from '../db/schema';
+import { sendValidationError } from '../http/errors';
 
 interface ProfileFields {
   id: string;
@@ -27,12 +28,6 @@ export function toMe(user: ProfileFields): MeResponse {
   });
 }
 
-/** The session `requireSession` attached; throws if a route forgot the preHandler. */
-function sessionOf(request: FastifyRequest): AuthSession {
-  if (request.auth === null) throw new Error('route is missing the requireSession preHandler');
-  return request.auth;
-}
-
 /** GET /api/me and PATCH /api/me (display name). */
 export function registerMeRoutes(app: FastifyInstance, deps: { auth: Auth; db: Database }): void {
   const preHandler = requireSession(deps.auth);
@@ -43,15 +38,7 @@ export function registerMeRoutes(app: FastifyInstance, deps: { auth: Auth; db: D
     const { user } = sessionOf(request);
 
     const parsed = updateMeRequestSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({
-        error: 'Bad Request',
-        issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.join('.'),
-          message: issue.message,
-        })),
-      });
-    }
+    if (!parsed.success) return sendValidationError(reply, parsed.error);
 
     const [updated] = await deps.db
       .update(users)
