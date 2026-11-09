@@ -89,12 +89,14 @@ In production, the one-shot `migrate` service applies pending migrations on ever
 The home-PC deployment is defined in [infra/docker-compose.yml](infra/docker-compose.yml): `postgres`, a one-shot `migrate`, `app` (Fastify API plus the built web client), and `cloudflared`.
 
 ```sh
-cp infra/.env.example infra/.env        # fill in passwords, secrets, Discord and tunnel values
+cp infra/.env.example infra/.env        # fill in passwords, secrets, Discord, tunnel and backup values
 pnpm stack:up                           # build, migrate, start app + tunnel; wait until healthy
 curl http://127.0.0.1:8080/health       # app is also published on localhost, for checks
 pnpm stack:logs
-pnpm stack:down                         # data persists in the stagehand_pgdata volume
+pnpm stack:shutdown                     # back up, verify, then stop (the normal way to stop)
 ```
+
+The server is only up while it's in use, so **always stop it with `pnpm stack:shutdown`**. `pnpm stack:down` stops it without a backup.
 
 `cloudflared` belongs to the `tunnel` Compose profile, which `infra/.env` enables with `COMPOSE_PROFILES=tunnel`. Remove that line to run the stack without going live. CI never sets it.
 
@@ -121,6 +123,54 @@ Checking it:
 
 If the tunnel token leaks, rotate it in the dashboard (tunnel → Configure → Refresh token) and update `infra/.env`.
 
+## Backups
+
+Backups are taken when the stack shuts down (D-19), not nightly, because the server is only running while someone is using it.
+
+```sh
+pnpm stack:up                           # start a session
+pnpm stack:shutdown                     # end it: back up, verify, stop
+pnpm stack:shutdown --quit-docker       # ...and also quit Docker Desktop / WSL to free memory
+docker desktop start                    # after --quit-docker: start Docker before `pnpm stack:up`
+pnpm stack:backup                       # extra backup while running (the site stays up)
+pnpm stack:restore-drill                # re-check the newest backup (or pass a file)
+pnpm stack:restore <file> --yes         # disaster recovery: REPLACES the live database
+```
+
+`stack:shutdown` works in this order:
+
+1. Takes the site offline.
+2. Records every table's row count.
+3. Dumps the database (`pg_dump -Fc`).
+4. **Proves the dump restores** into a throwaway Postgres container with identical row counts.
+5. Packs the dump, a manifest and `infra/.env` into one encrypted `stagehand-<UTC time>.stbak` in `BACKUP_DIR` (`D:\StagehandBackups`, a different physical disk from Docker's data on C:).
+6. Decrypts that file once more to check it.
+7. Keeps the newest `BACKUP_KEEP` (30).
+8. Stops the stack. The data volumes are kept.
+
+If any backup step fails, **nothing is stopped**: the database keeps running and the error says what to do. `--skip-backup` stops without a backup and says so loudly.
+
+Every verification is appended to `D:\StagehandBackups\restore-drill.log`, so every shutdown doubles as the §14 restore drill.
+
+**Keep `BACKUP_PASSPHRASE` in your password manager.** It's the only way to open a backup, and it is deliberately not stored inside one. Everything else needed to restore is inside: the database plus the env file, including the secrets that decrypt stored tokens.
+
+To restore onto a fresh machine:
+
+1. Clone the repo.
+2. Create `infra/.env` with `BACKUP_PASSPHRASE` and `BACKUP_DIR`.
+3. `pnpm stack:restore <file> --yes`.
+4. Copy settings from the generated `infra/.env.restored` into `infra/.env`.
+
+Assets (Phase 2) are included automatically once a `stagehand_assets` volume exists.
+
+**File format** (v1), so a backup can be opened without this code if ever needed:
+
+```
+"STGHBAK1" (8 bytes) | scrypt salt (16) | AES-256-GCM IV (12) | ciphertext | GCM tag (16)
+key = scrypt(passphrase, salt, N=2^17, r=8, p=1, 32 bytes)
+plaintext = tar of manifest.json, database.dump (pg_restore custom format), infra.env [, assets.tar]
+```
+
 ## Layout
 
 ```
@@ -130,6 +180,7 @@ apps/
 packages/
   shared/     Zod schemas, types, shared logic     (@stagehand/shared)
 infra/        Docker Compose (production + dev DB), env templates
+  scripts/    Backup, shutdown and restore commands (@stagehand/infra)
 Dockerfile    App image (server + web client)
 docs/decisions/  Optional detail for Decision log entries
 ```
@@ -223,3 +274,10 @@ Per governance §1, assumptions the build relies on:
 - **Security headers are a baseline, not a full CSP:** `nosniff`, `Referrer-Policy`, `frame-ancestors 'self'` (F3.9 must allow Discord's Activity frame), and HSTS for one year, without `includeSubDomains`, when `PUBLIC_URL` is https.
 - **Uptime depends on the PC staying signed in.** On Windows Home, Docker Desktop runs only in a signed-in session, so a reboot leaves Stagehand down until someone signs in. Containers then restart on their own (`restart: unless-stopped`). Acceptable for one group (§17); the VPS move (F4.5) removes it.
 - **After going live, the local stack signs in only through the domain.** `PUBLIC_URL` is the domain, so http://localhost:8080 still serves pages, but Discord sign-in there fails the origin check. Use the dev servers (:5173) for local work.
+
+## Working assumptions (F0.6)
+
+- **Backups on shutdown, not nightly** (D-19). Data written since the last shutdown or `stack:backup` exists only in the Docker volume. A crash mid-session can lose it, but not anything older.
+- **No off-site copy yet.** Backups sit on D:, a different physical disk from Docker's data, which protects against a disk failure but not against losing the whole PC. This is an accepted risk until hosting moves (F4.5); copying `D:\StagehandBackups` anywhere else (USB drive, cloud folder) is safe, because the files are encrypted.
+- **Encryption uses Node's built-in crypto** (AES-256-GCM, scrypt key), with no extra tools. Backups are decrypted completely to a temporary file before anything is unpacked, because GCM only authenticates at the very end.
+- **The restore check compares exact row counts of every table** in `public` and `drizzle`, not just that `pg_restore` succeeded.

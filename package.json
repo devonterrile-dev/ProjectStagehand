@@ -26,6 +26,10 @@
     "db:studio": "pnpm --filter @stagehand/server db:studio",
     "stack:up": "docker compose -f infra/docker-compose.yml --env-file infra/.env up -d --build --wait",
     "stack:down": "docker compose -f infra/docker-compose.yml --env-file infra/.env down",
+    "stack:shutdown": "pnpm --filter @stagehand/infra shutdown",
+    "stack:backup": "pnpm --filter @stagehand/infra backup",
+    "stack:restore-drill": "pnpm --filter @stagehand/infra restore-drill",
+    "stack:restore": "pnpm --filter @stagehand/infra restore",
     "stack:logs": "docker compose -f infra/docker-compose.yml --env-file infra/.env logs -f"
   },
   "devDependencies": {

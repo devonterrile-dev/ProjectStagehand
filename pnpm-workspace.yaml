@@ -1,5 +1,6 @@
 packages:
   - apps/*
   - packages/*
+  - infra/scripts
 allowBuilds:
   esbuild: true

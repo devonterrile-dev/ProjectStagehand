@@ -67,7 +67,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F0.3 Database migrations pipeline (Drizzle Kit)
 - [x] F0.4 Sign in with Discord, session handling, user profile
 - [x] F0.5 Domain + tunnel live over HTTPS from the home PC
-- [ ] F0.6 Nightly backup script (database dump + asset folder)
+- [x] F0.6 Backups on shutdown, verified and encrypted (database dump + asset folder), see D-19
 
 ### Phase 1: Campaign workshop (months 1–3)
 
@@ -570,7 +570,7 @@ The three things that must never leak are GMs' API keys, private campaign fields
 | Uploads | Images only, size limit (e.g. 10 MB), decoded and re-encoded through sharp, stored with generated names | Upload tests with bad files |
 | Home network | Cloudflare Tunnel: no open router ports, home IP not exposed, HTTPS end to end | Port scan of the home IP shows nothing open |
 | Abuse and cost | Rate limits on login, AI and image routes; per-GM usage caps in config | Rate-limit tests |
-| Data loss | Nightly database dump + asset folder copy to a second location; monthly restore test | Restore drill log |
+| Data loss | Encrypted database dump + asset folder on every stack shutdown (and on demand), stored on a second physical disk; every backup is restored into a throwaway database and checked before the stack stops (D-19) | Restore drill log (`restore-drill.log`, one line per backup) |
 
 ### Privacy notes
 
@@ -636,7 +636,7 @@ Your first-year cost is estimated at about $75–200, inside the few-hundred-dol
 | Cloudflare Tunnel, GitHub, GitHub Actions, Discord app | $0 | Free tiers |
 | Claude usage (dev, testing, eval runs) | $20–50 | Sonnet 5.5 at $2 / $10 per million input / output tokens; an import is roughly 10–15 cents |
 | Image generation (dev and style tuning, \~500 images) | $25–75 | gpt-image-2 via OpenRouter, roughly 5–15 cents per image at medium quality with reference images |
-| Off-site backup storage | $0–10 | Small object-storage bucket |
+| Off-site backup storage | $0 | Deferred (D-19): backups stay on a second local disk until hosting moves |
 | Optional VPS for the last months | $0–50 | Only if other groups join before month 12 |
 | **Total** | **\~$75–200** |  |
 
@@ -659,7 +659,7 @@ The biggest risks are scope creep and art consistency; both are handled by phase
 | Claude Sonnet 5.5 or gpt-image-2 retired | Medium | Medium | Pinned versions, provider interfaces, eval suite and image test set | Provider deprecation notice |
 | OpenRouter drops gpt-image-2 or changes pricing | Low | Medium | Image model is one config value; test set re-run on a new model | Pricing or model-list change |
 | Home PC offline during someone's session | Medium | Medium | Acceptable for one group; move to a VPS before onboarding other groups (F4.5) | Any missed session |
-| Data loss | Low | High | Nightly backups, off-site copy, monthly restore test | A failed restore drill |
+| Data loss | Low | High | Verified, encrypted backups on every shutdown, on a second disk. No off-site copy yet, an accepted risk until hosted (D-19) | A failed restore drill; a session ended with `--skip-backup` or without `stack:shutdown` |
 | Private field leaks to players | Low | High | Allow-list responses; per-type tests | Any failing visibility test |
 | Licensing: using Daggerheart's official text or layouts | Low | Medium | Homebrew field names and own layouts; the 2d12 mechanic itself isn't copied text | Any copied wording in the UI |
 
@@ -669,6 +669,7 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 
 | ID | Date | Decision | Why | Rejected options |
 | --- | --- | --- | --- | --- |
+| D-19 | 2026-11-08 | Backups run on stack shutdown (`pnpm stack:shutdown`) and on demand, not nightly. Each is restored into a throwaway database and checked, encrypted with a passphrase kept outside the backup, and stored on a second local disk. No off-site copy for now. Supersedes the "nightly" and "monthly restore test" parts of §14 and the off-site storage line in §16 | The home PC runs Stagehand only while it's in use, so a nightly job would rarely find it on; verifying every backup is stronger than a monthly drill | Nightly scheduled task; OneDrive or Cloudflare R2 off-site copy (deferred) |
 | D-18 | 2026-11-08 | Discord sign-in requests `identify email`. Accounts without an email (phone-only) get a placeholder `<discordId>@discord.invalid`, because Better Auth requires an email | Keeps a real email when one exists, in case email features are wanted later | `identify` only with placeholder emails for everyone |
 | D-17 | 2026-11-08 | Client routing: React Router in declarative mode | Boring, widely documented; the SPA needs only basic routing for now | TanStack Router |
 | D-16 | 2026-11-07 | Fear: GM starts each session with 3, cap 12; Hope cap 6; criticals give the player 1 Hope | Homebrew rules as stated by the designer | — |

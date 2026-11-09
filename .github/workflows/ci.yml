@@ -133,6 +133,30 @@ jobs:
       - name: Tunnel service config is valid
         run: $COMPOSE --profile tunnel config --quiet
 
+      # Backups (F0.6, D-19): the real scripts, on Linux, against this stack.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Backup, shutdown and restore drill
+        env:
+          BACKUP_DIR: ${{ runner.temp }}/backups
+        run: |
+          pnpm stack:backup --env infra/.env.ci
+          pnpm stack:shutdown --env infra/.env.ci
+          test -z "$($COMPOSE ps -q)"          # shutdown stopped everything
+          pnpm stack:restore-drill --env infra/.env.ci
+          ls -l "$BACKUP_DIR"
+          cat "$BACKUP_DIR/restore-drill.log"
+          test "$(ls "$BACKUP_DIR"/stagehand-*.stbak | wc -l)" = 2
+          test "$(grep -c ' PASS ' "$BACKUP_DIR/restore-drill.log")" = 3
+          ! grep -q ' FAIL ' "$BACKUP_DIR/restore-drill.log"
+
       - name: Logs on failure
         if: failure()
         run: $COMPOSE logs

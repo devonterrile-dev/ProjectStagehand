@@ -1,0 +1,20 @@
+{
+  "name": "@stagehand/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "shutdown": "tsx shutdown.ts",
+    "backup": "tsx backup.ts",
+    "restore-drill": "tsx restore-drill.ts",
+    "restore": "tsx restore.ts"
+  },
+  "dependencies": {
+    "tar": "^7.5.22"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}
