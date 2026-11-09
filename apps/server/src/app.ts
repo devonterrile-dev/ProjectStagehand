@@ -9,6 +9,7 @@ import { registerAuthRoutes } from './auth/routes';
 import type { Database, DbHandle } from './db/client';
 import { registerCsrfProtection } from './http/csrf';
 import { serializeRequest } from './http/log';
+import { registerSecurityHeaders } from './http/security-headers';
 import { registerMeRoutes } from './routes/me';
 
 declare module 'fastify' {
@@ -27,9 +28,24 @@ export interface BuildAppOptions {
   db?: DbHandle | undefined;
   /** Sign-in, sessions and the user API. Requires `db` and `publicUrl`. */
   auth?: Auth | undefined;
-  /** The app's own origin (PUBLIC_URL), used for CSRF checks. */
+  /** The app's own origin (PUBLIC_URL), used for CSRF checks and HSTS. */
   publicUrl?: string | undefined;
+  /**
+   * Trust X-Forwarded-* (client IP, protocol) from our own proxy, cloudflared. Never the
+   * whole chain: cloudflared *appends* to any X-Forwarded-For the visitor sent, so trusting
+   * everything would let a visitor choose their own IP. See TRUSTED_PROXIES.
+   */
+  trustProxy?: boolean | undefined;
 }
+
+/**
+ * Proxies trusted for X-Forwarded-*, by address: loopback and private ranges, i.e.
+ * cloudflared on the Docker network (and localhost checks). Walking X-Forwarded-For from
+ * the right, the first public address is the client: the one cloudflared appended. Anything
+ * a visitor wrote sits further left and is ignored. (Fastify treats hop counts as "trust
+ * nothing", since a count can't verify the immediate peer.)
+ */
+const TRUSTED_PROXIES = 'loopback, uniquelocal';
 
 /** Path prefixes owned by the server; these never fall back to the SPA. */
 const SERVER_PREFIXES = ['/api', '/health'];
@@ -38,7 +54,12 @@ const SERVER_PREFIXES = ['/api', '/health'];
  * Builds the Fastify app without starting it, so tests can drive it with `inject()`.
  */
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: withRequestRedaction(options.logger ?? false) });
+  const app = Fastify({
+    logger: withRequestRedaction(options.logger ?? false),
+    trustProxy: options.trustProxy === true ? TRUSTED_PROXIES : false,
+  });
+
+  registerSecurityHeaders(app, { publicUrl: options.publicUrl });
 
   const handle = options.db;
   if (handle !== undefined) {

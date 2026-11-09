@@ -117,6 +117,16 @@ jobs:
             -d '{"provider":"discord","callbackURL":"/"}' http://127.0.0.1:8080/api/auth/sign-in/social \
             | grep -q 'https://discord.com/api/oauth2/authorize?.*client_id=ci-dummy-client-id'
 
+      - name: Security headers
+        run: |
+          headers="$(curl -fsS -D - -o /dev/null -H 'accept: text/html' http://127.0.0.1:8080/)"
+          echo "$headers"
+          echo "$headers" | grep -qi '^x-content-type-options: nosniff'
+          echo "$headers" | grep -qi '^referrer-policy: strict-origin-when-cross-origin'
+          echo "$headers" | grep -qi "^content-security-policy: frame-ancestors 'self'"
+          # .env.ci's PUBLIC_URL is http, so no HSTS (it's only sent for https).
+          ! echo "$headers" | grep -qi '^strict-transport-security'
+
       - name: App runs as non-root
         run: test "$($COMPOSE exec -T app id -un)" = node
 

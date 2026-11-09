@@ -89,20 +89,37 @@ In production, the one-shot `migrate` service applies pending migrations on ever
 The home-PC deployment is defined in [infra/docker-compose.yml](infra/docker-compose.yml): `postgres`, a one-shot `migrate`, `app` (Fastify API plus the built web client), and `cloudflared`.
 
 ```sh
-cp infra/.env.example infra/.env        # fill in a real POSTGRES_PASSWORD
-pnpm stack:up                           # build, migrate, start app; wait until healthy
-curl http://127.0.0.1:8080/health       # app is published on localhost only
+cp infra/.env.example infra/.env        # fill in passwords, secrets, Discord and tunnel values
+pnpm stack:up                           # build, migrate, start app + tunnel; wait until healthy
+curl http://127.0.0.1:8080/health       # app is also published on localhost, for checks
 pnpm stack:logs
 pnpm stack:down                         # data persists in the stagehand_pgdata volume
 ```
 
-The tunnel container sits behind the `tunnel` Compose profile until F0.5 sets up the domain and token:
-
-```sh
-docker compose -f infra/docker-compose.yml --env-file infra/.env --profile tunnel up -d
-```
+`cloudflared` belongs to the `tunnel` Compose profile, which `infra/.env` enables with `COMPOSE_PROFILES=tunnel`. Remove that line to run the stack without going live. CI never sets it.
 
 Moving to a VPS means copying `infra/docker-compose.yml`, `infra/.env` and the `pgdata` volume.
+
+## Going live (Cloudflare Tunnel)
+
+Stagehand is served at **https://projectstagehand.com** from the home PC through a Cloudflare Tunnel. `cloudflared` dials out to Cloudflare, so no router ports are open and the home IP stays hidden (§14). TLS ends at Cloudflare's edge, the tunnel to the PC is encrypted, and `cloudflared` reaches the app over the internal Docker network.
+
+One-time setup (domain DNS already on Cloudflare):
+
+1. **Tunnel**: Cloudflare dashboard → **Networking → Tunnels → Create a tunnel**, named `stagehand-home`. Choose the **Docker** connector, copy only the token after `--token`, and put it in `infra/.env` as `CLOUDFLARE_TUNNEL_TOKEN`. Don't run Cloudflare's command; Compose runs `cloudflared`.
+2. **Route**: the tunnel's **Routes** tab → **Add route → Published application**. Leave the subdomain empty, choose `projectstagehand.com`, and set the service URL to `http://app:3000`.
+3. **www → bare domain**: DNS record `CNAME www → projectstagehand.com` (Proxied), plus **Rules → Redirect Rules →** the "Redirect from WWW to root" template (301, keeps path and query).
+4. **SSL/TLS → Edge Certificates → Always Use HTTPS**: on.
+5. **Discord app → OAuth2 → Redirects**: add `https://projectstagehand.com/api/auth/callback/discord`. `infra/.env` has `PUBLIC_URL=https://projectstagehand.com`.
+6. **The PC**: Docker Desktop → Settings → General → **Start Docker Desktop when you sign in**; Windows power settings → **never sleep** while plugged in.
+
+Checking it:
+
+- The tunnel shows **Healthy** under Networking → Tunnels; `pnpm stack:logs` shows `cloudflared` registering connections.
+- `curl https://projectstagehand.com/health` returns `{"status":"ok"}`.
+- Nothing is exposed: `docker ps` publishes only `127.0.0.1:8080`, and an external port scan of the home IP (e.g. GRC ShieldsUP, "All Service Ports") finds nothing open.
+
+If the tunnel token leaks, rotate it in the dashboard (tunnel → Configure → Refresh token) and update `infra/.env`.
 
 ## Layout
 
@@ -198,3 +215,11 @@ Per governance §1, assumptions the build relies on:
 - **Display names**: `name` and `image` refresh from Discord on every sign-in; a custom `displayName` set in Stagehand overrides the name and survives sign-ins.
 - **Not yet built: account deletion.** §14's privacy notes promise it ("notes become Former player"). It needs player notes to exist first (F3.5).
 - **The web client uses React Router (declarative mode), TanStack Query, Tailwind v4 and shadcn/ui** (radix base). Components live in `apps/web/src/components/ui/` and are added with `pnpm dlx shadcn@4.23.0 add <name>` from `apps/web`.
+
+## Working assumptions (F0.5)
+
+- **The tunnel is managed from the Cloudflare dashboard** (token in `infra/.env`). The route `projectstagehand.com → http://app:3000` and the www redirect live in Cloudflare, not in this repo.
+- **`TRUST_PROXY=true` in production trusts proxies by address, not the whole chain.** Fastify trusts `X-Forwarded-*` only from loopback and private addresses (`cloudflared` on the Docker network). `cloudflared` appends the real visitor IP to any `X-Forwarded-For` the visitor sent, so the first public address from the right is the client, and spoofed entries are ignored (tested, and checked live). Hop counts don't work: Fastify treats them as "trust nothing". Better Auth separately keys sessions and rate limiting on `cf-connecting-ip`, which Cloudflare always overwrites. It stores IPv6 addresses as their /64 prefix.
+- **Security headers are a baseline, not a full CSP:** `nosniff`, `Referrer-Policy`, `frame-ancestors 'self'` (F3.9 must allow Discord's Activity frame), and HSTS for one year, without `includeSubDomains`, when `PUBLIC_URL` is https.
+- **Uptime depends on the PC staying signed in.** On Windows Home, Docker Desktop runs only in a signed-in session, so a reboot leaves Stagehand down until someone signs in. Containers then restart on their own (`restart: unless-stopped`). Acceptable for one group (§17); the VPS move (F4.5) removes it.
+- **After going live, the local stack signs in only through the domain.** `PUBLIC_URL` is the domain, so http://localhost:8080 still serves pages, but Discord sign-in there fails the origin check. Use the dev servers (:5173) for local work.

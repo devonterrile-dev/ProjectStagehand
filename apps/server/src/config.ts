@@ -21,6 +21,11 @@ const envSchema = z
     BETTER_AUTH_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
     DISCORD_CLIENT_ID: z.string().min(1).optional(),
     DISCORD_CLIENT_SECRET: z.string().min(1).optional(),
+    // Only "true"/"false" (not any non-empty string), so a typo can't silently enable it.
+    TRUST_PROXY: z
+      .enum(['true', 'false'], { error: 'must be "true" or "false"' })
+      .default('false')
+      .transform((value) => value === 'true'),
   })
   .superRefine((env, ctx) => {
     // Only unit tests may run without a database or auth (they build the app without them).
@@ -51,6 +56,11 @@ export interface Config {
   webDistDir: string | undefined;
   /** Origin users reach the app at (no trailing slash), e.g. http://localhost:5173. */
   publicUrl: string | undefined;
+  /**
+   * Trust X-Forwarded-* headers for the client IP and protocol. Only safe when every request
+   * arrives through a proxy we control (production: Cloudflare Tunnel's cloudflared).
+   */
+  trustProxy: boolean;
   /** Present outside unit tests. */
   auth:
     | {
@@ -90,6 +100,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: parsed.DATABASE_URL,
     webDistDir: parsed.WEB_DIST_DIR,
     publicUrl: parsed.PUBLIC_URL,
+    trustProxy: parsed.TRUST_PROXY,
     auth:
       parsed.BETTER_AUTH_SECRET !== undefined &&
       parsed.DISCORD_CLIENT_ID !== undefined &&

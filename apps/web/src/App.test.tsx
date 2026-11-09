@@ -1,7 +1,7 @@
 import type { MeResponse } from '@stagehand/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
@@ -40,16 +40,25 @@ function mockApi(me: MeResponse | null) {
     );
 }
 
+/** Exposes the router's current URL so tests can assert on it. */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
 function renderAt(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <App />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+
+const currentUrl = () => screen.getByTestId('location').textContent;
 
 describe('App', () => {
   it('offers Sign in with Discord when signed out', async () => {
@@ -59,14 +68,30 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: 'Sign in with Discord' })).toBeDefined();
   });
 
-  it('shows an error after a failed sign-in callback', async () => {
+  it('shows a failed sign-in once and removes the error from the URL', async () => {
     mockApi(null);
-    renderAt('/?error=access_denied');
+    renderAt('/?error=state_not_found&keep=1');
 
     expect(await screen.findByRole('alert')).toHaveProperty(
       'textContent',
       "Sign-in didn't complete. Please try again.",
     );
+    await waitFor(() => {
+      expect(currentUrl()).toBe('/?keep=1');
+    });
+    // Still shown after the URL is cleaned: it was read once, on arrival.
+    expect(screen.getByRole('alert')).toBeDefined();
+  });
+
+  it('ignores a leftover sign-in error when already signed in', async () => {
+    mockApi(MIRA);
+    renderAt('/?error=state_not_found');
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Mira' })).toBeDefined();
+    expect(screen.queryByRole('alert')).toBeNull();
+    await waitFor(() => {
+      expect(currentUrl()).toBe('/');
+    });
   });
 
   it('welcomes a signed-in user by display name', async () => {

@@ -40,6 +40,7 @@ function start(): void {
     db,
     auth,
     publicUrl: config.publicUrl,
+    trustProxy: config.trustProxy,
   });
 
   // Close cleanly on `docker stop` (SIGTERM) and Ctrl+C (SIGINT): stop accepting

@@ -62,6 +62,9 @@ services:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: *database-url
+      # Requests arrive through cloudflared (or from localhost), so X-Forwarded-For/-Proto
+      # can be trusted: logs get the visitor's IP and the app knows it's behind https.
+      TRUST_PROXY: 'true'
       # Sign in with Discord (F0.4). The app refuses to start if any of these are missing.
       PUBLIC_URL: ${PUBLIC_URL:-}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}

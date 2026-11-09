@@ -31,12 +31,21 @@ describe('loadConfig', () => {
       databaseUrl: REQUIRED.DATABASE_URL,
       webDistDir: undefined,
       publicUrl: 'http://localhost:5173',
+      trustProxy: false,
       auth: {
         secret: REQUIRED.BETTER_AUTH_SECRET,
         discordClientId: 'client-id',
         discordClientSecret: 'client-secret',
       },
     });
+  });
+
+  it('reads TRUST_PROXY as an explicit boolean', () => {
+    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: 'false' }).trustProxy).toBe(false);
+    expect(() => loadConfig({ ...REQUIRED, TRUST_PROXY: 'yes' })).toThrow(
+      'TRUST_PROXY: must be "true" or "false"',
+    );
   });
 
   it('reads and coerces provided values', () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 
 import { UserAvatar } from '@/components/UserAvatar';
@@ -7,12 +7,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { signInWithDiscord } from '@/lib/auth-client';
 import { useMe } from '@/lib/queries';
 
+/**
+ * Better Auth sends failed sign-ins (cancelled on Discord, expired or missing OAuth state)
+ * back to `/?error=<code>`. Read the code once, then drop it from the URL so a reload, a
+ * bookmark or a shared link doesn't keep showing a stale error.
+ */
+function useSignInErrorOnce(): string | null {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [error] = useState(() => searchParams.get('error'));
+
+  useEffect(() => {
+    if (!searchParams.has('error')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('error');
+    next.delete('error_description');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  return error;
+}
+
 export function HomePage() {
   const { data: me, isPending, isError } = useMe();
+  const signInError = useSignInErrorOnce();
 
   if (isPending) return <p className="text-muted-foreground">Loading…</p>;
   if (isError) return <p role="alert">Could not reach Stagehand. Try again in a moment.</p>;
-  if (me === null) return <SignInCard />;
+  // Signed in already: a leftover sign-in error is irrelevant, so it's never shown.
+  if (me === null) return <SignInCard callbackError={signInError} />;
 
   return (
     <Card>
@@ -34,11 +56,9 @@ export function HomePage() {
   );
 }
 
-function SignInCard() {
-  const [searchParams] = useSearchParams();
+function SignInCard({ callbackError }: { callbackError: string | null }) {
   const [starting, setStarting] = useState(false);
   const [failed, setFailed] = useState(false);
-  const callbackError = searchParams.get('error');
 
   async function handleSignIn() {
     setStarting(true);
