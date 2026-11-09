@@ -71,7 +71,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 
 ### Phase 1: Campaign workshop (months 1–3)
 
-- [ ] F1.1 Campaigns: create, rename, archive. Each GM can own many campaigns.
+- [x] F1.1 Campaigns: create, rename, archive. Each GM can own many campaigns.
 - [ ] F1.2 Invites: GM shares an invite link, players join, GM assigns each player a PC
 - [ ] F1.3 Records for every narrative type: NPC, Area, Spot, Faction, Lore, Story beat, Item, Session notes (section 8)
 - [ ] F1.4 Character sheets for PCs, stat blocks for monsters and NPCs
