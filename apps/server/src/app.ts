@@ -11,7 +11,9 @@ import { registerCsrfProtection } from './http/csrf';
 import { serializeRequest } from './http/log';
 import { registerSecurityHeaders } from './http/security-headers';
 import { registerCampaignRoutes } from './routes/campaigns';
+import { registerInviteRoutes } from './routes/invites';
 import { registerMeRoutes } from './routes/me';
+import { registerMemberRoutes } from './routes/members';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -84,7 +86,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerCsrfProtection(app, { publicUrl: options.publicUrl, exempt: [`${AUTH_BASE_PATH}/`] });
     registerAuthRoutes(app, options.auth);
     registerMeRoutes(app, { auth: options.auth, db: handle.db });
+    // Campaign routes first: they register the `request.campaign` decoration.
     registerCampaignRoutes(app, { auth: options.auth, db: handle.db });
+    registerMemberRoutes(app, { auth: options.auth, db: handle.db });
+    registerInviteRoutes(app, { auth: options.auth, db: handle.db });
   }
 
   if (options.webDistDir !== undefined) {

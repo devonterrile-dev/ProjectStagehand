@@ -62,7 +62,8 @@ Sign in with Discord only, via [Better Auth](https://www.better-auth.com) (gover
 - Routes that need a signed-in user use the `requireSession(auth)` preHandler; the user is on `request.auth`.
 - State-changing requests (POST/PUT/PATCH/DELETE) under `/api/` must come from `PUBLIC_URL`. A CSRF hook rejects any other `Origin` with 403. `fetch` from the web app sends the right header automatically.
 - User-editable fields go through our own routes with shared Zod schemas, never through Better Auth's generic user endpoints. Those are disabled.
-- Campaign data is only read or written through the data-access layer in `apps/server/src/campaigns/scope.ts` (governance §7). Routes under `/api/campaigns/:campaignId` use `requireSession` then `requireCampaignMember` (non-members get 404). They also call `assertGm`/`assertWritable` before writing, because archived campaigns are read-only. Each such route must be added to the isolation table in `campaigns.int.test.ts`, and a guard test fails if one is missing.
+- Campaign data is only read or written through the data-access layer in `apps/server/src/campaigns/` (governance §7). Every function there takes a `CampaignScope` and filters by its campaign, so ids from another campaign are never found. The one unscoped lookup is joining by invite code (`campaigns/invites.ts`), where the code itself is the credential.
+- Routes under `/api/campaigns/:campaignId` use the `memberOnly(auth, db)` preHandlers from `campaigns/guard.ts`, so non-members get 404. Before writing, they call `assertGm` and `assertWritable`, because archived campaigns are read-only apart from actions that only remove access (D-20, D-21). Other ids in the path go through `uuidParam`. Each such route must be added to the isolation table in `campaigns.int.test.ts`, and a guard test fails if one is missing.
 
 ## Database
 

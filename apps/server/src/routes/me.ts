@@ -7,6 +7,7 @@ import { requireSession, sessionOf } from '../auth/routes';
 import type { Database } from '../db/client';
 import { users } from '../db/schema';
 import { sendValidationError } from '../http/errors';
+import { shownName } from '../users/profile';
 
 interface ProfileFields {
   id: string;
@@ -18,11 +19,10 @@ interface ProfileFields {
 
 /** The signed-in user's profile, as the web client sees it. */
 export function toMe(user: ProfileFields): MeResponse {
-  const custom = user.displayName ?? null;
   return meResponseSchema.parse({
     id: user.id,
-    displayName: custom ?? user.name,
-    hasCustomDisplayName: custom !== null,
+    displayName: shownName(user),
+    hasCustomDisplayName: (user.displayName ?? null) !== null,
     discordUsername: user.discordUsername,
     avatarUrl: user.image ?? null,
   });

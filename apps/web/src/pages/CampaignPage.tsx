@@ -5,6 +5,8 @@ import { Link, useParams } from 'react-router';
 
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { CampaignRoleBadge } from '@/components/campaigns/CampaignRoleBadge';
+import { InvitesPanel } from '@/components/campaigns/InvitesPanel';
+import { MembersPanel } from '@/components/campaigns/MembersPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -107,10 +109,13 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Records, invites and sessions for this campaign will appear here.
+            Records and sessions for this campaign will appear here.
           </p>
         </CardContent>
       </Card>
+
+      <MembersPanel campaign={campaign} />
+      {isGm && !isArchived && <InvitesPanel campaignId={campaign.id} />}
 
       <CampaignNameDialog
         open={renaming}

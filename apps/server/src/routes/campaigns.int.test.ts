@@ -11,7 +11,7 @@ import { buildTestApp, discordUser, SAME_ORIGIN, signIn } from '../../test/auth-
 import type { DbHandle } from '../db/client';
 import { campaignMembers, campaigns, users } from '../db/schema';
 
-type Method = 'GET' | 'POST' | 'PATCH';
+type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 interface CampaignRoute {
   method: Method;
@@ -23,6 +23,8 @@ interface CampaignRoute {
 /**
  * Every route under `/api/campaigns/:campaignId`. The guard test below fails if a route
  * exists that isn't listed here, so new routes can't skip the isolation checks.
+ * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
+ * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -34,6 +36,30 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
   },
   { method: 'POST', path: '/api/campaigns/:campaignId/archive', gmOnly: true },
   { method: 'POST', path: '/api/campaigns/:campaignId/unarchive', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/members', gmOnly: false },
+  // The GM's :userId: a player may only remove themselves.
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/members/:userId', gmOnly: true },
+  {
+    method: 'PUT',
+    path: '/api/campaigns/:campaignId/members/:userId/character',
+    gmOnly: true,
+    payload: { characterId: null },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/characters', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/invites', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/invites',
+    gmOnly: true,
+    payload: { expiresIn: 'never' },
+  },
+  { method: 'POST', path: '/api/campaigns/:campaignId/invites/:inviteId/revoke', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */
@@ -67,6 +93,7 @@ describe('Campaigns API', () => {
   let outsider: string;
   let player: string;
   let playerId: string;
+  let gmId: string;
 
   beforeAll(async () => {
     ({ app, handle } = await buildTestApp());
@@ -75,6 +102,8 @@ describe('Campaigns API', () => {
     player = await signIn(app, discordUser({ id: '2003', global_name: 'Player' }));
     const [row] = await handle.db.select().from(users).where(eq(users.discordId, '2003'));
     playerId = row?.id ?? '';
+    const [gmRow] = await handle.db.select().from(users).where(eq(users.discordId, '2001'));
+    gmId = gmRow?.id ?? '';
   });
 
   afterAll(async () => {
@@ -206,7 +235,10 @@ describe('Campaigns API', () => {
     });
 
     function urlFor(route: CampaignRoute, id: string): string {
-      return route.path.replace(':campaignId', id);
+      return route.path
+        .replace(':campaignId', id)
+        .replace(':userId', gmId)
+        .replace(':inviteId', '00000000-0000-4000-8000-000000000001');
     }
 
     it('lists every campaign route in the isolation table', () => {

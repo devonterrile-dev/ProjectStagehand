@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-label="Your profile"
             >
               <span className="hidden sm:inline">{me.displayName}</span>
-              <UserAvatar me={me} className="size-8" />
+              <UserAvatar user={me} className="size-8" />
             </Link>
           )}
         </div>

@@ -1,8 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import { sessionOf } from '../auth/routes';
+import type { Auth } from '../auth/auth';
+import { requireSession, sessionOf } from '../auth/routes';
 import type { Database } from '../db/client';
+import { httpError } from '../http/errors';
 
 import { loadCampaignScope, type CampaignScope } from './scope';
 
@@ -40,4 +42,23 @@ export function campaignOf(request: FastifyRequest): CampaignScope {
     throw new Error('route is missing the requireCampaignMember preHandler');
   }
   return request.campaign;
+}
+
+/**
+ * The preHandlers every `/api/campaigns/:campaignId…` route uses: signed in, then a member.
+ * Such routes must also be listed in the isolation table in `campaigns.int.test.ts`.
+ */
+export function memberOnly(auth: Auth, db: Database) {
+  return [requireSession(auth), requireCampaignMember(db)];
+}
+
+/**
+ * A uuid route parameter besides `:campaignId` (e.g. `:userId`). A malformed one is answered
+ * like a missing row, 404 with `notFound`.
+ */
+export function uuidParam(request: FastifyRequest, name: string, notFound: string): string {
+  const value = (request.params as Record<string, unknown>)[name];
+  const parsed = z.uuid().safeParse(value);
+  if (!parsed.success) throw httpError(404, notFound);
+  return parsed.data;
 }

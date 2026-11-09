@@ -1,12 +1,28 @@
-import type { Campaign, MeResponse, UpdateMeRequest } from '@stagehand/shared';
+import type {
+  Campaign,
+  CreateCharacterRequest,
+  InviteExpiry,
+  MeResponse,
+  UpdateMeRequest,
+} from '@stagehand/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  acceptInvite,
+  assignCharacter,
   createCampaign,
+  createCharacter,
+  createInvite,
   fetchCampaign,
   fetchCampaigns,
+  fetchCharacters,
+  fetchInvitePreview,
+  fetchInvites,
   fetchMe,
+  fetchMembers,
+  removeMember,
   renameCampaign,
+  revokeInvite,
   setCampaignArchived,
   updateMe,
 } from './api';
@@ -76,5 +92,113 @@ export function useSetCampaignArchived() {
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
       setCampaignArchived(id, archived),
     onSuccess: useCampaignSaved(),
+  });
+}
+
+type CampaignPart = 'members' | 'characters' | 'invites';
+const partKey = (campaignId: string, part: CampaignPart) =>
+  [...CAMPAIGNS_KEY, campaignId, part] as const;
+
+/** Refetches parts of one campaign after a change. */
+function useRefetch(campaignId: string, ...parts: CampaignPart[]) {
+  const queryClient = useQueryClient();
+  return () => {
+    for (const part of parts) {
+      void queryClient.invalidateQueries({ queryKey: partKey(campaignId, part) });
+    }
+  };
+}
+
+/** The campaign's members (any member can see the roster). */
+export function useMembers(campaignId: string) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'members'),
+    queryFn: () => fetchMembers(campaignId),
+  });
+}
+
+/** The campaign's PCs. GM only: pass `enabled: false` for players. */
+export function useCharacters(campaignId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'characters'),
+    queryFn: () => fetchCharacters(campaignId),
+    enabled,
+  });
+}
+
+/** The campaign's active invite links. GM only: pass `enabled: false` for players. */
+export function useInvites(campaignId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'invites'),
+    queryFn: () => fetchInvites(campaignId),
+    enabled,
+  });
+}
+
+/** The GM removes a player. */
+export function useRemoveMember(campaignId: string) {
+  return useMutation({
+    mutationFn: (userId: string) => removeMember(campaignId, userId),
+    onSuccess: useRefetch(campaignId, 'members', 'characters'),
+  });
+}
+
+/** The signed-in player leaves the campaign. Callers navigate away on success. */
+export function useLeaveCampaign(campaignId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (myUserId: string) => removeMember(campaignId, myUserId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CAMPAIGNS_KEY, exact: true });
+    },
+  });
+}
+
+export function useAssignCharacter(campaignId: string) {
+  return useMutation({
+    mutationFn: ({ userId, characterId }: { userId: string; characterId: string | null }) =>
+      assignCharacter(campaignId, userId, characterId),
+    onSuccess: useRefetch(campaignId, 'members', 'characters'),
+  });
+}
+
+export function useCreateCharacter(campaignId: string) {
+  return useMutation({
+    mutationFn: (input: CreateCharacterRequest) => createCharacter(campaignId, input),
+    onSuccess: useRefetch(campaignId, 'members', 'characters'),
+  });
+}
+
+export function useCreateInvite(campaignId: string) {
+  return useMutation({
+    mutationFn: (expiresIn: InviteExpiry) => createInvite(campaignId, expiresIn),
+    onSuccess: useRefetch(campaignId, 'invites'),
+  });
+}
+
+export function useRevokeInvite(campaignId: string) {
+  return useMutation({
+    mutationFn: (inviteId: string) => revokeInvite(campaignId, inviteId),
+    onSuccess: useRefetch(campaignId, 'invites'),
+  });
+}
+
+/** What an invite link leads to (`null` when it's no longer valid). Signed-in users only. */
+export function useInvitePreview(code: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['invite', code],
+    queryFn: () => fetchInvitePreview(code),
+    enabled,
+  });
+}
+
+/** Joins a campaign through an invite; resolves to the campaign id. */
+export function useAcceptInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: acceptInvite,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CAMPAIGNS_KEY });
+    },
   });
 }

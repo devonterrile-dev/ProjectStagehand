@@ -73,7 +73,7 @@ function Profile({ me }: { me: MeResponse }) {
   return (
     <Card className="mx-auto max-w-md">
       <CardHeader className="flex flex-row items-center gap-4">
-        <UserAvatar me={me} className="size-16" />
+        <UserAvatar user={me} className="size-16" />
         <div>
           <CardTitle>
             <h1 className="text-2xl">{me.displayName}</h1>

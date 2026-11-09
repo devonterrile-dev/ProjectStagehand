@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { type Auth } from '../auth/auth';
 import { requireSession, sessionOf } from '../auth/routes';
-import { campaignOf, requireCampaignMember } from '../campaigns/guard';
+import { campaignOf, memberOnly as campaignMemberOnly } from '../campaigns/guard';
 import {
   assertGm,
   assertWritable,
@@ -24,8 +24,10 @@ import { sendValidationError } from '../http/errors';
 /**
  * Campaigns (F1.1): list, create, read, rename, archive and unarchive.
  *
- * Every `/api/campaigns/:campaignId…` route must use `memberOnly` and be listed in the
- * isolation table in `campaigns.int.test.ts` (a guard test fails otherwise).
+ * Every `/api/campaigns/:campaignId…` route (here and in other route files) must use
+ * `memberOnly` from `campaigns/guard.ts` and be listed in the isolation table in
+ * `campaigns.int.test.ts` (a guard test fails otherwise). This file registers the
+ * `request.campaign` decoration, so it must be registered before the other campaign routes.
  */
 export function registerCampaignRoutes(
   app: FastifyInstance,
@@ -34,7 +36,7 @@ export function registerCampaignRoutes(
   app.decorateRequest('campaign', null);
 
   const signedIn = requireSession(deps.auth);
-  const memberOnly = [signedIn, requireCampaignMember(deps.db)];
+  const memberOnly = campaignMemberOnly(deps.auth, deps.db);
 
   app.get(
     '/api/campaigns',

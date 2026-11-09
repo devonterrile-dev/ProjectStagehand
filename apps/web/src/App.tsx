@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { HomePage } from '@/pages/HomePage';
+import { JoinPage } from '@/pages/JoinPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 
 export function App() {
@@ -27,6 +28,8 @@ export function App() {
             </RequireAuth>
           }
         />
+        {/* Not behind RequireAuth: signed-out visitors sign in from the page itself. */}
+        <Route path="/join/:code" element={<JoinPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppShell>

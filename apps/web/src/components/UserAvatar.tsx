@@ -1,12 +1,16 @@
-import type { MeResponse } from '@stagehand/shared';
-
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
-export function UserAvatar({ me, className }: { me: MeResponse; className?: string }) {
+/** Anyone with a name and an optional Discord avatar: the signed-in user or a member. */
+interface AvatarUser {
+  displayName: string;
+  avatarUrl: string | null;
+}
+
+export function UserAvatar({ user, className }: { user: AvatarUser; className?: string }) {
   return (
     <Avatar className={className}>
-      {me.avatarUrl !== null && <AvatarImage src={me.avatarUrl} alt="" />}
-      <AvatarFallback>{me.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
+      {user.avatarUrl !== null && <AvatarImage src={user.avatarUrl} alt="" />}
+      <AvatarFallback>{user.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
     </Avatar>
   );
 }

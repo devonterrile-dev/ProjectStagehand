@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 
 import { CampaignList } from '@/components/campaigns/CampaignList';
+import { SignInCard } from '@/components/SignInCard';
 import { UserAvatar } from '@/components/UserAvatar';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { signInWithDiscord } from '@/lib/auth-client';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMe } from '@/lib/queries';
 
 /**
@@ -42,7 +42,7 @@ export function HomePage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <UserAvatar me={me} className="size-14" />
+            <UserAvatar user={me} className="size-14" />
             <div>
               <CardTitle>
                 <h1 className="text-2xl">Welcome, {me.displayName}</h1>
@@ -57,45 +57,5 @@ export function HomePage() {
       </Card>
       <CampaignList />
     </div>
-  );
-}
-
-function SignInCard({ callbackError }: { callbackError: string | null }) {
-  const [starting, setStarting] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function handleSignIn() {
-    setStarting(true);
-    setFailed(false);
-    try {
-      await signInWithDiscord();
-    } catch {
-      setFailed(true);
-      setStarting(false);
-    }
-  }
-
-  return (
-    <Card className="mx-auto max-w-md">
-      <CardHeader>
-        <CardTitle>
-          <h1 className="text-2xl">Stagehand</h1>
-        </CardTitle>
-        <CardDescription>Run story-first tabletop games online.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {(callbackError !== null || failed) && (
-          <p role="alert" className="text-sm text-destructive">
-            Sign-in didn&apos;t complete. Please try again.
-          </p>
-        )}
-        <Button className="w-full" onClick={() => void handleSignIn()} disabled={starting}>
-          {starting ? 'Opening Discord…' : 'Sign in with Discord'}
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Stagehand uses your Discord name and avatar. Players never install anything.
-        </p>
-      </CardContent>
-    </Card>
   );
 }
