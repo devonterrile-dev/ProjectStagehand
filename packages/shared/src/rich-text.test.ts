@@ -37,6 +37,7 @@ const FULL: RichText = {
                 target: '_blank',
                 rel: 'noopener noreferrer nofollow',
                 class: null,
+                title: null,
               },
             },
           ],

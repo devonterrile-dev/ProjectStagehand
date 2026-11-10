@@ -1,9 +1,12 @@
 import type {
   Campaign,
   CreateCharacterRequest,
+  CreateRecordRequest,
   InviteExpiry,
   MeResponse,
+  RecordType,
   UpdateMeRequest,
+  UpdateRecordRequest,
 } from '@stagehand/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -13,6 +16,8 @@ import {
   createCampaign,
   createCharacter,
   createInvite,
+  createRecord,
+  deleteRecord,
   fetchCampaign,
   fetchCampaigns,
   fetchCharacters,
@@ -20,6 +25,9 @@ import {
   fetchInvites,
   fetchMe,
   fetchMembers,
+  fetchRecord,
+  fetchRecords,
+  patchRecord,
   removeMember,
   renameCampaign,
   revokeInvite,
@@ -95,7 +103,7 @@ export function useSetCampaignArchived() {
   });
 }
 
-type CampaignPart = 'members' | 'characters' | 'invites';
+type CampaignPart = 'members' | 'characters' | 'invites' | 'records';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
 
@@ -199,6 +207,69 @@ export function useAcceptInvite() {
     mutationFn: acceptInvite,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: CAMPAIGNS_KEY });
+    },
+  });
+}
+
+/**
+ * One record's key says `'record'`, not `'records'`, so refetching the lists after a save
+ * never refetches the record being edited: its cache is written from the save's response.
+ */
+const recordKey = (campaignId: string, recordId: string) =>
+  [...CAMPAIGNS_KEY, campaignId, 'record', recordId] as const;
+
+/** Record summaries, optionally of one type. GM only: pass `enabled: false` for players. */
+export function useRecords(campaignId: string, type: RecordType | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: [...partKey(campaignId, 'records'), type ?? 'all'],
+    queryFn: () => fetchRecords(campaignId, type),
+    enabled,
+  });
+}
+
+/** One record with every field (`null` when not found). GM only. */
+export function useRecord(campaignId: string, recordId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: recordKey(campaignId, recordId),
+    queryFn: () => fetchRecord(campaignId, recordId),
+    enabled,
+  });
+}
+
+export function useCreateRecord(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchLists = useRefetch(campaignId, 'records');
+  return useMutation({
+    mutationFn: (input: CreateRecordRequest) => createRecord(campaignId, input),
+    onSuccess: (record) => {
+      queryClient.setQueryData(recordKey(campaignId, record.id), record);
+      refetchLists();
+    },
+  });
+}
+
+/** Saves part of a record; the response becomes the cached record. */
+export function usePatchRecord(campaignId: string, recordId: string) {
+  const queryClient = useQueryClient();
+  const refetchLists = useRefetch(campaignId, 'records');
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateRecordRequest; keepalive?: boolean }) =>
+      patchRecord(campaignId, recordId, patch, { keepalive }),
+    onSuccess: (record) => {
+      queryClient.setQueryData(recordKey(campaignId, recordId), record);
+      refetchLists();
+    },
+  });
+}
+
+export function useDeleteRecord(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchLists = useRefetch(campaignId, 'records');
+  return useMutation({
+    mutationFn: (recordId: string) => deleteRecord(campaignId, recordId),
+    onSuccess: (_result, recordId) => {
+      queryClient.removeQueries({ queryKey: recordKey(campaignId, recordId) });
+      refetchLists();
     },
   });
 }

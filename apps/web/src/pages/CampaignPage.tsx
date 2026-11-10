@@ -7,8 +7,9 @@ import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { CampaignRoleBadge } from '@/components/campaigns/CampaignRoleBadge';
 import { InvitesPanel } from '@/components/campaigns/InvitesPanel';
 import { MembersPanel } from '@/components/campaigns/MembersPanel';
+import { PlayersNote } from '@/components/records/PlayersNote';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useCampaign, useRenameCampaign, useSetCampaignArchived } from '@/lib/queries';
+import { recordsPath } from '@/lib/records';
 
 /** `/campaigns/:campaignId`. Rendered inside RequireAuth, so the user is signed in. */
 export function CampaignPage() {
@@ -109,9 +111,32 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Records and sessions for this campaign will appear here.
+            Sessions for this campaign will appear here.
           </p>
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <CardTitle>
+              <h2 className="text-xl">Records</h2>
+            </CardTitle>
+            <CardDescription>
+              NPCs, places, factions, lore, story beats, items and session notes.
+            </CardDescription>
+          </div>
+          {isGm && (
+            <Button asChild size="sm" variant="outline">
+              <Link to={recordsPath(campaign.id)}>Open records</Link>
+            </Button>
+          )}
+        </CardHeader>
+        {!isGm && (
+          <CardContent>
+            <PlayersNote />
+          </CardContent>
+        )}
       </Card>
 
       <MembersPanel campaign={campaign} />
@@ -130,7 +155,7 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
   );
 }
 
-function CampaignNotFound() {
+export function CampaignNotFound() {
   return (
     <div className="space-y-2">
       <h1 className="text-2xl font-bold">Campaign not found</h1>

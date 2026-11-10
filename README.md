@@ -294,3 +294,12 @@ Per governance §1, assumptions the build relies on:
 - **Records are hard-deleted.** An Area that still has Spots can't be deleted (409); a record's `type` never changes. The Spot → Area foreign key is `NO ACTION`, not `RESTRICT`, so a future cascading campaign delete can remove both in one statement.
 - **Last write wins** on concurrent edits (one GM per campaign, D-14). The UI autosaves field by field (F1.3b).
 - **Record names allow 120 characters**; campaign and PC names stay at 80.
+
+## Working assumptions (F1.3b)
+
+- **The editor is TipTap 3** (`@tiptap/react`, `@tiptap/starter-kit`, pinned at 3.33.1) with code blocks and underline turned off and headings limited to 1–3, so it can only produce what `richTextSchema` accepts; every document is still checked with `safeParse` before it is sent. `apps/web/src/lib/rich-text-compat.test.ts` runs real editor output through the schema, so a TipTap upgrade that adds an attribute fails there first.
+- **Autosave, field by field.** Edits merge into one pending patch, sent after an 800 ms pause, on blur, when the page is left and on `beforeunload` (with `keepalive`). One request is in flight per record at a time, in order; a failed patch is kept under newer edits for Retry. Empty values clear a field with `null`; an unchanged value sends nothing.
+- **The form owns its text after the first render.** A save's response updates the query cache but never overwrites what the GM is typing. Last write wins (one GM per campaign).
+- **The records page fetches every summary once** and filters by type in the browser; the API's `?type=` filter is there for later.
+- **Link fields are hidden** until F1.5; the form skips `kind: 'links'` entries of `RECORD_FIELD_SPECS`.
+- **Editor styles are hand-written** in `apps/web/src/index.css` (no typography plugin); the jsdom polyfills TipTap needs live in `apps/web/src/test/setup.ts`.

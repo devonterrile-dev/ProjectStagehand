@@ -6,6 +6,8 @@ import { CampaignPage } from '@/pages/CampaignPage';
 import { HomePage } from '@/pages/HomePage';
 import { JoinPage } from '@/pages/JoinPage';
 import { ProfilePage } from '@/pages/ProfilePage';
+import { RecordPage } from '@/pages/RecordPage';
+import { RecordsPage } from '@/pages/RecordsPage';
 
 export function App() {
   return (
@@ -25,6 +27,22 @@ export function App() {
           element={
             <RequireAuth>
               <CampaignPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/records"
+          element={
+            <RequireAuth>
+              <RecordsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/records/:recordId"
+          element={
+            <RequireAuth>
+              <RecordPage />
             </RequireAuth>
           }
         />

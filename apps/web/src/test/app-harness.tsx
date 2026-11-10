@@ -1,15 +1,23 @@
 /**
  * Renders the whole app against a fake Stagehand API (a `fetch` spy with in-memory
- * campaigns, members, PCs and invites), so tests drive real pages, routes and queries.
+ * campaigns, members, PCs, invites and records), so tests drive real pages, routes and
+ * queries.
  */
-import type {
-  Campaign,
-  CampaignRole,
-  Character,
-  Invite,
-  InvitePreview,
-  Member,
-  MeResponse,
+import {
+  applyFieldsPatch,
+  createRecordRequestSchema,
+  emptyRichText,
+  updateRecordRequestSchemaFor,
+  type Campaign,
+  type CampaignRecord,
+  type CampaignRole,
+  type Character,
+  type Invite,
+  type InvitePreview,
+  type Member,
+  type MeResponse,
+  type RecordSummary,
+  type RecordType,
 } from '@stagehand/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
@@ -73,14 +81,59 @@ export function inviteCode(seed: string): string {
   return seed.padEnd(22, 'x').slice(0, 22);
 }
 
+/** A record fixture: a type, plus anything to override. Rich text starts empty. */
+export function record(
+  overrides: Partial<Omit<CampaignRecord, 'type' | 'fields'>> & {
+    type: RecordType;
+    fields?: Record<string, unknown>;
+  },
+): CampaignRecord {
+  return {
+    id: uuid(),
+    name: 'Untitled',
+    publicDescription: emptyRichText(),
+    gmNotes: emptyRichText(),
+    fields: {},
+    tags: [],
+    parentId: null,
+    revealedAt: null,
+    source: 'manual',
+    createdAt: '2026-11-09T10:00:00.000Z',
+    updatedAt: '2026-11-09T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+/**
+ * Makes every request with `method` fail with `{ statusCode, error, message }` until the
+ * returned function is called.
+ */
+export function failRequests(
+  fetchMock: ReturnType<typeof mockApi>,
+  method: string,
+  status: number,
+  message: string,
+): () => void {
+  const original = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation((input, init) =>
+    (init?.method ?? 'GET') === method
+      ? Promise.resolve(Response.json({ statusCode: status, error: 'Error', message }, { status }))
+      : (original?.(input, init) ?? Promise.reject(new Error('fetch is not mocked'))),
+  );
+  return () => {
+    if (original !== undefined) fetchMock.mockImplementation(original);
+  };
+}
+
 interface CampaignData {
   members: Member[];
   characters: { id: string; name: string }[];
   invites: Invite[];
+  records: CampaignRecord[];
 }
 
 export interface FakeWorld {
-  /** Extra members, PCs and invites per campaign id. Each campaign also has `me` as a member. */
+  /** Extra members, PCs, invites and records per campaign id. Each campaign also has `me` as a member. */
   campaignData?: Record<string, Partial<CampaignData>>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
   invites?: Record<string, InvitePreview>;
@@ -105,6 +158,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         members: [...self, ...(extra.members ?? [])],
         characters: [...(extra.characters ?? [])],
         invites: [...(extra.invites ?? [])],
+        records: (extra.records ?? []).map((r) => ({ ...r })),
       };
       data.set(c.id, entry);
     }
@@ -127,10 +181,108 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
 
   const notFound = (message: string) =>
     Response.json({ error: 'Not Found', message }, { status: 404 });
+  const refused = (status: number, message: string) =>
+    Response.json({ statusCode: status, error: 'Refused', message }, { status });
+  const invalid = (issues: { path: PropertyKey[]; message: string }[]) =>
+    Response.json(
+      {
+        error: 'Bad Request',
+        issues: issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+      },
+      { status: 400 },
+    );
+
+  /** The records API, GM only, mirroring the server's rules and messages. */
+  const respondRecords = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const [path = '', queryString = ''] = rest.split('?');
+    const recordMatch = /^\/records\/([^/]+)$/.exec(path);
+    if (path !== '/records' && recordMatch === null) return null;
+    if (found.role !== 'gm') return refused(403, 'Only the GM can do that');
+    const toSummary = (r: CampaignRecord): RecordSummary => ({
+      id: r.id,
+      type: r.type,
+      name: r.name,
+      tags: r.tags,
+      parentId: r.parentId,
+      parentName: d.records.find((parent) => parent.id === r.parentId)?.name ?? null,
+      revealedAt: r.revealedAt,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    });
+
+    if (recordMatch === null) {
+      if (method === 'GET') {
+        const type = new URLSearchParams(queryString).get('type');
+        const list = d.records
+          .filter((r) => type === null || r.type === type)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return Response.json({ records: list.map(toSummary) });
+      }
+      if (method === 'POST') {
+        if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+        const parsed = createRecordRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return invalid(parsed.error.issues);
+        const input = parsed.data;
+        const parentId = input.type === 'spot' ? input.parentId : null;
+        if (parentId !== null && !d.records.some((r) => r.id === parentId && r.type === 'area')) {
+          return notFound('Area not found');
+        }
+        const created = record({
+          type: input.type,
+          name: input.name,
+          fields: input.fields ?? {},
+          tags: input.tags ?? [],
+          publicDescription: input.publicDescription ?? emptyRichText(),
+          gmNotes: input.gmNotes ?? emptyRichText(),
+          parentId,
+        });
+        d.records.push(created);
+        return Response.json(created, { status: 201 });
+      }
+      return null;
+    }
+
+    const existing = d.records.find((r) => r.id === recordMatch[1]);
+    if (existing === undefined) return notFound('Record not found');
+    if (method === 'GET') return Response.json(existing);
+    if (method === 'PATCH') {
+      if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+      const parsed = updateRecordRequestSchemaFor(existing.type).safeParse(rawBody);
+      if (!parsed.success) return invalid(parsed.error.issues);
+      const patch = parsed.data;
+      if (patch.name !== undefined) existing.name = patch.name;
+      if (patch.publicDescription !== undefined)
+        existing.publicDescription = patch.publicDescription;
+      if (patch.gmNotes !== undefined) existing.gmNotes = patch.gmNotes;
+      if (patch.tags !== undefined) existing.tags = patch.tags;
+      if (patch.parentId !== undefined) existing.parentId = patch.parentId;
+      if (patch.fields !== undefined) {
+        existing.fields = applyFieldsPatch(existing.type, existing.fields, patch.fields);
+      }
+      existing.updatedAt = '2026-11-10T12:00:00.000Z';
+      return Response.json(existing);
+    }
+    if (method === 'DELETE') {
+      if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+      if (existing.type === 'area' && d.records.some((r) => r.parentId === existing.id)) {
+        return refused(409, 'This area still has spots. Move or delete them first.');
+      }
+      d.records = d.records.filter((r) => r.id !== existing.id);
+      return new Response(null, { status: 204 });
+    }
+    return null;
+  };
 
   const respond = (url: string, init?: RequestInit): Response => {
     const method = init?.method ?? 'GET';
-    const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as RequestBody) : {};
+    const rawBody: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    const body = (rawBody ?? {}) as RequestBody;
 
     if (url.endsWith('/api/me') && method === 'GET') {
       return me === null
@@ -237,6 +389,9 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         d.invites = d.invites.filter((i) => i.id !== revoke[1]);
         return new Response(null, { status: 204 });
       }
+
+      const records = respondRecords(found, d, rest, method, rawBody);
+      if (records !== null) return records;
     }
 
     return new Response('not mocked', { status: 500 });

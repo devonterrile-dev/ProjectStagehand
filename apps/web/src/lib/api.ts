@@ -9,15 +9,22 @@ import {
   inviteSchema,
   memberListResponseSchema,
   meResponseSchema,
+  recordListResponseSchema,
+  recordSchema,
   type Campaign,
+  type CampaignRecord,
   type Character,
   type CreateCharacterRequest,
+  type CreateRecordRequest,
   type Invite,
   type InviteExpiry,
   type InvitePreview,
   type MeResponse,
   type Member,
+  type RecordSummary,
+  type RecordType,
   type UpdateMeRequest,
+  type UpdateRecordRequest,
 } from '@stagehand/shared';
 
 export class ApiError extends Error {
@@ -109,9 +116,15 @@ const campaignPath = (campaignId: string, rest = '') =>
   `/api/campaigns/${encodeURIComponent(campaignId)}${rest}`;
 
 /** Sends a write and throws on failure; returns the response for callers that read a body. */
-async function send(path: string, method: 'POST' | 'PUT' | 'DELETE', body?: unknown) {
+async function send(
+  path: string,
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  body?: unknown,
+  init: Pick<RequestInit, 'keepalive'> = {},
+) {
   const response = await request(path, {
     method,
+    ...init,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok) throw await errorFrom(response);
@@ -188,4 +201,59 @@ export async function fetchInvitePreview(code: string): Promise<InvitePreview | 
 export async function acceptInvite(code: string): Promise<string> {
   const response = await send(`/api/invites/${encodeURIComponent(code)}/accept`, 'POST');
   return acceptInviteResponseSchema.parse(await response.json()).campaignId;
+}
+
+const recordsPath = (campaignId: string, recordId?: string) =>
+  campaignPath(
+    campaignId,
+    recordId === undefined ? '/records' : `/records/${encodeURIComponent(recordId)}`,
+  );
+
+/** Summaries of the campaign's records, optionally of one type, by name. GM only. */
+export async function fetchRecords(
+  campaignId: string,
+  type?: RecordType,
+): Promise<RecordSummary[]> {
+  const query = type === undefined ? '' : `?${new URLSearchParams({ type }).toString()}`;
+  return recordListResponseSchema.parse(await getJson(`${recordsPath(campaignId)}${query}`))
+    .records;
+}
+
+/** One record with every field, or null when it isn't in this campaign. GM only. */
+export async function fetchRecord(
+  campaignId: string,
+  recordId: string,
+): Promise<CampaignRecord | null> {
+  const response = await request(recordsPath(campaignId, recordId));
+  if (response.status === 404) return null;
+  if (!response.ok) throw await errorFrom(response);
+  return recordSchema.parse(await response.json());
+}
+
+/** Creates a record. GM only; refused while archived. */
+export async function createRecord(
+  campaignId: string,
+  input: CreateRecordRequest,
+): Promise<CampaignRecord> {
+  const response = await send(recordsPath(campaignId), 'POST', input);
+  return recordSchema.parse(await response.json());
+}
+
+/**
+ * Applies a partial update (D-22): any subset of the keys, with `fields` merged on the
+ * server. `keepalive` lets a last save go out while the page unloads.
+ */
+export async function patchRecord(
+  campaignId: string,
+  recordId: string,
+  patch: UpdateRecordRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<CampaignRecord> {
+  const response = await send(recordsPath(campaignId, recordId), 'PATCH', patch, init);
+  return recordSchema.parse(await response.json());
+}
+
+/** Deletes a record for good. An Area that still has Spots is refused (409). GM only. */
+export async function deleteRecord(campaignId: string, recordId: string): Promise<void> {
+  await send(recordsPath(campaignId, recordId), 'DELETE');
 }

@@ -21,7 +21,13 @@ export type RichTextMark =
   | { type: 'code' }
   | {
       type: 'link';
-      attrs: { href: string; target?: string | null; rel?: string | null; class?: null };
+      attrs: {
+        href: string;
+        target?: string | null;
+        rel?: string | null;
+        class?: null;
+        title?: string | null;
+      };
     };
 
 export interface RichTextText {
@@ -100,6 +106,7 @@ const markSchema: z.ZodType<RichTextMark> = z.discriminatedUnion('type', [
       target: z.string().nullable().optional(),
       rel: z.string().nullable().optional(),
       class: z.null().optional(),
+      title: z.string().nullable().optional(),
     }),
   }),
 ]);
