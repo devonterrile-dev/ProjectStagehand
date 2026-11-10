@@ -73,7 +73,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 
 - [x] F1.1 Campaigns: create, rename, archive. Each GM can own many campaigns.
 - [x] F1.2 Invites: GM shares an invite link, players join, GM assigns each player a PC
-- [ ] F1.3 Records for every narrative type: NPC, Area, Spot, Faction, Lore, Story beat, Item, Session notes (section 8)
+- [x] F1.3 Records for every narrative type: NPC, Area, Spot, Faction, Lore, Story beat, Item, Session notes (section 8)
 - [ ] F1.4 Character sheets for PCs, stat blocks for monsters and NPCs
 - [ ] F1.5 Links between records, with a backlinks panel and @-mentions inside note fields
 - [ ] F1.6 Search and filter across a campaign's records
