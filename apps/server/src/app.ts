@@ -14,6 +14,7 @@ import { registerCampaignRoutes } from './routes/campaigns';
 import { registerInviteRoutes } from './routes/invites';
 import { registerMeRoutes } from './routes/me';
 import { registerMemberRoutes } from './routes/members';
+import { registerRecordRoutes } from './routes/records';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -90,6 +91,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerCampaignRoutes(app, { auth: options.auth, db: handle.db });
     registerMemberRoutes(app, { auth: options.auth, db: handle.db });
     registerInviteRoutes(app, { auth: options.auth, db: handle.db });
+    registerRecordRoutes(app, { auth: options.auth, db: handle.db });
   }
 
   if (options.webDistDir !== undefined) {

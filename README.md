@@ -64,6 +64,7 @@ Sign in with Discord only, via [Better Auth](https://www.better-auth.com) (gover
 - User-editable fields go through our own routes with shared Zod schemas, never through Better Auth's generic user endpoints. Those are disabled.
 - Campaign data is only read or written through the data-access layer in `apps/server/src/campaigns/` (governance §7). Every function there takes a `CampaignScope` and filters by its campaign, so ids from another campaign are never found. The one unscoped lookup is joining by invite code (`campaigns/invites.ts`), where the code itself is the credential.
 - Routes under `/api/campaigns/:campaignId` use the `memberOnly(auth, db)` preHandlers from `campaigns/guard.ts`, so non-members get 404. Before writing, they call `assertGm` and `assertWritable`, because archived campaigns are read-only apart from actions that only remove access (D-20, D-21). Other ids in the path go through `uuidParam`. Each such route must be added to the isolation table in `campaigns.int.test.ts`, and a guard test fails if one is missing.
+- Record routes (`/api/campaigns/:campaignId/records`) are GM-only until the reveal flow (F3.5) adds the allow-listed player view. `PATCH` is partial: any subset of the top-level keys, and `fields` is a partial of that type's fields, validated with `updateRecordRequestSchemaFor(type)` and merged on the server, where `null` clears a field. Rich text is TipTap JSON validated by `richTextSchema` (D-22). Adding a record type is a shared-package change (`record-fields.ts`: shape and display spec, plus the fixture in `apps/server/test/record-fixtures.ts`), not a migration.
 
 ## Database
 
@@ -283,3 +284,13 @@ Per governance §1, assumptions the build relies on:
 - **No off-site copy yet.** Backups sit on D:, a different physical disk from Docker's data, which protects against a disk failure but not against losing the whole PC. This is an accepted risk until hosting moves (F4.5); copying `D:\StagehandBackups` anywhere else (USB drive, cloud folder) is safe, because the files are encrypted.
 - **Encryption uses Node's built-in crypto** (AES-256-GCM, scrypt key), with no extra tools. Backups are decrypted completely to a temporary file before anything is unpacked, because GCM only authenticates at the very end.
 - **The restore check compares exact row counts of every table** in `public` and `drizzle`, not just that `pg_restore` succeeded.
+
+## Working assumptions (F1.3a)
+
+- **Rich text is TipTap/ProseMirror document JSON** (D-22) with a closed set of nodes and marks, checked by `richTextSchema` in the shared package. Limits: `RICH_TEXT_MAX_JSON_CHARS` (50,000) per field and `RICH_TEXT_MAX_DEPTH` (32). The `mention` node arrives with links (F1.5).
+- **Stored `fields` are re-validated on every read** (`recordSchema.parse`), so renaming or retyping a field needs a jsonb data migration in the same commit, or reads of old rows fail.
+- **Link fields live in `record_links` (F1.5), not in `fields`.** `RECORD_FIELD_SPECS` lists them as `kind: 'links'` so the display order from governance §8 is kept.
+- **`visual_asset_id` and `stat_block_id` are deferred** to the features that create those tables (F2.x, F1.4).
+- **Records are hard-deleted.** An Area that still has Spots can't be deleted (409); a record's `type` never changes. The Spot → Area foreign key is `NO ACTION`, not `RESTRICT`, so a future cascading campaign delete can remove both in one statement.
+- **Last write wins** on concurrent edits (one GM per campaign, D-14). The UI autosaves field by field (F1.3b).
+- **Record names allow 120 characters**; campaign and PC names stay at 80.

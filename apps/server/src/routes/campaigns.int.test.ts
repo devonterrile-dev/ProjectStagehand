@@ -24,7 +24,8 @@ interface CampaignRoute {
  * Every route under `/api/campaigns/:campaignId`. The guard test below fails if a route
  * exists that isn't listed here, so new routes can't skip the isolation checks.
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
- * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`.
+ * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`
+ * and `records.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -60,6 +61,21 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { expiresIn: 'never' },
   },
   { method: 'POST', path: '/api/campaigns/:campaignId/invites/:inviteId/revoke', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/records', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/records',
+    gmOnly: true,
+    payload: { type: 'npc', name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/records/:recordId', gmOnly: true },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/records/:recordId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/records/:recordId', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */
@@ -238,7 +254,8 @@ describe('Campaigns API', () => {
       return route.path
         .replace(':campaignId', id)
         .replace(':userId', gmId)
-        .replace(':inviteId', '00000000-0000-4000-8000-000000000001');
+        .replace(':inviteId', '00000000-0000-4000-8000-000000000001')
+        .replace(':recordId', '00000000-0000-4000-8000-000000000002');
     }
 
     it('lists every campaign route in the isolation table', () => {
