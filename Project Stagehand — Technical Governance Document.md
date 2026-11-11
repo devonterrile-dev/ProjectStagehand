@@ -75,7 +75,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F1.2 Invites: GM shares an invite link, players join, GM assigns each player a PC
 - [x] F1.3 Records for every narrative type: NPC, Area, Spot, Faction, Lore, Story beat, Item, Session notes (section 8)
 - [x] F1.4 Character sheets for PCs, stat blocks for monsters and NPCs
-- [ ] F1.5 Links between records, with a backlinks panel and @-mentions inside note fields
+- [x] F1.5 Links between records, with a backlinks panel and @-mentions inside note fields
 - [ ] F1.6 Search and filter across a campaign's records
 - [ ] F1.7 Settings: GM stores an Anthropic API key (encrypted)
 - [ ] F1.8 AI import: brain-dump to proposed records, with a review screen (section 10)
