@@ -29,3 +29,17 @@ Range.prototype.getClientRects = noRects;
 Range.prototype.getBoundingClientRect = zeroRect;
 document.elementFromPoint = () => null;
 Element.prototype.scrollIntoView = () => undefined;
+
+// Inserting a mention calls `getSelection().collapseToEnd()` (@tiptap/extension-mention).
+// In a browser the focused editor always has a selection; in jsdom it can be empty,
+// depending on timing (it was on CI), and jsdom then throws "There is no selection to
+// collapse" as an uncaught error that fails the run. With no selection there is nothing to
+// collapse, so do nothing.
+for (const method of ['collapseToEnd', 'collapseToStart'] as const) {
+  const original = Object.getOwnPropertyDescriptor(Selection.prototype, method)?.value as (
+    this: Selection,
+  ) => void;
+  Selection.prototype[method] = function (this: Selection) {
+    if (this.rangeCount > 0) original.call(this);
+  };
+}

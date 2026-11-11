@@ -160,6 +160,28 @@ describe('RichTextEditor mentions', () => {
     expect(await screen.findByRole('button', { name: '@The Miller' })).toBeDefined();
   });
 
+  it('inserts a mention when jsdom has no selection to collapse (seen on CI)', async () => {
+    const { onChange, area, editor } = renderRecordEditor();
+    act(() => {
+      editor.chain().focus('end').insertContent('@Mi').run();
+    });
+    await screen.findByRole('listbox', { name: 'Mention a record' });
+
+    // The mention extension collapses `window.getSelection()` after inserting (ProseMirror
+    // itself uses `document.getSelection()`); hand it an empty one, as jsdom did on CI.
+    const realGetSelection = window.getSelection.bind(window);
+    vi.spyOn(window, 'getSelection').mockImplementation(() => {
+      const selection = realGetSelection();
+      selection?.removeAllRanges();
+      return selection;
+    });
+    fireEvent.keyDown(area, { key: 'Enter' });
+
+    expect(onChange.mock.lastCall?.[0].content[0]).toMatchObject({
+      content: [{ text: 'Ask ' }, { type: 'mention', attrs: { label: 'Mira' } }, { text: ' ' }],
+    });
+  });
+
   it('closes the menu on Escape and keeps the text', async () => {
     const { area, editor } = renderRecordEditor();
     act(() => {
