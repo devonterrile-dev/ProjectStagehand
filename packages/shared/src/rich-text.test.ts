@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   emptyRichText,
   isEmptyRichText,
+  MENTION_LABEL_MAX,
+  mentionIdsOf,
+  recordRichTextSchema,
   RICH_TEXT_MAX_JSON_CHARS,
   richTextSchema,
   richTextToPlainText,
@@ -176,5 +179,85 @@ describe('richTextToPlainText', () => {
     expect(richTextToPlainText(FULL)).toBe(
       'The Drowned Market\nStalls float on barrels\nsee the mapls\nFish\nFirst\nNested\nQuoted\n\n',
     );
+  });
+});
+
+const MIRA_ID = '9f0c2d4e-6a8b-4c1d-8e3f-5a7b9c1d3e5f';
+const GUILD_ID = '1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d';
+
+const mention = (id: string, label: string, extra: object = {}) => ({
+  type: 'mention',
+  attrs: { id, label, mentionSuggestionChar: '@' },
+  ...extra,
+});
+const withInline = (...inline: object[]) => ({
+  type: 'doc',
+  content: [{ type: 'paragraph', content: inline }],
+});
+
+describe('mentions', () => {
+  it('are allowed in record text, with or without the surrounding marks', () => {
+    const doc = withInline(
+      { type: 'text', text: 'Ask ' },
+      mention(MIRA_ID, 'Mira'),
+      mention(GUILD_ID, 'Tide Guild', { marks: [{ type: 'bold' }] }),
+    );
+    expect(recordRichTextSchema.parse(doc)).toEqual(doc);
+  });
+
+  it('are refused outside records (sheets and stat blocks)', () => {
+    expect(richTextSchema.safeParse(withInline(mention(MIRA_ID, 'Mira'))).success).toBe(false);
+  });
+
+  it('need a record id and a short label, and nothing else', () => {
+    const bad = [
+      mention('not-a-uuid', 'Mira'),
+      mention(MIRA_ID, ''),
+      mention(MIRA_ID, 'x'.repeat(MENTION_LABEL_MAX + 1)),
+      { type: 'mention', attrs: { id: MIRA_ID } },
+      { type: 'mention', attrs: { id: MIRA_ID, label: 'Mira', href: 'https://x.test' } },
+      { type: 'mention', attrs: { id: MIRA_ID, label: 'Mira', mentionSuggestionChar: '#' } },
+    ];
+    for (const node of bad) {
+      expect(recordRichTextSchema.safeParse(withInline(node)).success, JSON.stringify(node)).toBe(
+        false,
+      );
+    }
+    expect(
+      recordRichTextSchema.safeParse(
+        withInline({ type: 'mention', attrs: { id: MIRA_ID, label: 'Mira' } }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('show as their label in plain text', () => {
+    const doc = recordRichTextSchema.parse(
+      withInline({ type: 'text', text: 'Ask ' }, mention(MIRA_ID, 'Mira')),
+    );
+    expect(richTextToPlainText(doc)).toBe('Ask Mira');
+  });
+
+  it('are listed once each, in order, from every block', () => {
+    const doc = recordRichTextSchema.parse({
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 1 }, content: [mention(GUILD_ID, 'Tide Guild')] },
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [mention(MIRA_ID, 'Mira')] }],
+            },
+          ],
+        },
+        {
+          type: 'blockquote',
+          content: [{ type: 'paragraph', content: [mention(GUILD_ID, 'Tide Guild')] }],
+        },
+      ],
+    });
+    expect(mentionIdsOf(doc)).toEqual([GUILD_ID, MIRA_ID]);
+    expect(mentionIdsOf(emptyRichText())).toEqual([]);
   });
 });

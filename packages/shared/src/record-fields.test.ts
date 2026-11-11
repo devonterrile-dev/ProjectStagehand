@@ -10,9 +10,10 @@ import {
   RECORD_TYPES,
   recordFieldsSchemas,
   recordTypeSchema,
+  type FieldSpec,
   type RecordType,
 } from './record-fields';
-import { emptyRichText, richTextSchema, type RichText } from './rich-text';
+import { emptyRichText, recordRichTextSchema, type RichText } from './rich-text';
 
 const rich = (text: string): RichText => ({
   type: 'doc',
@@ -115,7 +116,12 @@ describe.each(RECORD_TYPES)('%s fields', (type) => {
     const shape = recordFieldsSchemas[type].shape as Record<string, z.ZodOptional<z.ZodType>>;
     const spec = RECORD_FIELD_SPECS[type] as Record<
       string,
-      { kind: string; options?: readonly string[] }
+      {
+        kind: string;
+        options?: readonly string[];
+        targets?: readonly string[];
+        cardinality?: string;
+      }
     >;
     const stored = Object.entries(spec).filter(([, field]) => field.kind !== 'links');
 
@@ -125,7 +131,7 @@ describe.each(RECORD_TYPES)('%s fields', (type) => {
       const inner = shape[key]?.unwrap();
       switch (field.kind) {
         case 'rich':
-          expect(inner, key).toBe(richTextSchema);
+          expect(inner, key).toBe(recordRichTextSchema);
           break;
         case 'enum':
           expect(inner, key).toBeInstanceOf(z.ZodEnum);
@@ -146,6 +152,18 @@ describe.each(RECORD_TYPES)('%s fields', (type) => {
         default:
           throw new Error(`unexpected kind ${field.kind} on ${key}`);
       }
+    }
+  });
+
+  it('gives every link field its targets and cardinality, and keeps it out of fields', () => {
+    const shape = recordFieldsSchemas[type].shape as Record<string, unknown>;
+    const specs: Record<string, FieldSpec> = RECORD_FIELD_SPECS[type];
+    for (const [key, field] of Object.entries(specs)) {
+      if (field.kind !== 'links') continue;
+      expect(shape[key], key).toBeUndefined();
+      expect(field.targets.length, key).toBeGreaterThan(0);
+      for (const target of field.targets) expect(RECORD_TYPES, key).toContain(target);
+      expect(['one', 'many'], key).toContain(field.cardinality);
     }
   });
 

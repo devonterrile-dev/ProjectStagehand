@@ -5,6 +5,7 @@
  */
 import {
   applyFieldsPatch,
+  emptyLinksFor,
   characterSheetPatchSchemaFor,
   createRecordRequestSchema,
   createStatBlockRequestSchema,
@@ -108,6 +109,8 @@ export function record(
     statBlockId: null,
     revealedAt: null,
     source: 'manual',
+    links: emptyLinksFor(overrides.type),
+    otherLinks: [],
     createdAt: '2026-11-09T10:00:00.000Z',
     updatedAt: '2026-11-09T10:00:00.000Z',
     ...overrides,

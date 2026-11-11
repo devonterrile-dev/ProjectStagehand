@@ -19,6 +19,7 @@ import {
   experienceSchema,
   goldSchema,
   inventoryItemSchema,
+  playerInventoryItemSchema,
   sheetListSchema,
   SHEET_NUMBER_MAX,
   sheetNumberSchema,
@@ -118,8 +119,13 @@ const PLAYER_SHEET_KEYS = {
   updatedAt: true,
 } as const;
 
-/** `GET …/characters/:characterId` as the PC's own player. */
-export const playerCharacterSheetSchema = characterSheetSchema.pick(PLAYER_SHEET_KEYS);
+/**
+ * `GET …/characters/:characterId` as the PC's own player. Inventory rows lose their Item
+ * record link (D-24): the player sees each row's name and detail only.
+ */
+export const playerCharacterSheetSchema = characterSheetSchema
+  .pick(PLAYER_SHEET_KEYS)
+  .extend({ inventory: z.array(playerInventoryItemSchema) });
 export type PlayerCharacterSheet = z.infer<typeof playerCharacterSheetSchema>;
 
 /** Every key a player may receive, for tests and serializers. */

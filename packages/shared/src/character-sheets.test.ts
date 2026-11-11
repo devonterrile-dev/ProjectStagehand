@@ -11,6 +11,8 @@ import {
 import { emptyRichText } from './rich-text';
 import { rulesetFor } from './ruleset';
 
+const ITEM_ID = '5d1a0c7e-2b3f-4e8a-9c61-0f4b2d7e8a19';
+
 const v1 = rulesetFor(1);
 const patch = (body: unknown, current?: CharacterSheetLimits) =>
   characterSheetPatchSchemaFor(v1, current).safeParse(body);
@@ -76,6 +78,17 @@ describe('playerCharacterSheetSchema', () => {
     expect(Object.keys(parsed).sort()).toEqual([...PLAYER_CHARACTER_SHEET_KEYS].sort());
     expect(parsed).not.toHaveProperty('gmNotes');
     expect(parsed).not.toHaveProperty('assignedToUserId');
+  });
+
+  it("drops an inventory row's Item record link, keeping its name and detail", () => {
+    const linked = {
+      ...SHEET,
+      inventory: [{ name: 'Tide key', detail: 'Cold', recordId: ITEM_ID }],
+    };
+    expect(characterSheetSchema.parse(linked).inventory[0]?.recordId).toBe(ITEM_ID);
+    expect(playerCharacterSheetSchema.parse(linked).inventory).toEqual([
+      { name: 'Tide key', detail: 'Cold' },
+    ]);
   });
 });
 
@@ -183,6 +196,16 @@ describe('characterSheetPatchSchemaFor', () => {
 
   it('has no ordering rule for damage thresholds', () => {
     expect(patch({ minorThreshold: 9, majorThreshold: 3, severeThreshold: 0 }).success).toBe(true);
+  });
+
+  it('accepts an inventory row linked to an Item record, by id only', () => {
+    const schema = characterSheetPatchSchemaFor(rulesetFor(1));
+    expect(
+      schema.parse({ inventory: [{ name: 'Tide key', detail: '', recordId: ITEM_ID }] }),
+    ).toEqual({ inventory: [{ name: 'Tide key', detail: '', recordId: ITEM_ID }] });
+    expect(
+      schema.safeParse({ inventory: [{ name: 'Tide key', detail: '', recordId: 'nope' }] }).success,
+    ).toBe(false);
   });
 
   it('limits list lengths', () => {

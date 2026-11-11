@@ -43,6 +43,13 @@
       "when": 1794355616962,
       "tag": "0005_sheets_and_stat_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794371848378,
+      "tag": "0006_record_links",
+      "breakpoints": true
     }
   ]
 }

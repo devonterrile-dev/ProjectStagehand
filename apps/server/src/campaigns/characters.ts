@@ -24,6 +24,7 @@ import { campaignMembers, characters } from '../db/schema';
 import { httpError } from '../http/errors';
 
 import { assignCharacterIn, type DbOrTx } from './members';
+import { requireInventoryItems } from './record-links';
 import type { CampaignScope } from './scope';
 
 type CharacterRow = typeof characters.$inferSelect;
@@ -116,7 +117,8 @@ function toPlayerCharacterSheet(sheet: CharacterSheet): PlayerCharacterSheet {
     experiences: sheet.experiences,
     weapons: sheet.weapons,
     armor: sheet.armor,
-    inventory: sheet.inventory,
+    // Name and detail only: the Item record link is the GM's (D-24).
+    inventory: sheet.inventory.map(({ name, detail }) => ({ name, detail })),
     gold: sheet.gold,
     classFeature: sheet.classFeature,
     combatOptions: sheet.combatOptions,
@@ -224,6 +226,9 @@ export async function updateCharacterSheet(
     const ruleset = rulesetFor(scope.campaign.rulesetVersion);
     const parsed = characterSheetPatchSchemaFor(ruleset, current).safeParse(body);
     if (!parsed.success) return { error: parsed.error };
+    if (parsed.data.inventory !== undefined) {
+      await requireInventoryItems(tx, scope, parsed.data.inventory);
+    }
 
     // The patch keys are exactly the sheet's editable columns, so it can be set as is.
     const values: PgUpdateSetSource<typeof characters> = { ...parsed.data };

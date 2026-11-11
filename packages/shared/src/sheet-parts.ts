@@ -110,12 +110,20 @@ export const armorSchema = z.strictObject({
 });
 export type Armor = z.infer<typeof armorSchema>;
 
-/** An inventory row. Links to Item records arrive with F1.5. */
+/**
+ * An inventory row. `recordId` optionally links an Item record of the same campaign (D-24);
+ * the server checks it, and the player's own sheet never receives it.
+ */
 export const inventoryItemSchema = z.strictObject({
   name: rowNameSchema('An item'),
   detail: textField,
+  recordId: z.uuid('Pick an Item record').optional(),
 });
 export type InventoryItem = z.infer<typeof inventoryItemSchema>;
+
+/** An inventory row as its player sees it: not strict, so parsing drops `recordId`. */
+export const playerInventoryItemSchema = z.object({ name: z.string(), detail: z.string() });
+export type PlayerInventoryItem = z.infer<typeof playerInventoryItemSchema>;
 
 export const goldSchema = z.strictObject({
   handfuls: sheetNumberSchema,

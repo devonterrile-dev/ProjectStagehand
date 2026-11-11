@@ -17,7 +17,13 @@ import {
   storyBeatFieldsSchema,
   type RecordType,
 } from './record-fields';
-import { richTextSchema } from './rich-text';
+import {
+  linksPatchSchemaFor,
+  linksSchemaFor,
+  otherLinkSchema,
+  otherLinksSchema,
+} from './record-links';
+import { recordRichTextSchema } from './rich-text';
 
 /** Longest record name allowed. The database enforces the same limit. */
 export const RECORD_NAME_MAX = 120;
@@ -55,9 +61,9 @@ const recordBase = {
   id: z.uuid(),
   name: z.string(),
   /** Public layer: what players see once the record is revealed. */
-  publicDescription: richTextSchema,
+  publicDescription: recordRichTextSchema,
   /** Private: free-form GM notes. */
-  gmNotes: richTextSchema,
+  gmNotes: recordRichTextSchema,
   tags: z.array(z.string()),
   /** The Area a Spot belongs to (D-15). Null for every other type. */
   parentId: z.uuid().nullable(),
@@ -71,7 +77,15 @@ const recordBase = {
 };
 
 function recordVariant<T extends RecordType, F extends z.ZodType>(type: T, fields: F) {
-  return z.object({ ...recordBase, type: z.literal(type), fields });
+  return z.object({
+    ...recordBase,
+    type: z.literal(type),
+    fields,
+    /** The type's link fields (D-24): every key present, each list sorted by name. */
+    links: linksSchemaFor(type),
+    /** Extra links with an optional relationship label, sorted by name. */
+    otherLinks: z.array(otherLinkSchema),
+  });
 }
 
 /** A full record, as the GM sees it. `fields` is typed by `type`. */
@@ -113,9 +127,10 @@ export type RecordListQuery = z.infer<typeof recordListQuerySchema>;
 
 const createBase = {
   name: recordNameSchema,
-  publicDescription: richTextSchema.optional(),
-  gmNotes: richTextSchema.optional(),
+  publicDescription: recordRichTextSchema.optional(),
+  gmNotes: recordRichTextSchema.optional(),
   tags: tagsSchema.optional(),
+  otherLinks: otherLinksSchema.optional(),
 };
 
 function createVariant<T extends Exclude<RecordType, 'spot'>, F extends z.ZodType>(
@@ -126,13 +141,15 @@ function createVariant<T extends Exclude<RecordType, 'spot'>, F extends z.ZodTyp
     ...createBase,
     type: z.literal(type),
     fields: fields.optional(),
+    links: linksPatchSchemaFor(type).optional(),
     parentId: z.null().optional(),
   });
 }
 
 /**
  * `POST /api/campaigns/:campaignId/records`. GM only; refused while archived. A Spot needs
- * its Area's id as `parentId`; no other type may have one.
+ * its Area's id as `parentId`; no other type may have one. `links` and `otherLinks` are
+ * optional, as in PATCH (the workshop UI adds links after creating; AI import sends them).
  */
 export const createRecordRequestSchema = z.discriminatedUnion('type', [
   createVariant('npc', npcFieldsSchema),
@@ -141,6 +158,7 @@ export const createRecordRequestSchema = z.discriminatedUnion('type', [
     ...createBase,
     type: z.literal('spot'),
     fields: spotFieldsSchema.optional(),
+    links: linksPatchSchemaFor('spot').optional(),
     parentId: z.uuid('A spot needs an area'),
   }),
   createVariant('faction', factionFieldsSchema),
@@ -153,9 +171,11 @@ export type CreateRecordRequest = z.infer<typeof createRecordRequestSchema>;
 
 const updateBase = {
   name: recordNameSchema.optional(),
-  publicDescription: richTextSchema.optional(),
-  gmNotes: richTextSchema.optional(),
+  publicDescription: recordRichTextSchema.optional(),
+  gmNotes: recordRichTextSchema.optional(),
   tags: tagsSchema.optional(),
+  /** The whole list of `other` links (D-24); entries left out are removed. */
+  otherLinks: otherLinksSchema.optional(),
   /** Spots only: move to another Area. */
   parentId: z.uuid().nullable().optional(),
   /** NPCs only: link a stat block of the same campaign, or null to unlink. */
@@ -166,17 +186,26 @@ const hasKeys = (patch: object) => Object.keys(patch).length > 0;
 /**
  * `PATCH /api/campaigns/:campaignId/records/:recordId`. GM only; refused while archived.
  * Any subset of the keys; `fields` is a partial of the record's type, merged on the server,
- * where null clears a field (D-22). The server validates `fields` with
+ * where null clears a field (D-22). `links` sends any of the type's link fields, each as its
+ * whole list of record ids (D-24). The server validates `fields` and `links` with
  * `updateRecordRequestSchemaFor(record.type)`; `type` itself can't change.
  */
 export const updateRecordRequestSchema = z
-  .strictObject({ ...updateBase, fields: z.record(z.string(), z.unknown()).optional() })
+  .strictObject({
+    ...updateBase,
+    fields: z.record(z.string(), z.unknown()).optional(),
+    links: z.record(z.string(), z.array(z.string()).optional()).optional(),
+  })
   .refine(hasKeys, 'Nothing to update');
 export type UpdateRecordRequest = z.infer<typeof updateRecordRequestSchema>;
 
 function typedUpdateSchema(type: RecordType): z.ZodType<UpdateRecordRequest> {
   return z
-    .strictObject({ ...updateBase, fields: fieldsPatchSchemaFor(type).optional() })
+    .strictObject({
+      ...updateBase,
+      fields: fieldsPatchSchemaFor(type).optional(),
+      links: linksPatchSchemaFor(type).optional(),
+    })
     .refine(hasKeys, 'Nothing to update');
 }
 
@@ -191,7 +220,7 @@ const updateSchemas: Record<RecordType, z.ZodType<UpdateRecordRequest>> = {
   session_notes: typedUpdateSchema('session_notes'),
 };
 
-/** The PATCH schema with `fields` checked against one type (null clears a field). */
+/** The PATCH schema with `fields` and `links` checked against one type. */
 export function updateRecordRequestSchemaFor(type: RecordType): z.ZodType<UpdateRecordRequest> {
   return updateSchemas[type];
 }

@@ -5,14 +5,15 @@
  *
  * - a Zod shape, which the API validates `fields` against and which types the client;
  * - a display spec (`RECORD_FIELD_SPECS`) in §8's order, which the form renderer and the
- *   AI-import prompts read. Link fields are listed there too, but they are `record_links`
- *   rows (F1.5), not part of `fields`.
+ *   AI-import prompts read. Link fields are listed there too, with the record types they
+ *   accept and whether they hold one or many; they are `record_links` rows (D-24), not part
+ *   of `fields`.
  *
  * Adding a type means adding both here (and a fixture in the server tests), not a migration.
  */
 import { z } from 'zod';
 
-import { richTextSchema } from './rich-text';
+import { recordRichTextSchema as richTextSchema } from './rich-text';
 
 export const RECORD_TYPES = [
   'npc',
@@ -211,17 +212,33 @@ export function applyFieldsPatch(
 
 export type FieldKind = 'text' | 'rich' | 'enum' | 'number' | 'date' | 'list' | 'links';
 
-/** How a field is shown. `links` fields are not in `fields`; they come with F1.5. */
-export interface FieldSpec {
-  kind: FieldKind;
+/** How a value field (one stored in `fields`) is shown. */
+export interface ValueFieldSpec {
+  kind: Exclude<FieldKind, 'links'>;
   label: string;
   /** The choices of an `enum` field. */
   options?: readonly string[];
 }
 
+export type LinkCardinality = 'one' | 'many';
+
+/**
+ * A link field: `record_links` rows, not part of `fields` (D-24). The server refuses a
+ * record of any other type, and more than one link on a `one` field.
+ */
+export interface LinkFieldSpec {
+  kind: 'links';
+  label: string;
+  targets: readonly RecordType[];
+  cardinality: LinkCardinality;
+}
+
+/** How a field is shown, and for link fields, what it may link to. */
+export type FieldSpec = ValueFieldSpec | LinkFieldSpec;
+
 /**
  * Every type's fields in display order (governance §8), including the link fields that
- * `record_links` will hold. Key order is the display order. `satisfies` keeps each spec
+ * `record_links` holds (D-24). Key order is the display order. `satisfies` keeps each spec
  * in step with its shape: a field missing here, or misspelled, is a compile error.
  */
 export const RECORD_FIELD_SPECS = {
@@ -234,32 +251,47 @@ export const RECORD_FIELD_SPECS = {
     secrets: { kind: 'rich', label: 'Secrets' },
     roleInStory: { kind: 'rich', label: 'Role in the story' },
     status: { kind: 'enum', label: 'Status', options: npcStatusSchema.options },
-    homeSpot: { kind: 'links', label: 'Home spot' },
-    factions: { kind: 'links', label: 'Factions' },
+    homeSpot: { kind: 'links', label: 'Home spot', targets: ['spot'], cardinality: 'one' },
+    factions: { kind: 'links', label: 'Factions', targets: ['faction'], cardinality: 'many' },
   } satisfies Record<keyof NpcFields | 'homeSpot' | 'factions', FieldSpec>,
   area: {
     kindOfPlace: { kind: 'text', label: 'Kind of place' },
     overview: { kind: 'rich', label: 'Overview' },
     atmosphere: { kind: 'rich', label: 'Atmosphere' },
     notableFeatures: { kind: 'rich', label: 'Notable features' },
-    factionsPresent: { kind: 'links', label: 'Factions present' },
+    factionsPresent: {
+      kind: 'links',
+      label: 'Factions present',
+      targets: ['faction'],
+      cardinality: 'many',
+    },
     hooks: { kind: 'rich', label: 'Hooks' },
     secrets: { kind: 'rich', label: 'Secrets' },
   } satisfies Record<keyof AreaFields | 'factionsPresent', FieldSpec>,
   spot: {
     readAloud: { kind: 'rich', label: 'Description to read out' },
     pointsOfInterest: { kind: 'list', label: 'Points of interest' },
-    npcsHere: { kind: 'links', label: 'NPCs usually here' },
-    itemsHere: { kind: 'links', label: 'Items here' },
+    npcsHere: {
+      kind: 'links',
+      label: 'NPCs usually here',
+      targets: ['npc'],
+      cardinality: 'many',
+    },
+    itemsHere: { kind: 'links', label: 'Items here', targets: ['item'], cardinality: 'many' },
     hiddenDetails: { kind: 'rich', label: 'Hidden details' },
     backdropNotes: { kind: 'text', label: 'Backdrop notes' },
   } satisfies Record<keyof SpotFields | 'npcsHere' | 'itemsHere', FieldSpec>,
   faction: {
     goals: { kind: 'rich', label: 'Goals' },
-    leaders: { kind: 'links', label: 'Leaders' },
-    members: { kind: 'links', label: 'Members' },
+    leaders: { kind: 'links', label: 'Leaders', targets: ['npc'], cardinality: 'many' },
+    members: { kind: 'links', label: 'Members', targets: ['npc'], cardinality: 'many' },
     resources: { kind: 'rich', label: 'Resources' },
-    alliesAndEnemies: { kind: 'links', label: 'Allies and enemies' },
+    alliesAndEnemies: {
+      kind: 'links',
+      label: 'Allies and enemies',
+      targets: ['faction'],
+      cardinality: 'many',
+    },
     publicReputation: { kind: 'rich', label: 'Public reputation' },
     secrets: { kind: 'rich', label: 'Secrets' },
   } satisfies Record<keyof FactionFields | 'leaders' | 'members' | 'alliesAndEnemies', FieldSpec>,
@@ -267,7 +299,12 @@ export const RECORD_FIELD_SPECS = {
     category: { kind: 'text', label: 'Category' },
     summary: { kind: 'rich', label: 'Summary' },
     fullDetails: { kind: 'rich', label: 'Full details' },
-    whoKnowsIt: { kind: 'links', label: 'Who knows it' },
+    whoKnowsIt: {
+      kind: 'links',
+      label: 'Who knows it',
+      targets: ['npc', 'faction'],
+      cardinality: 'many',
+    },
     trueVsBelieved: { kind: 'rich', label: 'What is true vs. what people believe' },
   } satisfies Record<keyof LoreFields | 'whoKnowsIt', FieldSpec>,
   story_beat: {
@@ -275,7 +312,12 @@ export const RECORD_FIELD_SPECS = {
     order: { kind: 'number', label: 'Order' },
     summary: { kind: 'rich', label: 'Summary' },
     trigger: { kind: 'rich', label: 'Trigger or conditions' },
-    involved: { kind: 'links', label: 'NPCs, places and items involved' },
+    involved: {
+      kind: 'links',
+      label: 'NPCs, places and items involved',
+      targets: ['npc', 'area', 'spot', 'item'],
+      cardinality: 'many',
+    },
     possibleOutcomes: { kind: 'rich', label: 'Possible outcomes' },
     status: { kind: 'enum', label: 'Status', options: storyBeatStatusSchema.options },
   } satisfies Record<keyof StoryBeatFields | 'involved', FieldSpec>,
@@ -284,7 +326,12 @@ export const RECORD_FIELD_SPECS = {
     appearance: { kind: 'text', label: 'Appearance' },
     effect: { kind: 'rich', label: 'What it does in play' },
     value: { kind: 'text', label: 'Value' },
-    currentHolder: { kind: 'links', label: 'Current holder or location' },
+    currentHolder: {
+      kind: 'links',
+      label: 'Current holder or location',
+      targets: ['npc', 'spot', 'area'],
+      cardinality: 'one',
+    },
     history: { kind: 'rich', label: 'History' },
   } satisfies Record<keyof ItemFields | 'currentHolder', FieldSpec>,
   session_notes: {
@@ -292,7 +339,7 @@ export const RECORD_FIELD_SPECS = {
     date: { kind: 'date', label: 'Date' },
     gmRecap: { kind: 'rich', label: 'GM recap' },
     keyEvents: { kind: 'rich', label: 'Key events' },
-    npcsMet: { kind: 'links', label: 'NPCs met' },
+    npcsMet: { kind: 'links', label: 'NPCs met', targets: ['npc'], cardinality: 'many' },
     openThreads: { kind: 'rich', label: 'Open threads' },
     prepForNextTime: { kind: 'rich', label: 'Prep for next time' },
   } satisfies Record<keyof SessionNotesFields | 'npcsMet', FieldSpec>,

@@ -128,7 +128,13 @@ describe('recordSchema', () => {
   };
 
   it('parses a record and types its fields by type', () => {
-    const record = recordSchema.parse({ ...base, type: 'npc', fields: { status: 'dead' } });
+    const record = recordSchema.parse({
+      ...base,
+      type: 'npc',
+      fields: { status: 'dead' },
+      links: { homeSpot: [], factions: [] },
+      otherLinks: [],
+    });
     if (record.type === 'npc') {
       expect(record.fields.status).toBe('dead');
     } else {

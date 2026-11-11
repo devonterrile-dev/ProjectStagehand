@@ -13,15 +13,18 @@ import {
   deleteRecord,
   getRecord,
   listRecords,
+  recordTypeOf,
   updateRecord,
 } from '../campaigns/records';
+import { listBacklinks } from '../campaigns/record-links';
 import { assertGm, assertWritable } from '../campaigns/scope';
 import type { Database } from '../db/client';
 import { sendValidationError } from '../http/errors';
 
 /**
- * Narrative records (F1.3): list, create, read, partial update and delete. GM only until
- * the reveal flow (F3.5) adds the players' view. Every route here is campaign-scoped: see
+ * Narrative records (F1.3): list, create, read, partial update and delete, plus each
+ * record's backlinks (F1.5). A record's own links are read and written with the record.
+ * GM only until the reveal flow (F3.5) adds the players' view. Every route here is campaign-scoped: see
  * the isolation table in `campaigns.int.test.ts`.
  */
 export function registerRecordRoutes(
@@ -62,8 +65,19 @@ export function registerRecordRoutes(
     return getRecord(deps.db, scope, recordId(request));
   });
 
-  // The body's `fields` are checked against the record's own type, so the record is read
-  // first. `type` never changes, so reading it outside the update's transaction is safe.
+  // Everything that points at the record. Reading still works while archived.
+  app.get(
+    '/api/campaigns/:campaignId/records/:recordId/backlinks',
+    { preHandler },
+    async (request) => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      return listBacklinks(deps.db, scope, recordId(request));
+    },
+  );
+
+  // The body's `fields` and `links` are checked against the record's own type, so the type
+  // is read first. It never changes, so reading it outside the update's transaction is safe.
   app.patch(
     '/api/campaigns/:campaignId/records/:recordId',
     { preHandler },
@@ -73,8 +87,8 @@ export function registerRecordRoutes(
       assertWritable(scope);
       const id = recordId(request);
 
-      const current = await getRecord(deps.db, scope, id);
-      const parsed = updateRecordRequestSchemaFor(current.type).safeParse(request.body);
+      const type = await recordTypeOf(deps.db, scope, id);
+      const parsed = updateRecordRequestSchemaFor(type).safeParse(request.body);
       if (!parsed.success) return sendValidationError(reply, parsed.error);
 
       return updateRecord(deps.db, scope, id, parsed.data);

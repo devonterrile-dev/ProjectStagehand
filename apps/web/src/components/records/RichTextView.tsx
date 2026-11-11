@@ -57,7 +57,9 @@ function blocks(content: readonly RichTextBlock[]): ReactNode[] {
 function inline(content: readonly RichTextInline[]): ReactNode[] {
   return content.map((node, index) => {
     if (node.type === 'hardBreak') return <br key={index} />;
-    let element: ReactNode = node.text;
+    // A mention is plain text here: this view is what players see, and a mention must not
+    // lead them to a record (or carry its id) they haven't been shown (D-24).
+    let element: ReactNode = node.type === 'mention' ? node.attrs.label : node.text;
     for (const mark of node.marks ?? []) {
       switch (mark.type) {
         case 'bold':

@@ -85,6 +85,11 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/records/:recordId', gmOnly: true },
+  {
+    method: 'GET',
+    path: '/api/campaigns/:campaignId/records/:recordId/backlinks',
+    gmOnly: true,
+  },
   { method: 'GET', path: '/api/campaigns/:campaignId/stat-blocks', gmOnly: true },
   {
     method: 'POST',
