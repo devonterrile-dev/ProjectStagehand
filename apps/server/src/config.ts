@@ -21,6 +21,13 @@ const envSchema = z
     BETTER_AUTH_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
     DISCORD_CLIENT_ID: z.string().min(1).optional(),
     DISCORD_CLIENT_SECRET: z.string().min(1).optional(),
+    // 32 random bytes, base64url: the master key for GMs' stored API keys (F1.7, §14).
+    CREDENTIALS_ENCRYPTION_KEY: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]+$/, 'must be base64url (letters, digits, - and _)')
+      .transform((value) => Buffer.from(value, 'base64url'))
+      .refine((key) => key.length === 32, 'must decode to exactly 32 bytes')
+      .optional(),
     // Only "true"/"false" (not any non-empty string), so a typo can't silently enable it.
     TRUST_PROXY: z
       .enum(['true', 'false'], { error: 'must be "true" or "false"' })
@@ -36,6 +43,7 @@ const envSchema = z
       'BETTER_AUTH_SECRET',
       'DISCORD_CLIENT_ID',
       'DISCORD_CLIENT_SECRET',
+      'CREDENTIALS_ENCRYPTION_KEY',
     ] as const) {
       if (env[key] === undefined) {
         ctx.addIssue({
@@ -61,6 +69,11 @@ export interface Config {
    * arrives through a proxy we control (production: Cloudflare Tunnel's cloudflared).
    */
   trustProxy: boolean;
+  /**
+   * AES-256-GCM master key for GMs' provider API keys. Only ever in the environment, never
+   * in the repo or the database. Present outside unit tests.
+   */
+  credentialsKey: Buffer | undefined;
   /** Present outside unit tests. */
   auth:
     | {
@@ -101,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDistDir: parsed.WEB_DIST_DIR,
     publicUrl: parsed.PUBLIC_URL,
     trustProxy: parsed.TRUST_PROXY,
+    credentialsKey: parsed.CREDENTIALS_ENCRYPTION_KEY,
     auth:
       parsed.BETTER_AUTH_SECRET !== undefined &&
       parsed.DISCORD_CLIENT_ID !== undefined &&

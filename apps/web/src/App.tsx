@@ -9,6 +9,7 @@ import { JoinPage } from '@/pages/JoinPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { RecordPage } from '@/pages/RecordPage';
 import { RecordsPage } from '@/pages/RecordsPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
 
@@ -22,6 +23,14 @@ export function App() {
           element={
             <RequireAuth>
               <ProfilePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <RequireAuth>
+              <SettingsPage />
             </RequireAuth>
           }
         />

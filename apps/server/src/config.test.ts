@@ -9,6 +9,7 @@ const REQUIRED = {
   BETTER_AUTH_SECRET: 'x'.repeat(32),
   DISCORD_CLIENT_ID: 'client-id',
   DISCORD_CLIENT_SECRET: 'client-secret',
+  CREDENTIALS_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64url'),
 };
 
 function captureError(fn: () => unknown): ConfigError {
@@ -32,6 +33,7 @@ describe('loadConfig', () => {
       webDistDir: undefined,
       publicUrl: 'http://localhost:5173',
       trustProxy: false,
+      credentialsKey: Buffer.alloc(32, 7),
       auth: {
         secret: REQUIRED.BETTER_AUTH_SECRET,
         discordClientId: 'client-id',
@@ -127,6 +129,23 @@ describe('loadConfig', () => {
 
     expect(message).toContain('PUBLIC_URL');
     expect(message).toContain('BETTER_AUTH_SECRET: must be at least 32 characters');
+  });
+
+  it('decodes CREDENTIALS_ENCRYPTION_KEY and insists on 32 bytes', () => {
+    const key = Buffer.alloc(32, 9);
+    expect(
+      loadConfig({ ...REQUIRED, CREDENTIALS_ENCRYPTION_KEY: key.toString('base64url') })
+        .credentialsKey,
+    ).toEqual(key);
+    expect(() =>
+      loadConfig({
+        ...REQUIRED,
+        CREDENTIALS_ENCRYPTION_KEY: Buffer.alloc(16).toString('base64url'),
+      }),
+    ).toThrow('CREDENTIALS_ENCRYPTION_KEY: must decode to exactly 32 bytes');
+    expect(() => loadConfig({ ...REQUIRED, CREDENTIALS_ENCRYPTION_KEY: 'not base64url!' })).toThrow(
+      'CREDENTIALS_ENCRYPTION_KEY: must be base64url',
+    );
   });
 
   it('rejects an out-of-range or non-numeric PORT', () => {

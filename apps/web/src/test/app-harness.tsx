@@ -17,6 +17,7 @@ import {
   playerCharacterSheetSchema,
   richTextToPlainText,
   rulesetFor,
+  saveAnthropicKeyRequestSchema,
   searchTerms,
   snippetAround,
   updateRecordRequestSchemaFor,
@@ -31,6 +32,7 @@ import {
   type InvitePreview,
   type Member,
   type MeResponse,
+  type ProviderCredential,
   type RecordListItem,
   type RecordRef,
   type RecordType,
@@ -228,7 +230,18 @@ export interface FakeWorld {
   campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
   invites?: Record<string, InvitePreview>;
+  /**
+   * `me`'s stored AI keys. Saving a key that contains `rejected` gets Anthropic's refusal
+   * (400), and one containing `offline` the "couldn't reach Anthropic" error (502).
+   */
+  credentials?: ProviderCredential[];
 }
+
+/** What the fake server answers when Anthropic refuses a key, as the real one words it. */
+export const KEY_REJECTED_MESSAGE =
+  "Anthropic didn't accept this key. Check that you copied all of it, and that it hasn't been deleted. Nothing was saved.";
+export const KEY_UNREACHABLE_MESSAGE =
+  "Couldn't reach Anthropic to check the key. Try again in a moment. Nothing was saved.";
 
 /**
  * Fakes the Stagehand API: `me` is the signed-in user (null = signed out), `campaigns` the
@@ -236,6 +249,7 @@ export interface FakeWorld {
  */
 export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world: FakeWorld = {}) {
   const store = new Map(campaigns.map((c) => [c.id, { ...c }]));
+  let credentials: ProviderCredential[] = (world.credentials ?? []).map((c) => ({ ...c }));
   const data = new Map<string, CampaignData>();
   const dataFor = (c: Campaign): CampaignData => {
     let entry = data.get(c.id);
@@ -667,6 +681,31 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         displayName: displayName ?? MIRA.displayName,
         hasCustomDisplayName: displayName !== null,
       });
+    }
+
+    if (url.startsWith('/api/me/credentials')) {
+      if (me === null) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      if (url === '/api/me/credentials' && method === 'GET') {
+        return Response.json({ credentials });
+      }
+      if (url === '/api/me/credentials/anthropic' && method === 'PUT') {
+        const parsed = saveAnthropicKeyRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return invalid(parsed.error.issues);
+        if (parsed.data.apiKey.includes('rejected')) return refused(400, KEY_REJECTED_MESSAGE);
+        if (parsed.data.apiKey.includes('offline')) return refused(502, KEY_UNREACHABLE_MESSAGE);
+        const saved: ProviderCredential = {
+          provider: 'anthropic',
+          lastFour: parsed.data.apiKey.slice(-4),
+          createdAt: '2026-11-11T12:00:00.000Z',
+        };
+        credentials = [...credentials.filter((c) => c.provider !== 'anthropic'), saved];
+        return Response.json(saved);
+      }
+      if (url === '/api/me/credentials/anthropic' && method === 'DELETE') {
+        credentials = credentials.filter((c) => c.provider !== 'anthropic');
+        return new Response(null, { status: 204 });
+      }
+      return notFound('Not Found');
     }
 
     if (url === '/api/campaigns' && method === 'GET') {

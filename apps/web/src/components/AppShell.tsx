@@ -23,6 +23,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {me && (
             <div className="flex items-center gap-4">
               <QuickJump />
+              <Link to="/settings" className="text-sm font-medium hover:underline">
+                Settings
+              </Link>
               <Link
                 to="/profile"
                 className="flex items-center gap-2 text-sm font-medium"

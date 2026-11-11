@@ -1,6 +1,6 @@
 import { displayNameSchema, type MeResponse } from '@stagehand/shared';
 import { useState, type SubmitEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { UserAvatar } from '@/components/UserAvatar';
 import { Button } from '@/components/ui/button';
@@ -125,10 +125,13 @@ function Profile({ me }: { me: MeResponse }) {
           </div>
         </form>
 
-        <div className="border-t pt-4">
+        <div className="flex items-center justify-between gap-2 border-t pt-4">
           <Button variant="outline" onClick={handleSignOut} disabled={signOut.isPending}>
             Sign out
           </Button>
+          <Link to="/settings" className="text-sm underline">
+            Settings and AI keys
+          </Link>
         </div>
       </CardContent>
     </Card>

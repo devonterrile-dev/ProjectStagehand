@@ -6,6 +6,7 @@ import type {
   CreateStatBlockRequest,
   InviteExpiry,
   MeResponse,
+  ProviderCredential,
   RecordType,
   UpdateMeRequest,
   UpdateRecordRequest,
@@ -21,6 +22,7 @@ import {
   createInvite,
   createRecord,
   createStatBlock,
+  deleteAnthropicKey,
   deleteCharacter,
   deleteRecord,
   deleteStatBlock,
@@ -34,6 +36,7 @@ import {
   fetchMe,
   fetchMembers,
   fetchOwnCharacterSheet,
+  fetchProviderCredentials,
   fetchRecord,
   fetchRecords,
   fetchStatBlock,
@@ -44,6 +47,7 @@ import {
   removeMember,
   renameCampaign,
   revokeInvite,
+  saveAnthropicKey,
   setCampaignArchived,
   updateMe,
   type RecordListFilter,
@@ -64,6 +68,38 @@ export function useUpdateMe() {
     mutationFn: (update: UpdateMeRequest) => updateMe(update),
     onSuccess: (me: MeResponse) => {
       queryClient.setQueryData(ME_KEY, me);
+    },
+  });
+}
+
+const CREDENTIALS_KEY = ['credentials'] as const;
+
+/** The user's stored AI provider keys (last four characters only, never the key). */
+export function useProviderCredentials() {
+  return useQuery({ queryKey: CREDENTIALS_KEY, queryFn: fetchProviderCredentials });
+}
+
+export function useSaveAnthropicKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (apiKey: string) => saveAnthropicKey(apiKey),
+    onSuccess: (saved: ProviderCredential) => {
+      queryClient.setQueryData<ProviderCredential[]>(CREDENTIALS_KEY, (current = []) => [
+        ...current.filter((credential) => credential.provider !== saved.provider),
+        saved,
+      ]);
+    },
+  });
+}
+
+export function useDeleteAnthropicKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteAnthropicKey,
+    onSuccess: () => {
+      queryClient.setQueryData<ProviderCredential[]>(CREDENTIALS_KEY, (current = []) =>
+        current.filter((credential) => credential.provider !== 'anthropic'),
+      );
     },
   });
 }

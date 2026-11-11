@@ -70,6 +70,8 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      # Encrypts GMs' stored AI keys (F1.7). Required: the app refuses to start without it.
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

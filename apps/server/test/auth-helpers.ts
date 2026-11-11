@@ -6,14 +6,17 @@
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { expect, inject, vi } from 'vitest';
 
-import { buildApp } from '../src/app';
+import { buildApp, type BuildAppOptions } from '../src/app';
 import { createAuth } from '../src/auth/auth';
 import { createDb, type DbHandle } from '../src/db/client';
+import type { AnthropicProvider } from '../src/providers/anthropic';
 
 export const PUBLIC_URL = 'http://localhost:5173';
 export const DISCORD_CLIENT_ID = 'test-client-id';
 /** Headers that pass the CSRF origin check on writes. */
 export const SAME_ORIGIN = { origin: PUBLIC_URL };
+/** CREDENTIALS_ENCRYPTION_KEY for integration tests. */
+export const TEST_CREDENTIALS_KEY = Buffer.alloc(32, 0x5a);
 
 export interface FakeDiscordUser {
   id: string;
@@ -28,7 +31,9 @@ export interface FakeDiscordUser {
  * The full app (auth, CSRF, every API route) on the shared test database. The app owns the
  * pool, so `app.close()` ends it.
  */
-export async function buildTestApp(): Promise<{ app: FastifyInstance; handle: DbHandle }> {
+export async function buildTestApp(
+  options: Pick<BuildAppOptions, 'logger'> & { anthropic?: AnthropicProvider } = {},
+): Promise<{ app: FastifyInstance; handle: DbHandle }> {
   const handle = createDb(inject('databaseUrl'), { max: 2 });
   const auth = createAuth({
     db: handle.db,
@@ -36,7 +41,16 @@ export async function buildTestApp(): Promise<{ app: FastifyInstance; handle: Db
     secret: 'integration-test-secret-at-least-32-chars',
     discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' },
   });
-  const app = buildApp({ db: handle, auth, publicUrl: PUBLIC_URL });
+  const app = buildApp({
+    db: handle,
+    auth,
+    publicUrl: PUBLIC_URL,
+    logger: options.logger,
+    credentials: {
+      key: TEST_CREDENTIALS_KEY,
+      anthropic: options.anthropic ?? { checkKey: () => Promise.resolve('ok') },
+    },
+  });
   await app.ready();
   return { app, handle };
 }

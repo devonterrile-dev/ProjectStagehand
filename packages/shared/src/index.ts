@@ -64,6 +64,20 @@ export {
   type UpdateMeRequest,
 } from './me';
 export {
+  anthropicApiKeySchema,
+  PROVIDER_KEY_LAST_FOUR,
+  PROVIDER_KEY_MAX,
+  providerCredentialSchema,
+  providerCredentialsResponseSchema,
+  providerSchema,
+  PROVIDERS,
+  saveAnthropicKeyRequestSchema,
+  type Provider,
+  type ProviderCredential,
+  type ProviderCredentialsResponse,
+  type SaveAnthropicKeyRequest,
+} from './provider-credentials';
+export {
   applyFieldsPatch,
   areaFieldsSchema,
   factionFieldsSchema,

@@ -12,6 +12,8 @@ import {
   memberListResponseSchema,
   meResponseSchema,
   playerCharacterSheetSchema,
+  providerCredentialSchema,
+  providerCredentialsResponseSchema,
   recordListResponseSchema,
   recordSchema,
   statBlockListResponseSchema,
@@ -31,6 +33,7 @@ import {
   type MeResponse,
   type Member,
   type PlayerCharacterSheet,
+  type ProviderCredential,
   type RecordListItem,
   type RecordType,
   type StatBlock,
@@ -84,6 +87,31 @@ export async function updateMe(update: UpdateMeRequest): Promise<MeResponse> {
   const response = await request('/api/me', { method: 'PATCH', body: JSON.stringify(update) });
   if (!response.ok) throw await errorFrom(response);
   return meResponseSchema.parse(await response.json());
+}
+
+/** The user's stored AI provider keys: provider, last four characters and date only. */
+export async function fetchProviderCredentials(): Promise<ProviderCredential[]> {
+  const response = await request('/api/me/credentials');
+  if (!response.ok) throw await errorFrom(response);
+  return providerCredentialsResponseSchema.parse(await response.json()).credentials;
+}
+
+/**
+ * Sends a new Anthropic key (the only time a key leaves the browser). The server checks it
+ * with Anthropic first and refuses keys Anthropic doesn't accept.
+ */
+export async function saveAnthropicKey(apiKey: string): Promise<ProviderCredential> {
+  const response = await request('/api/me/credentials/anthropic', {
+    method: 'PUT',
+    body: JSON.stringify({ apiKey }),
+  });
+  if (!response.ok) throw await errorFrom(response);
+  return providerCredentialSchema.parse(await response.json());
+}
+
+export async function deleteAnthropicKey(): Promise<void> {
+  const response = await request('/api/me/credentials/anthropic', { method: 'DELETE' });
+  if (!response.ok) throw await errorFrom(response);
 }
 
 /** Every campaign the user belongs to, active and archived. */

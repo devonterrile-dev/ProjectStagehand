@@ -15,6 +15,10 @@ import { registerCharacterRoutes } from './routes/characters';
 import { registerInviteRoutes } from './routes/invites';
 import { registerMeRoutes } from './routes/me';
 import { registerMemberRoutes } from './routes/members';
+import {
+  registerProviderCredentialRoutes,
+  type CredentialDeps,
+} from './routes/provider-credentials';
 import { registerRecordRoutes } from './routes/records';
 import { registerStatBlockRoutes } from './routes/stat-blocks';
 
@@ -32,8 +36,10 @@ export interface BuildAppOptions {
   webDistDir?: string | undefined;
   /** Database handle. The app takes ownership and ends the pool when it closes. */
   db?: DbHandle | undefined;
-  /** Sign-in, sessions and the user API. Requires `db` and `publicUrl`. */
+  /** Sign-in, sessions and the user API. Requires `db`, `publicUrl` and `credentials`. */
   auth?: Auth | undefined;
+  /** Master key and provider clients for GMs' stored API keys (F1.7). */
+  credentials?: CredentialDeps | undefined;
   /** The app's own origin (PUBLIC_URL), used for CSRF checks and HSTS. */
   publicUrl?: string | undefined;
   /**
@@ -82,13 +88,22 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   );
 
   if (options.auth !== undefined) {
-    if (handle === undefined || options.publicUrl === undefined) {
-      throw new Error('buildApp: `auth` requires `db` and `publicUrl`');
+    if (
+      handle === undefined ||
+      options.publicUrl === undefined ||
+      options.credentials === undefined
+    ) {
+      throw new Error('buildApp: `auth` requires `db`, `publicUrl` and `credentials`');
     }
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
     registerCsrfProtection(app, { publicUrl: options.publicUrl, exempt: [`${AUTH_BASE_PATH}/`] });
     registerAuthRoutes(app, options.auth);
     registerMeRoutes(app, { auth: options.auth, db: handle.db });
+    registerProviderCredentialRoutes(app, {
+      auth: options.auth,
+      db: handle.db,
+      credentials: options.credentials,
+    });
     // Campaign routes first: they register the `request.campaign` decoration.
     registerCampaignRoutes(app, { auth: options.auth, db: handle.db });
     registerMemberRoutes(app, { auth: options.auth, db: handle.db });
@@ -105,13 +120,39 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   return app;
 }
 
-/** Applies our request serializer (no OAuth codes in logs) to any enabled logger. */
+/**
+ * Log fields that could ever hold a secret. Our request serializer already logs no headers
+ * or bodies, so this is the backstop if a log call or a future serializer adds them (§14).
+ */
+export const LOG_REDACT_PATHS = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.headers["x-api-key"]',
+  'req.body.apiKey',
+  'headers.authorization',
+  'headers.cookie',
+  'headers["x-api-key"]',
+  'body.apiKey',
+  'apiKey',
+  '*.apiKey',
+  'encryptedKey',
+  '*.encryptedKey',
+];
+
+/**
+ * Applies our request serializer (no OAuth codes in logs) and secret redaction to any
+ * enabled logger.
+ */
 function withRequestRedaction(
   logger: NonNullable<FastifyServerOptions['logger']>,
 ): FastifyServerOptions['logger'] {
   if (logger === false) return false;
   const base = logger === true ? {} : logger;
-  return { ...base, serializers: { ...base.serializers, req: serializeRequest } };
+  return {
+    ...base,
+    serializers: { ...base.serializers, req: serializeRequest },
+    redact: { paths: LOG_REDACT_PATHS, censor: '[redacted]' },
+  };
 }
 
 function registerSpa(app: FastifyInstance, root: string): void {

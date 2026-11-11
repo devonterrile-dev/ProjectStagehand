@@ -57,6 +57,16 @@ Sign in with Discord only, via [Better Auth](https://www.better-auth.com) (gover
    - `https://<domain>/api/auth/callback/discord` (F0.5)
 4. Put the values in `apps/server/.env` (dev) and `infra/.env` (stack), with `PUBLIC_URL` set to the matching origin and a generated `BETTER_AUTH_SECRET`.
 
+### Master key for stored AI keys (once per environment)
+
+GMs' Anthropic keys (F1.7) are stored encrypted with `CREDENTIALS_ENCRYPTION_KEY`: exactly 32 random bytes, base64url. The server refuses to start without it. Generate one per environment (dev and the stack get different keys):
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+Put it in `apps/server/.env` (dev) and `infra/.env` (stack), and keep the stack's copy with the backup passphrase. Backups contain only the encrypted keys, so a restore needs this value too. If it's lost or changed, stored keys can't be decrypted and GMs enter them again; nothing else is affected.
+
 ### Rules for new API routes
 
 - Routes that need a signed-in user use the `requireSession(auth)` preHandler; the user is on `request.auth`.
@@ -366,3 +376,14 @@ Per governance §1, assumptions the build relies on:
 - **A hit found in the text shows an excerpt** naming the field ("GM notes: …"), with the matching words in bold. The bolding is React text, never HTML.
 - **Quick jump** (header button, Ctrl+K or Cmd+K, also from inside the editor) is GM only and only inside a campaign. It finds records through the same search (8 at most) and stat blocks and PCs by name in the browser (5 each). With nothing typed it lists the 5 items opened most recently in that campaign, kept in this browser's localStorage as kinds and ids only; items since deleted are skipped, and blocked storage just means no recents.
 - **Quick jump waits for saves before leaving.** Every autosave registers with `lib/pending-saves.ts`; if a save fails, the GM stays on the page, where the save status offers Retry. Ctrl/Cmd+Enter (or Ctrl/Cmd+click) opens the item in a new tab instead.
+
+## Working assumptions (F1.7)
+
+- **One key per user per provider, not per campaign** (`provider_credentials`, primary key user + provider). A GM's key serves every campaign they run. Anyone signed in can open Settings, because anyone can create a campaign; the key is only ever used for that user's own AI imports (F1.8).
+- **AES-256-GCM with a server-only master key** (`credentials/crypto.ts`, D-26). Stored as `v1.<iv>.<ciphertext>.<tag>` (base64url, fresh 12-byte IV each time). The associated data names the user and provider, so a value copied onto another row doesn't decrypt. There is no key rotation yet; the `v1` prefix leaves room for it.
+- **A key is decrypted in one place**, `getProviderKey` in `credentials/store.ts`, for the outgoing call only. No route decrypts: `GET /api/me/credentials` returns provider, last four characters and date, through a shared schema with no key field. A value that can't be decrypted throws `CredentialUnreadableError`, and F1.8 will ask the GM to enter the key again.
+- **Saving checks the key with Anthropic first** (`providers/anthropic.ts`): `GET /v1/models` through the official `@anthropic-ai/sdk`, which costs no tokens, with no retries and a 10-second timeout. 401 or 403 → 400 with the reason, 429 → 503, anything else (network, timeout, 5xx) → 502. A refused key is never stored, and a failed replacement keeps the old key.
+- **The key leaves the browser once.** The settings form reads it from the field on submit, clears the field afterwards and resets the mutation, so it isn't kept in React state or the query cache. The page shows only "Key ending in …abcd".
+- **Logs never carry a key.** The request serializer logs no headers or bodies, pino `redact` (`LOG_REDACT_PATHS` in `app.ts`) censors `apiKey`, `encryptedKey`, `authorization` and `cookie` fields if anything ever logs them, the Anthropic SDK runs with `logLevel: 'off'`, and refusals are answered directly rather than thrown. The integration test runs the routes with a trace-level logger and scans every line and every response for the keys and ciphertexts.
+- **No rate limit on saving a key yet.** Each save makes one free Anthropic call; per-user rate limits arrive with the AI import route (F1.8, §14).
+- **OpenRouter has no routes yet** (F2.2). The table already allows `openrouter`, and its paths answer 404.

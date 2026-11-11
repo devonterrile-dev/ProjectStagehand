@@ -4,6 +4,7 @@ import { buildApp } from './app';
 import { createAuth } from './auth/auth';
 import { ConfigError, loadConfig } from './config';
 import { createDb } from './db/client';
+import { createAnthropicProvider } from './providers/anthropic';
 
 function start(): void {
   let config;
@@ -41,6 +42,10 @@ function start(): void {
     auth,
     publicUrl: config.publicUrl,
     trustProxy: config.trustProxy,
+    credentials:
+      config.credentialsKey === undefined
+        ? undefined
+        : { key: config.credentialsKey, anthropic: createAnthropicProvider() },
   });
 
   // Close cleanly on `docker stop` (SIGTERM) and Ctrl+C (SIGINT): stop accepting
