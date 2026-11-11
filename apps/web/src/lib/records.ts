@@ -10,6 +10,19 @@ export function recordPath(campaignId: string, recordId: string): string {
   return `/campaigns/${campaignId}/records/${recordId}`;
 }
 
+/** A PC's sheet page. */
+export function characterPath(campaignId: string, characterId: string): string {
+  return `/campaigns/${campaignId}/characters/${characterId}`;
+}
+
+export function statBlocksPath(campaignId: string): string {
+  return `/campaigns/${campaignId}/stat-blocks`;
+}
+
+export function statBlockPath(campaignId: string, statBlockId: string): string {
+  return `/campaigns/${campaignId}/stat-blocks/${statBlockId}`;
+}
+
 /** The `?type=` filter, or null for "all" (including unknown values). */
 export function parseTypeParam(value: string | null): RecordType | null {
   const parsed = recordTypeSchema.safeParse(value);

@@ -1,5 +1,5 @@
 /**
- * Per-field autosave for a record (D-22). Edits are merged into one pending patch and sent
+ * Per-field autosave for a record, sheet or stat block (D-22, D-23). Edits are merged into one pending patch and sent
  * after a short pause, on blur, on unmount and when the page unloads. Requests for the
  * record go out one at a time, in order, so the server's "last write wins" matches what
  * the GM typed last. A failed patch is kept and merged under anything typed since, so a
@@ -10,17 +10,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-export type SendPatch = (
-  patch: UpdateRecordRequest,
+export type SendPatch<P extends object = UpdateRecordRequest> = (
+  patch: P,
   options: { keepalive: boolean },
 ) => Promise<unknown>;
 
-export interface Autosave {
+export interface Autosave<P extends object = UpdateRecordRequest> {
   status: AutosaveStatus;
   /** The last failure's message, while `status` is `error`. */
   error: string | null;
   /** Merges the patch into what's pending and restarts the pause. */
-  save: (patch: UpdateRecordRequest) => void;
+  save: (patch: P) => void;
   /** Sends whatever is pending now (blur, Retry). */
   flush: () => void;
   /** Drops pending edits without sending them (before a delete). */
@@ -30,10 +30,11 @@ export interface Autosave {
 }
 
 /**
- * `next` over `base`: top-level keys replace, `fields` merge key by key. Null values survive
- * the merge, so clearing a field and setting it again each win in the order they happened.
+ * For records: `next` over `base`, where top-level keys replace and `fields` merge key by
+ * key. Null values survive the merge, so clearing a field and setting it again each win in
+ * the order they happened.
  */
-export function mergePatch(
+export function mergeRecordPatch(
   base: UpdateRecordRequest,
   next: UpdateRecordRequest,
 ): UpdateRecordRequest {
@@ -44,11 +45,27 @@ export function mergePatch(
   return merged;
 }
 
-export function useAutosave(send: SendPatch, delay = 800): Autosave {
+/** `next` over `base`, key by key: for patches where every key replaces its whole value. */
+export function mergeShallow<P extends object>(base: P, next: P): P {
+  return { ...base, ...next };
+}
+
+export interface AutosaveOptions<P extends object> {
+  /** Pause before a save goes out, in milliseconds. */
+  delay?: number;
+  /** How a new edit joins what's pending. Defaults to `mergeShallow`. */
+  merge?: (base: P, next: P) => P;
+}
+
+export function useAutosave<P extends object = UpdateRecordRequest>(
+  send: SendPatch<P>,
+  { delay = 800, merge = mergeShallow }: AutosaveOptions<P> = {},
+): Autosave<P> {
   const [status, setStatus] = useState<AutosaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const sendRef = useRef(send);
-  const pending = useRef<UpdateRecordRequest | null>(null);
+  const pending = useRef<P | null>(null);
+  const mergeRef = useRef(merge);
   const timer = useRef<number | null>(null);
   /** Requests chain onto this promise, which never rejects. */
   const queue = useRef<Promise<void>>(Promise.resolve());
@@ -57,7 +74,8 @@ export function useAutosave(send: SendPatch, delay = 800): Autosave {
 
   useEffect(() => {
     sendRef.current = send;
-  }, [send]);
+    mergeRef.current = merge;
+  }, [send, merge]);
 
   const clearTimer = useCallback(() => {
     if (timer.current !== null) {
@@ -84,7 +102,8 @@ export function useAutosave(send: SendPatch, delay = 800): Autosave {
           }
         } catch (sendError) {
           // Keep what failed, under anything typed since, for the retry.
-          pending.current = mergePatch(patch, pending.current ?? {});
+          pending.current =
+            pending.current === null ? patch : mergeRef.current(patch, pending.current);
           if (mounted.current) {
             setError(sendError instanceof Error ? sendError.message : 'Something went wrong');
             setStatus('error');
@@ -98,8 +117,8 @@ export function useAutosave(send: SendPatch, delay = 800): Autosave {
   );
 
   const save = useCallback(
-    (patch: UpdateRecordRequest) => {
-      pending.current = mergePatch(pending.current ?? {}, patch);
+    (patch: P) => {
+      pending.current = pending.current === null ? patch : mergeRef.current(pending.current, patch);
       clearTimer();
       timer.current = window.setTimeout(() => {
         timer.current = null;

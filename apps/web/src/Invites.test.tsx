@@ -25,6 +25,10 @@ async function confirm(label: string) {
   fireEvent.click(within(dialog).getByRole('button', { name: label }));
 }
 
+/** Matches a roster line "Plays <name>", whose name may be a link. */
+const plays = (name: string) => (_: string, element: Element | null) =>
+  element?.tagName === 'P' && element.textContent === `Plays ${name}`;
+
 describe('Joining through an invite link', () => {
   const code = inviteCode('join');
   const preview: InvitePreview = {
@@ -138,7 +142,9 @@ describe('Members and PCs', () => {
     fireEvent.change(await screen.findByLabelText('New PC name'), { target: { value: ' Vex ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save PC' }));
 
-    expect(await within(roster).findByText('Plays Vex')).toBeDefined();
+    expect(await within(roster).findByText(plays('Vex'))).toBeDefined();
+    // The GM can open the PC's sheet from the roster.
+    expect(within(roster).getByRole('link', { name: 'Vex' })).toBeDefined();
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/campaigns/${coast.id}/characters`,
       expect.objectContaining({
@@ -156,7 +162,7 @@ describe('Members and PCs', () => {
     await waitFor(() => {
       expect(within(roster).getAllByText('No PC yet')).toHaveLength(1);
     });
-    expect(within(roster).getByText('Plays Vex')).toBeDefined();
+    expect(within(roster).getByText(plays('Vex'))).toBeDefined();
   });
 
   it('checks a new PC name before sending', async () => {

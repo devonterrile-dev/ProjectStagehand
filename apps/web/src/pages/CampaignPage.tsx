@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router';
 
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { CampaignRoleBadge } from '@/components/campaigns/CampaignRoleBadge';
+import { CharactersPanel } from '@/components/campaigns/CharactersPanel';
 import { InvitesPanel } from '@/components/campaigns/InvitesPanel';
 import { MembersPanel } from '@/components/campaigns/MembersPanel';
 import { PlayersNote } from '@/components/records/PlayersNote';
@@ -17,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useCampaign, useRenameCampaign, useSetCampaignArchived } from '@/lib/queries';
-import { recordsPath } from '@/lib/records';
+import { recordsPath, statBlocksPath } from '@/lib/records';
 
 /** `/campaigns/:campaignId`. Rendered inside RequireAuth, so the user is signed in. */
 export function CampaignPage() {
@@ -139,6 +140,23 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
         )}
       </Card>
 
+      {isGm && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <CardTitle>
+                <h2 className="text-xl">Stat blocks</h2>
+              </CardTitle>
+              <CardDescription>Monsters, and NPCs who may fight.</CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link to={statBlocksPath(campaign.id)}>Open stat blocks</Link>
+            </Button>
+          </CardHeader>
+        </Card>
+      )}
+
+      <CharactersPanel campaign={campaign} />
       <MembersPanel campaign={campaign} />
       {isGm && !isArchived && <InvitesPanel campaignId={campaign.id} />}
 

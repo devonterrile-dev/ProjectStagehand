@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { useAssignCharacter, useCharacters, useCreateCharacter } from '@/lib/queries';
 
 const NONE = '';
@@ -87,16 +88,13 @@ function AssignPcForm({
     <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)} noValidate>
       <DialogHeader>
         <DialogTitle>PC for {player.displayName}</DialogTitle>
-        <DialogDescription>
-          Each player has one PC. Character sheets arrive in a later update.
-        </DialogDescription>
+        <DialogDescription>Each player has one PC.</DialogDescription>
       </DialogHeader>
 
       <div className="space-y-2">
         <Label htmlFor="pc-choice">Character</Label>
-        <select
+        <NativeSelect
           id="pc-choice"
-          className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
           value={choice}
           disabled={isPending}
           onChange={(event) => {
@@ -117,7 +115,7 @@ function AssignPcForm({
             );
           })}
           <option value={NONE}>No PC</option>
-        </select>
+        </NativeSelect>
       </div>
 
       {choice === NEW && (

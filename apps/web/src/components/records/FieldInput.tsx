@@ -10,6 +10,7 @@ import { useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { enumLabel } from '@/lib/records';
 
@@ -111,9 +112,8 @@ export function FieldInput({
       break;
     case 'enum':
       control = (
-        <select
+        <NativeSelect
           id={id}
-          className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
           value={draft}
           disabled={disabled}
           aria-invalid={invalid}
@@ -128,7 +128,7 @@ export function FieldInput({
               {enumLabel(option)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       );
       break;
     case 'number':

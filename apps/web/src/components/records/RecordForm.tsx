@@ -14,6 +14,8 @@ import { MoreHorizontalIcon, Trash2Icon } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { FieldError } from '@/components/FieldError';
+import { StatBlockSelect } from '@/components/stat-blocks/StatBlockSelect';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -23,8 +25,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useDeleteRecord, usePatchRecord } from '@/lib/queries';
-import { useAutosave, type SendPatch } from '@/lib/useAutosave';
+import { useDeleteRecord, usePatchRecord, useStatBlocks } from '@/lib/queries';
+import { mergeRecordPatch, useAutosave, type SendPatch } from '@/lib/useAutosave';
 
 import { AreaSelect } from './AreaSelect';
 import { FieldInput } from './FieldInput';
@@ -42,7 +44,14 @@ interface RecordFormProps {
 }
 
 /** Keys that live on the record itself; everything else is inside `fields`. */
-const TOP_LEVEL = new Set<string>(['name', 'publicDescription', 'gmNotes', 'tags', 'parentId']);
+const TOP_LEVEL = new Set<string>([
+  'name',
+  'publicDescription',
+  'gmNotes',
+  'tags',
+  'parentId',
+  'statBlockId',
+]);
 
 /**
  * The whole record, autosaving field by field (D-22). The inputs keep their own text after
@@ -55,12 +64,14 @@ export function RecordForm({ campaign, record, records, onDeleted }: RecordFormP
     (patch, { keepalive }) => sendPatch({ patch, keepalive }),
     [sendPatch],
   );
-  const autosave = useAutosave(send);
+  const autosave = useAutosave(send, { merge: mergeRecordPatch });
 
   const readOnly = campaign.archivedAt !== null;
   const [name, setName] = useState(record.name);
   const [tags, setTags] = useState(record.tags);
   const [parentId, setParentId] = useState(record.parentId ?? '');
+  const [statBlockId, setStatBlockId] = useState(record.statBlockId ?? '');
+  const { data: statBlocks } = useStatBlocks(campaign.id, record.type === 'npc');
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [deleting, setDeleting] = useState(false);
 
@@ -158,6 +169,22 @@ export function RecordForm({ campaign, record, records, onDeleted }: RecordFormP
         </div>
       )}
 
+      {record.type === 'npc' && (
+        <div className="space-y-2">
+          <StatBlockSelect
+            campaignId={campaign.id}
+            statBlocks={statBlocks ?? []}
+            value={statBlockId}
+            disabled={readOnly}
+            onChange={(id) => {
+              setStatBlockId(id ?? '');
+              commit('statBlockId', id, true);
+            }}
+          />
+          <FieldError message={errorOf('statBlockId')} />
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="record-tags">Tags</Label>
         <TagInput
@@ -239,14 +266,5 @@ export function RecordForm({ campaign, record, records, onDeleted }: RecordFormP
         />
       )}
     </div>
-  );
-}
-
-function FieldError({ message }: { message: string | null }) {
-  if (message === null) return null;
-  return (
-    <p role="alert" className="text-sm text-destructive">
-      {message}
-    </p>
   );
 }

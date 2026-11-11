@@ -1,12 +1,12 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { mergePatch, useAutosave } from './useAutosave';
+import { mergeRecordPatch, mergeShallow, useAutosave } from './useAutosave';
 
-describe('mergePatch', () => {
+describe('mergeRecordPatch', () => {
   it('replaces top-level keys and merges fields, keeping nulls', () => {
     expect(
-      mergePatch(
+      mergeRecordPatch(
         { name: 'A', fields: { status: 'alive', appearance: null } },
         { tags: ['x'], fields: { status: 'dead' } },
       ),
@@ -14,7 +14,22 @@ describe('mergePatch', () => {
   });
 
   it('never adds a fields key when neither side has one', () => {
-    expect(mergePatch({ name: 'A' }, { tags: [] })).toEqual({ name: 'A', tags: [] });
+    expect(mergeRecordPatch({ name: 'A' }, { tags: [] })).toEqual({ name: 'A', tags: [] });
+  });
+});
+
+describe('mergeShallow', () => {
+  it('replaces whole keys, so a list or section sent twice keeps only the latest', () => {
+    expect(
+      mergeShallow<Record<string, unknown>>(
+        { hpMax: 6, weapons: { primary: null, secondary: null, inventory: [] } },
+        { weapons: { primary: null, secondary: null, inventory: ['knife'] }, hope: 2 },
+      ),
+    ).toEqual({
+      hpMax: 6,
+      weapons: { primary: null, secondary: null, inventory: ['knife'] },
+      hope: 2,
+    });
   });
 });
 
@@ -33,7 +48,7 @@ describe('useAutosave', () => {
 
   it('sends the merged patch after the pause', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderHook(() => useAutosave(send, 100));
+    const { result } = renderHook(() => useAutosave(send, { delay: 100, merge: mergeRecordPatch }));
 
     act(() => {
       result.current.save({ name: 'A' });
@@ -62,7 +77,7 @@ describe('useAutosave', () => {
           }),
       )
       .mockResolvedValue(undefined);
-    const { result } = renderHook(() => useAutosave(send, 100));
+    const { result } = renderHook(() => useAutosave(send, { delay: 100, merge: mergeRecordPatch }));
 
     act(() => {
       result.current.save({ name: 'A' });
@@ -85,7 +100,7 @@ describe('useAutosave', () => {
 
   it('keeps a failed patch under newer edits and retries it', async () => {
     const send = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined);
-    const { result } = renderHook(() => useAutosave(send, 100));
+    const { result } = renderHook(() => useAutosave(send, { delay: 100, merge: mergeRecordPatch }));
 
     act(() => {
       result.current.save({ fields: { appearance: 'Tall' } });
@@ -112,7 +127,7 @@ describe('useAutosave', () => {
 
   it('flushes on unmount and drops what was discarded', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const first = renderHook(() => useAutosave(send, 100));
+    const first = renderHook(() => useAutosave(send, { delay: 100, merge: mergeRecordPatch }));
     act(() => {
       first.result.current.save({ name: 'A' });
     });
@@ -120,7 +135,7 @@ describe('useAutosave', () => {
     await tick();
     expect(send).toHaveBeenCalledWith({ name: 'A' }, { keepalive: false });
 
-    const second = renderHook(() => useAutosave(send, 100));
+    const second = renderHook(() => useAutosave(send, { delay: 100, merge: mergeRecordPatch }));
     act(() => {
       second.result.current.save({ name: 'B' });
       second.result.current.discard();

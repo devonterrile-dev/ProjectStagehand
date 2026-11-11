@@ -315,3 +315,13 @@ Per governance §1, assumptions the build relies on:
 - **Deleting a PC leaves its player in the campaign without one; deleting a stat block unlinks its NPCs** and keeps them. Both foreign keys stay `NO ACTION` as a backstop; Postgres can't `SET NULL` one column of a composite key from Drizzle.
 - **Stat blocks are templates**: HP and Stress maximums only. Each copy's current values arrive with battle scenes (F4.2, 19.9). Stat block names allow 120 characters, like records.
 - **New sheet columns all have defaults**, so PCs created before F1.4 became blank sheets (level 1, proficiency 1, zeros, empty lists) with no data migration.
+
+## Working assumptions (F1.4b)
+
+- **Autosave is generic.** `useAutosave<P>` takes the patch type and a `merge`. Records keep their key-by-key `fields` merge (`mergeRecordPatch`); sheets and stat blocks use the default shallow merge, because each key replaces its whole value (D-23).
+- **The sheet editor checks each edit against the last valid values** (saved or queued) with the shared `characterSheetPatchSchemaFor`, so the browser shows the same messages as the server. A current value and its max re-check each other: lowering current HP clears the error on a lowered HP max, and both save together.
+- **Rows and sections save once they have a name.** A new experience, weapon, armor or feature stays on screen with "Give it a name to save it" until it has one. Lists and sections are always sent whole. New weapons and attacks start with `1d6` damage so they're valid as soon as they're named.
+- **Players see their sheet as plain text** (`CharacterSheetView`, no form controls), and rich text through `RichTextView`, which renders the stored TipTap JSON without an editor or `innerHTML`. Empty groups are hidden; GM notes never arrive.
+- **Traits and ability kinds use native selects** (`components/ui/native-select.tsx`, now shared by every select in the app); numbers are plain whole-number inputs. One-click counters for HP, Stress and Hope wait for live play.
+- **The name dialog is shared** by New campaign, Rename, New PC and New stat block (`CampaignNameDialog` with its own `label`, `schema` and `maxLength`).
+- **The web bundle grows** with the new pages; Vite's chunk-size warning is still only a warning. Lazy-loading the editor pages remains a possible tidy-up.

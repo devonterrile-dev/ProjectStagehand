@@ -1,11 +1,17 @@
 import { z } from 'zod';
 
-/** A PC's name: trimmed, 1–80 characters. The database enforces the same limit. */
+/** Longest PC name allowed. The database enforces the same limit. */
+export const CHARACTER_NAME_MAX = 80;
+
+/** A PC's name: trimmed, 1–80 characters. */
 export const characterNameSchema = z
   .string()
   .trim()
   .min(1, 'Character name cannot be empty')
-  .max(80, 'Character name must be 80 characters or fewer');
+  .max(
+    CHARACTER_NAME_MAX,
+    `Character name must be ${String(CHARACTER_NAME_MAX)} characters or fewer`,
+  );
 
 /** A player character in a list. The full sheet is `CharacterSheet` (F1.4). */
 export const characterSchema = z.object({

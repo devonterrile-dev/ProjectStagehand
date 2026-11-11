@@ -13,6 +13,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+/** What the dialog needs from a Zod string schema (the web app doesn't import zod itself). */
+interface NameSchema {
+  safeParse(
+    value: string,
+  ):
+    | { success: true; data: string }
+    | { success: false; error: { issues: readonly { message: string }[] } };
+}
+
 interface CampaignNameDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -20,11 +29,19 @@ interface CampaignNameDialogProps {
   description: string;
   submitLabel: string;
   initialName?: string;
+  /** The field's label. Defaults to "Campaign name". */
+  label?: string;
+  /** Validates and trims the name. Defaults to the campaign name rules. */
+  schema?: NameSchema;
+  maxLength?: number;
   /** Saves the validated name. The dialog closes when it resolves and shows the error if it rejects. */
   onSave: (name: string) => Promise<unknown>;
 }
 
-/** One dialog for naming a campaign: used by "New campaign" and "Rename". */
+/**
+ * One dialog for naming something: a campaign ("New campaign", "Rename"), and with its own
+ * `label`, `schema` and `maxLength`, a new PC or stat block.
+ */
 export function CampaignNameDialog({ open, onOpenChange, ...form }: CampaignNameDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -46,6 +63,9 @@ function NameForm({
   description,
   submitLabel,
   initialName = '',
+  label = 'Campaign name',
+  schema = campaignNameSchema,
+  maxLength = CAMPAIGN_NAME_MAX,
   onSave,
   onDone,
 }: Omit<CampaignNameDialogProps, 'open' | 'onOpenChange'> & { onDone: () => void }) {
@@ -55,9 +75,9 @@ function NameForm({
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    const parsed = campaignNameSchema.safeParse(name);
+    const parsed = schema.safeParse(name);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Invalid campaign name');
+      setError(parsed.error.issues[0]?.message ?? 'Invalid name');
       return;
     }
     setError(null);
@@ -78,11 +98,11 @@ function NameForm({
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <div className="space-y-2">
-        <Label htmlFor="campaign-name">Campaign name</Label>
+        <Label htmlFor="name-dialog-name">{label}</Label>
         <Input
-          id="campaign-name"
+          id="name-dialog-name"
           value={name}
-          maxLength={CAMPAIGN_NAME_MAX}
+          maxLength={maxLength}
           autoFocus
           aria-invalid={error !== null}
           onChange={(event) => {

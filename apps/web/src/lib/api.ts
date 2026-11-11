@@ -4,27 +4,38 @@ import {
   campaignSchema,
   characterListResponseSchema,
   characterSchema,
+  characterSheetSchema,
   inviteListResponseSchema,
   invitePreviewSchema,
   inviteSchema,
   memberListResponseSchema,
   meResponseSchema,
+  playerCharacterSheetSchema,
   recordListResponseSchema,
   recordSchema,
+  statBlockListResponseSchema,
+  statBlockSchema,
   type Campaign,
   type CampaignRecord,
   type Character,
+  type CharacterSheet,
+  type CharacterSheetPatch,
   type CreateCharacterRequest,
   type CreateRecordRequest,
+  type CreateStatBlockRequest,
   type Invite,
   type InviteExpiry,
   type InvitePreview,
   type MeResponse,
   type Member,
+  type PlayerCharacterSheet,
   type RecordSummary,
   type RecordType,
+  type StatBlock,
+  type StatBlockSummary,
   type UpdateMeRequest,
   type UpdateRecordRequest,
+  type UpdateStatBlockRequest,
 } from '@stagehand/shared';
 
 export class ApiError extends Error {
@@ -256,4 +267,94 @@ export async function patchRecord(
 /** Deletes a record for good. An Area that still has Spots is refused (409). GM only. */
 export async function deleteRecord(campaignId: string, recordId: string): Promise<void> {
   await send(recordsPath(campaignId, recordId), 'DELETE');
+}
+
+const characterPath = (campaignId: string, characterId: string) =>
+  campaignPath(campaignId, `/characters/${encodeURIComponent(characterId)}`);
+
+/** Fetches a path, returning null on 404 and the parsed body otherwise. */
+async function getOrNull<T>(path: string, parse: (body: unknown) => T): Promise<T | null> {
+  const response = await request(path);
+  if (response.status === 404) return null;
+  if (!response.ok) throw await errorFrom(response);
+  return parse(await response.json());
+}
+
+/** A PC's full sheet, or null when it isn't in this campaign. GM only. */
+export async function fetchCharacterSheet(
+  campaignId: string,
+  characterId: string,
+): Promise<CharacterSheet | null> {
+  return getOrNull(characterPath(campaignId, characterId), (body) =>
+    characterSheetSchema.parse(body),
+  );
+}
+
+/** The signed-in player's own PC, without the GM's private parts; null for any other PC. */
+export async function fetchOwnCharacterSheet(
+  campaignId: string,
+  characterId: string,
+): Promise<PlayerCharacterSheet | null> {
+  return getOrNull(characterPath(campaignId, characterId), (body) =>
+    playerCharacterSheetSchema.parse(body),
+  );
+}
+
+/** Applies a partial update (D-23): each key replaces its whole value. GM only. */
+export async function patchCharacterSheet(
+  campaignId: string,
+  characterId: string,
+  patch: CharacterSheetPatch,
+  init: { keepalive?: boolean } = {},
+): Promise<CharacterSheet> {
+  const response = await send(characterPath(campaignId, characterId), 'PATCH', patch, init);
+  return characterSheetSchema.parse(await response.json());
+}
+
+/** Deletes a PC for good; its player stays without one. GM only. */
+export async function deleteCharacter(campaignId: string, characterId: string): Promise<void> {
+  await send(characterPath(campaignId, characterId), 'DELETE');
+}
+
+const statBlocksPath = (campaignId: string, statBlockId?: string) =>
+  campaignPath(
+    campaignId,
+    statBlockId === undefined ? '/stat-blocks' : `/stat-blocks/${encodeURIComponent(statBlockId)}`,
+  );
+
+/** The campaign's stat blocks, by name. GM only. */
+export async function fetchStatBlocks(campaignId: string): Promise<StatBlockSummary[]> {
+  return statBlockListResponseSchema.parse(await getJson(statBlocksPath(campaignId))).statBlocks;
+}
+
+/** One stat block, or null when it isn't in this campaign. GM only. */
+export async function fetchStatBlock(
+  campaignId: string,
+  statBlockId: string,
+): Promise<StatBlock | null> {
+  return getOrNull(statBlocksPath(campaignId, statBlockId), (body) => statBlockSchema.parse(body));
+}
+
+export async function createStatBlock(
+  campaignId: string,
+  input: CreateStatBlockRequest,
+): Promise<StatBlock> {
+  const response = await send(statBlocksPath(campaignId), 'POST', input);
+  return statBlockSchema.parse(await response.json());
+}
+
+/** Applies a partial update: each key replaces its whole value. GM only. */
+export async function patchStatBlock(
+  campaignId: string,
+  statBlockId: string,
+  patch: UpdateStatBlockRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<StatBlock> {
+  const response = await send(statBlocksPath(campaignId, statBlockId), 'PATCH', patch, init);
+  return statBlockSchema.parse(await response.json());
+}
+
+/** Deletes a stat block for good; NPCs that used it are unlinked. GM only. */
+export async function deleteStatBlock(campaignId: string, statBlockId: string): Promise<void> {
+  await send(statBlocksPath(campaignId, statBlockId), 'DELETE');
 }

@@ -1,5 +1,7 @@
 import type { RecordSummary } from '@stagehand/shared';
 
+import { NativeSelect } from '@/components/ui/native-select';
+
 interface AreaSelectProps {
   id: string;
   /** Record summaries already filtered to Areas. */
@@ -21,9 +23,8 @@ export function AreaSelect({
   onChange,
 }: AreaSelectProps) {
   return (
-    <select
+    <NativeSelect
       id={id}
-      className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
       value={value}
       disabled={disabled}
       onChange={(event) => {
@@ -36,6 +37,6 @@ export function AreaSelect({
           {area.name}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }

@@ -1,6 +1,6 @@
 import type { Campaign, Member } from '@stagehand/shared';
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { AssignPcDialog } from '@/components/campaigns/AssignPcDialog';
 import { CampaignRoleBadge } from '@/components/campaigns/CampaignRoleBadge';
@@ -9,6 +9,7 @@ import { UserAvatar } from '@/components/UserAvatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLeaveCampaign, useMe, useMembers, useRemoveMember } from '@/lib/queries';
+import { characterPath } from '@/lib/records';
 
 type Pending = { kind: 'assign' | 'remove'; member: Member } | { kind: 'leave' } | null;
 
@@ -55,9 +56,21 @@ export function MembersPanel({ campaign }: { campaign: Campaign }) {
                       </p>
                       {member.role === 'player' && (
                         <p className="text-sm text-muted-foreground">
-                          {member.character === null
-                            ? 'No PC yet'
-                            : `Plays ${member.character.name}`}
+                          {member.character === null ? (
+                            'No PC yet'
+                          ) : isGm ? (
+                            <>
+                              Plays{' '}
+                              <Link
+                                to={characterPath(campaign.id, member.character.id)}
+                                className="underline"
+                              >
+                                {member.character.name}
+                              </Link>
+                            </>
+                          ) : (
+                            `Plays ${member.character.name}`
+                          )}
                         </p>
                       )}
                     </div>

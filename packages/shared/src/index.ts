@@ -13,6 +13,7 @@ export {
   type RenameCampaignRequest,
 } from './campaigns';
 export {
+  CHARACTER_NAME_MAX,
   characterListResponseSchema,
   characterNameSchema,
   characterSchema,

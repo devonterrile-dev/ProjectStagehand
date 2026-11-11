@@ -3,11 +3,14 @@ import { Link, Route, Routes } from 'react-router';
 import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
+import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
 import { HomePage } from '@/pages/HomePage';
 import { JoinPage } from '@/pages/JoinPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { RecordPage } from '@/pages/RecordPage';
 import { RecordsPage } from '@/pages/RecordsPage';
+import { StatBlockPage } from '@/pages/StatBlockPage';
+import { StatBlocksPage } from '@/pages/StatBlocksPage';
 
 export function App() {
   return (
@@ -43,6 +46,30 @@ export function App() {
           element={
             <RequireAuth>
               <RecordPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/characters/:characterId"
+          element={
+            <RequireAuth>
+              <CharacterSheetPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/stat-blocks"
+          element={
+            <RequireAuth>
+              <StatBlocksPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/stat-blocks/:statBlockId"
+          element={
+            <RequireAuth>
+              <StatBlockPage />
             </RequireAuth>
           }
         />

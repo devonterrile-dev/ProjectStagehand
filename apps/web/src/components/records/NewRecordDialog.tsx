@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { useCreateRecord } from '@/lib/queries';
 
 import { AreaSelect } from './AreaSelect';
@@ -99,9 +100,8 @@ function NewRecordForm({
 
       <div className="space-y-2">
         <Label htmlFor="record-type">Type</Label>
-        <select
+        <NativeSelect
           id="record-type"
-          className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
           value={type}
           onChange={(event) => {
             setType(recordTypeSchema.parse(event.target.value));
@@ -112,7 +112,7 @@ function NewRecordForm({
               {RECORD_TYPE_LABELS[option]}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
 
       <div className="space-y-2">

@@ -1,23 +1,31 @@
 /**
  * Renders the whole app against a fake Stagehand API (a `fetch` spy with in-memory
- * campaigns, members, PCs, invites and records), so tests drive real pages, routes and
- * queries.
+ * campaigns, members, PC sheets, invites, records and stat blocks), so tests drive real
+ * pages, routes and queries.
  */
 import {
   applyFieldsPatch,
+  characterSheetPatchSchemaFor,
   createRecordRequestSchema,
+  createStatBlockRequestSchema,
   emptyRichText,
+  playerCharacterSheetSchema,
+  rulesetFor,
   updateRecordRequestSchemaFor,
+  updateStatBlockRequestSchema,
   type Campaign,
   type CampaignRecord,
   type CampaignRole,
   type Character,
+  type CharacterSheet,
   type Invite,
   type InvitePreview,
   type Member,
   type MeResponse,
   type RecordSummary,
   type RecordType,
+  type StatBlock,
+  type StatBlockSummary,
 } from '@stagehand/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
@@ -106,6 +114,68 @@ export function record(
   };
 }
 
+/** A PC sheet fixture: a blank sheet (as the server creates one), plus overrides. */
+export function characterSheet(overrides: Partial<CharacterSheet> = {}): CharacterSheet {
+  return {
+    id: uuid(),
+    name: 'Untitled PC',
+    assignedToUserId: null,
+    level: 1,
+    className: '',
+    publicDescription: emptyRichText(),
+    gmNotes: emptyRichText(),
+    traits: { agility: 0, strength: 0, finesse: 0, instinct: 0, presence: 0, knowledge: 0 },
+    evasion: 0,
+    armorScore: 0,
+    armorSlotsMax: 0,
+    armorSlotsMarked: 0,
+    minorThreshold: 0,
+    majorThreshold: 0,
+    severeThreshold: 0,
+    hpMax: 0,
+    hpCurrent: 0,
+    stressMax: 0,
+    stressCurrent: 0,
+    hope: 0,
+    proficiency: 1,
+    experiences: [],
+    weapons: { primary: null, secondary: null, inventory: [] },
+    armor: null,
+    inventory: [],
+    gold: { handfuls: 0, bags: 0, chests: 0 },
+    classFeature: null,
+    combatOptions: [],
+    createdAt: '2026-11-10T10:00:00.000Z',
+    updatedAt: '2026-11-10T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+/** A stat block fixture with defaults; `usedBy` is computed by the fake API. */
+export function statBlock(overrides: Partial<StatBlock> = {}): StatBlock {
+  return {
+    id: uuid(),
+    name: 'Untitled stat block',
+    tier: 1,
+    role: '',
+    publicDescription: emptyRichText(),
+    difficulty: 0,
+    attackModifier: 0,
+    standardAttack: null,
+    experiences: [],
+    motives: [],
+    features: [],
+    majorThreshold: 0,
+    severeThreshold: 0,
+    hpMax: 0,
+    stressMax: 0,
+    usedBy: [],
+    createdAt: '2026-11-10T10:00:00.000Z',
+    updatedAt: '2026-11-10T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 /**
  * Makes every request with `method` fail with `{ statusCode, error, message }` until the
  * returned function is called.
@@ -129,14 +199,21 @@ export function failRequests(
 
 interface CampaignData {
   members: Member[];
-  characters: { id: string; name: string }[];
+  /** Full sheets; `assignedToUserId` is derived from the members, like the server. */
+  characters: CharacterSheet[];
   invites: Invite[];
   records: CampaignRecord[];
+  statBlocks: StatBlock[];
 }
 
+/** Seed data: a PC can be just `{ id, name }`, filled out with `characterSheet()`. */
+type CampaignSeed = Partial<Omit<CampaignData, 'characters'>> & {
+  characters?: Partial<CharacterSheet>[];
+};
+
 export interface FakeWorld {
-  /** Extra members, PCs, invites and records per campaign id. Each campaign also has `me` as a member. */
-  campaignData?: Record<string, Partial<CampaignData>>;
+  /** Extra members, PCs, invites, records and stat blocks per campaign id. Each campaign also has `me` as a member. */
+  campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
   invites?: Record<string, InvitePreview>;
 }
@@ -158,23 +235,33 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
           : [{ ...member(me.displayName, c.role), userId: me.id, avatarUrl: me.avatarUrl }];
       entry = {
         members: [...self, ...(extra.members ?? [])],
-        characters: [...(extra.characters ?? [])],
+        characters: (extra.characters ?? []).map((pc) => characterSheet(pc)),
         invites: [...(extra.invites ?? [])],
         records: (extra.records ?? []).map((r) => ({ ...r })),
+        statBlocks: (extra.statBlocks ?? []).map((b) => ({ ...b })),
       };
+      // A seeded sheet's `assignedToUserId` gives it to that member (e.g. `me`).
+      for (const pc of entry.characters) {
+        if (pc.assignedToUserId !== null) assign(entry, pc.assignedToUserId, pc.id);
+      }
       data.set(c.id, entry);
     }
     return entry;
   };
 
+  const holderOf = (d: CampaignData, characterId: string) =>
+    d.members.find((m) => m.character?.id === characterId)?.userId ?? null;
+
   const charactersOf = (d: CampaignData): Character[] =>
     d.characters.map((pc) => ({
-      ...pc,
-      assignedToUserId: d.members.find((m) => m.character?.id === pc.id)?.userId ?? null,
+      id: pc.id,
+      name: pc.name,
+      assignedToUserId: holderOf(d, pc.id),
     }));
 
   const assign = (d: CampaignData, userId: string, characterId: string | null) => {
-    const pc = d.characters.find((c) => c.id === characterId) ?? null;
+    const sheet = d.characters.find((c) => c.id === characterId);
+    const pc = sheet === undefined ? null : { id: sheet.id, name: sheet.name };
     for (const m of d.members) {
       if (pc !== null && m.character?.id === pc.id) m.character = null;
       if (m.userId === userId) m.character = pc;
@@ -264,6 +351,15 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       if (patch.gmNotes !== undefined) existing.gmNotes = patch.gmNotes;
       if (patch.tags !== undefined) existing.tags = patch.tags;
       if (patch.parentId !== undefined) existing.parentId = patch.parentId;
+      if (patch.statBlockId !== undefined) {
+        if (patch.statBlockId !== null) {
+          if (existing.type !== 'npc') return refused(400, 'Only NPCs have a stat block');
+          if (!d.statBlocks.some((b) => b.id === patch.statBlockId)) {
+            return notFound('Stat block not found');
+          }
+        }
+        existing.statBlockId = patch.statBlockId;
+      }
       if (patch.fields !== undefined) {
         existing.fields = applyFieldsPatch(existing.type, existing.fields, patch.fields);
       }
@@ -276,6 +372,113 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         return refused(409, 'This area still has spots. Move or delete them first.');
       }
       d.records = d.records.filter((r) => r.id !== existing.id);
+      return new Response(null, { status: 204 });
+    }
+    return null;
+  };
+
+  /** One PC's sheet: the GM's full sheet, or a player's own through the allow-list. */
+  const respondCharacter = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const sheetMatch = /^\/characters\/([^/]+)$/.exec(rest);
+    if (sheetMatch === null) return null;
+    const sheet = d.characters.find((c) => c.id === sheetMatch[1]);
+    const full = (pc: CharacterSheet): CharacterSheet => ({
+      ...pc,
+      assignedToUserId: holderOf(d, pc.id),
+    });
+
+    if (found.role !== 'gm') {
+      if (method !== 'GET') return refused(403, 'Only the GM can do that');
+      if (sheet === undefined || holderOf(d, sheet.id) !== me?.id) {
+        return notFound('Character not found');
+      }
+      return Response.json(playerCharacterSheetSchema.parse(full(sheet)));
+    }
+    if (sheet === undefined) return notFound('Character not found');
+    if (method === 'GET') return Response.json(full(sheet));
+    if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+    if (method === 'PATCH') {
+      const parsed = characterSheetPatchSchemaFor(
+        rulesetFor(found.rulesetVersion),
+        sheet,
+      ).safeParse(rawBody);
+      if (!parsed.success) return invalid(parsed.error.issues);
+      Object.assign(sheet, parsed.data, { updatedAt: '2026-11-10T12:00:00.000Z' });
+      for (const m of d.members) {
+        if (m.character?.id === sheet.id) m.character = { id: sheet.id, name: sheet.name };
+      }
+      return Response.json(full(sheet));
+    }
+    if (method === 'DELETE') {
+      for (const m of d.members) if (m.character?.id === sheet.id) m.character = null;
+      d.characters = d.characters.filter((c) => c.id !== sheet.id);
+      return new Response(null, { status: 204 });
+    }
+    return null;
+  };
+
+  /** The stat blocks API, GM only; deleting one unlinks its NPCs. */
+  const respondStatBlocks = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const blockMatch = /^\/stat-blocks\/([^/]+)$/.exec(rest);
+    if (rest !== '/stat-blocks' && blockMatch === null) return null;
+    if (found.role !== 'gm') return refused(403, 'Only the GM can do that');
+    const usersOf = (id: string) =>
+      d.records
+        .filter((r) => r.statBlockId === id)
+        .map((r) => ({ id: r.id, name: r.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    const full = (b: StatBlock): StatBlock => ({ ...b, usedBy: usersOf(b.id) });
+
+    if (blockMatch === null) {
+      if (method === 'GET') {
+        const summaries: StatBlockSummary[] = [...d.statBlocks]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((b) => ({
+            id: b.id,
+            name: b.name,
+            tier: b.tier,
+            role: b.role,
+            usedByCount: usersOf(b.id).length,
+            updatedAt: b.updatedAt,
+          }));
+        return Response.json({ statBlocks: summaries });
+      }
+      if (method === 'POST') {
+        if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+        const parsed = createStatBlockRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return invalid(parsed.error.issues);
+        const created = statBlock(parsed.data);
+        d.statBlocks.push(created);
+        return Response.json(full(created), { status: 201 });
+      }
+      return null;
+    }
+
+    const existing = d.statBlocks.find((b) => b.id === blockMatch[1]);
+    if (existing === undefined) return notFound('Stat block not found');
+    if (method === 'GET') return Response.json(full(existing));
+    if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+    if (method === 'PATCH') {
+      const parsed = updateStatBlockRequestSchema.safeParse(rawBody);
+      if (!parsed.success) return invalid(parsed.error.issues);
+      Object.assign(existing, parsed.data, { updatedAt: '2026-11-10T12:00:00.000Z' });
+      return Response.json(full(existing));
+    }
+    if (method === 'DELETE') {
+      for (const r of d.records) if (r.statBlockId === existing.id) r.statBlockId = null;
+      d.statBlocks = d.statBlocks.filter((b) => b.id !== existing.id);
       return new Response(null, { status: 204 });
     }
     return null;
@@ -368,7 +571,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         return Response.json({ characters: charactersOf(d) });
       }
       if (rest === '/characters' && method === 'POST') {
-        const pc = { id: uuid(), name: String(body.name) };
+        const pc = characterSheet({ name: String(body.name) });
         d.characters.push(pc);
         if (body.assignToUserId !== undefined) assign(d, body.assignToUserId, pc.id);
         const created = charactersOf(d).find((c) => c.id === pc.id);
@@ -394,6 +597,10 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
 
       const records = respondRecords(found, d, rest, method, rawBody);
       if (records !== null) return records;
+      const sheet = respondCharacter(found, d, rest, method, rawBody);
+      if (sheet !== null) return sheet;
+      const blocks = respondStatBlocks(found, d, rest, method, rawBody);
+      if (blocks !== null) return blocks;
     }
 
     return new Response('not mocked', { status: 500 });
