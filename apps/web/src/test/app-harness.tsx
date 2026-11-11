@@ -10,11 +10,15 @@ import {
   createRecordRequestSchema,
   createStatBlockRequestSchema,
   emptyRichText,
+  hasTermPrefix,
   linkFieldSpec,
   linkTargetsLabel,
   mentionIdsOfRecord,
   playerCharacterSheetSchema,
+  richTextToPlainText,
   rulesetFor,
+  searchTerms,
+  snippetAround,
   updateRecordRequestSchemaFor,
   updateStatBlockRequestSchema,
   type BacklinksResponse,
@@ -400,11 +404,52 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
 
     if (recordMatch === null) {
       if (method === 'GET') {
-        const type = new URLSearchParams(queryString).get('type');
+        const params = new URLSearchParams(queryString);
+        const type = params.get('type');
+        const tags = params.getAll('tag');
+        const areaId = params.get('areaId');
+        const limit = params.get('limit');
+        const q = params.get('q')?.trim() ?? '';
+        const terms = searchTerms(q);
+        /** Like the server (D-25): name substring, or every term prefixes a word somewhere. */
+        const textOf = (r: CampaignRecord) =>
+          [
+            r.name,
+            ...r.tags,
+            richTextToPlainText(r.publicDescription),
+            richTextToPlainText(r.gmNotes),
+          ].join(' ');
+        const hit = (r: CampaignRecord) =>
+          r.name.toLowerCase().includes(q.toLowerCase()) ||
+          (terms.length > 0 && terms.every((term) => hasTermPrefix(textOf(r), [term])));
+        const rank = (r: CampaignRecord) => {
+          const name = r.name.toLowerCase();
+          const needle = q.toLowerCase();
+          if (name === needle) return 0;
+          if (name.startsWith(needle)) return 1;
+          return name.includes(needle) ? 2 : 3;
+        };
+        const matchOf = (r: CampaignRecord): RecordListItem['match'] => {
+          if (q === '' || r.name.toLowerCase().includes(q.toLowerCase())) return null;
+          if (terms.every((term) => hasTermPrefix([r.name, ...r.tags].join(' '), [term]))) {
+            return null;
+          }
+          for (const field of ['publicDescription', 'gmNotes'] as const) {
+            const snippet = snippetAround(richTextToPlainText(r[field]), terms);
+            if (snippet !== null) return { field, snippet };
+          }
+          return null;
+        };
         const list = d.records
           .filter((r) => type === null || r.type === type)
-          .sort((a, b) => a.name.localeCompare(b.name));
-        return Response.json({ records: list.map(toSummary) });
+          .filter((r) => tags.every((tag) => r.tags.includes(tag)))
+          .filter((r) => areaId === null || r.parentId === areaId)
+          .filter((r) => q === '' || hit(r))
+          .sort((a, b) => (q === '' ? 0 : rank(a) - rank(b)) || a.name.localeCompare(b.name))
+          .slice(0, limit === null ? undefined : Number(limit));
+        return Response.json({
+          records: list.map((r) => ({ ...toSummary(r), match: matchOf(r) })),
+        });
       }
       if (method === 'POST') {
         if (found.archivedAt !== null) return refused(409, 'Campaign is archived');

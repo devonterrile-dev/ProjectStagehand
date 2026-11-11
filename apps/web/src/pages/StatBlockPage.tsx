@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { GmOnlyNote } from '@/components/stat-blocks/GmOnlyNote';
 import { StatBlockForm } from '@/components/stat-blocks/StatBlockForm';
 import { useCampaign, useStatBlock } from '@/lib/queries';
+import { useRememberRecent } from '@/lib/recent-items';
 import { statBlocksPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
@@ -13,6 +14,8 @@ export function StatBlockPage() {
   const isGm = campaignQuery.data?.role === 'gm';
   const blockQuery = useStatBlock(campaignId, statBlockId, isGm);
   const navigate = useNavigate();
+  const loaded = blockQuery.data ?? null;
+  useRememberRecent(campaignId, loaded === null ? null : { kind: 'statBlock', id: loaded.id });
 
   if (campaignQuery.isPending) return <p className="text-muted-foreground">Loading…</p>;
   if (campaignQuery.isError) {

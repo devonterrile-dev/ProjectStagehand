@@ -2,6 +2,7 @@ import { cn } from 'cn';
 import type { ReactNode } from 'react';
 import { Link, useMatch } from 'react-router';
 
+import { QuickJump } from '@/components/search/QuickJump';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useMe } from '@/lib/queries';
 
@@ -20,14 +21,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             Stagehand
           </Link>
           {me && (
-            <Link
-              to="/profile"
-              className="flex items-center gap-2 text-sm font-medium"
-              aria-label="Your profile"
-            >
-              <span className="hidden sm:inline">{me.displayName}</span>
-              <UserAvatar user={me} className="size-8" />
-            </Link>
+            <div className="flex items-center gap-4">
+              <QuickJump />
+              <Link
+                to="/profile"
+                className="flex items-center gap-2 text-sm font-medium"
+                aria-label="Your profile"
+              >
+                <span className="hidden sm:inline">{me.displayName}</span>
+                <UserAvatar user={me} className="size-8" />
+              </Link>
+            </div>
           )}
         </div>
       </header>

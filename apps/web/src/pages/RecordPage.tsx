@@ -8,6 +8,7 @@ import { RecordNavigationProvider } from '@/components/records/RecordNavigationP
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { useCampaign, useRecord, useRecords } from '@/lib/queries';
+import { useRememberRecent } from '@/lib/recent-items';
 import { recordsPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
@@ -23,6 +24,8 @@ export function RecordPage() {
   const recordQuery = useRecord(campaignId, recordId, isGm);
   const { data: records } = useRecords(campaignId, undefined, isGm);
   const navigate = useNavigate();
+  const loaded = recordQuery.data ?? null;
+  useRememberRecent(campaignId, loaded === null ? null : { kind: 'record', id: loaded.id });
 
   if (campaignQuery.isPending) return <p className="text-muted-foreground">Loading…</p>;
   if (campaignQuery.isError) {

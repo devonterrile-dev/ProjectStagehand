@@ -396,3 +396,135 @@ describe('Editing a record', () => {
     expect(calledWith(fetchMock, `/api${recordUrl(coast, vex)}`, 'GET')).toBe(false);
   });
 });
+
+describe('Search and filters', () => {
+  const doc = (text: string) => ({
+    type: 'doc' as const,
+    content: [{ type: 'paragraph' as const, content: [{ type: 'text' as const, text }] }],
+  });
+
+  /** The Records world, with tags, GM notes and a second Area with its own Spot. */
+  function searchWorld() {
+    const coast = campaign({ name: 'Shattered Coast' });
+    const harbor = record({ type: 'area', name: 'Harbor District' });
+    const oldTown = record({ type: 'area', name: 'Old Town' });
+    const market = record({
+      type: 'spot',
+      name: 'Fish Market',
+      parentId: harbor.id,
+      tags: ['harbour'],
+    });
+    const tower = record({ type: 'spot', name: 'Bell Tower', parentId: oldTown.id });
+    const vex = record({
+      type: 'npc',
+      name: 'Captain Vex',
+      tags: ['harbour', 'act 1'],
+      gmNotes: doc('Owes the Tide Guild money'),
+    });
+    const records = [vex, harbor, oldTown, market, tower];
+    const fetchMock = mockApi(MIRA, [coast], { campaignData: { [coast.id]: { records } } });
+    return { coast, harbor, market, vex, fetchMock };
+  }
+
+  const shownNames = () =>
+    within(screen.getByRole('list', { name: 'Records' }))
+      .getAllByRole('link')
+      .map((link) => link.querySelector('.font-medium')?.textContent);
+
+  it('searches as the GM types, with an excerpt of the matching text', async () => {
+    const { coast } = searchWorld();
+    renderAt(listUrl(coast));
+
+    fireEvent.change(await screen.findByRole('searchbox', { name: 'Search records' }), {
+      target: { value: 'guild' },
+    });
+
+    await waitFor(() => {
+      expect(currentUrl()).toBe(`${listUrl(coast)}?q=guild`);
+    });
+    await waitFor(() => {
+      expect(shownNames()).toEqual(['Captain Vex']);
+    });
+    const list = screen.getByRole('list', { name: 'Records' });
+    expect(within(list).getByText(/GM notes:/)).toBeDefined();
+    expect(within(list).getByText('Guild').tagName).toBe('STRONG');
+    expect(screen.getByRole('button', { name: 'All (1)' })).toBeDefined();
+  });
+
+  it('loads the filters from the URL', async () => {
+    const { coast, fetchMock } = searchWorld();
+    renderAt(`${listUrl(coast)}?q=fish`);
+
+    expect(await screen.findByRole('searchbox', { name: 'Search records' })).toHaveProperty(
+      'value',
+      'fish',
+    );
+    await waitFor(() => {
+      expect(shownNames()).toEqual(['Fish Market']);
+    });
+    expect(calledWith(fetchMock, `/api${listUrl(coast)}?q=fish`, 'GET')).toBe(true);
+  });
+
+  it('combines tag chips: a record needs every tag picked', async () => {
+    const { coast } = searchWorld();
+    renderAt(listUrl(coast));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'harbour', pressed: false }));
+    await waitFor(() => {
+      expect(shownNames()).toEqual(['Captain Vex', 'Fish Market']);
+    });
+    expect(currentUrl()).toBe(`${listUrl(coast)}?tag=harbour`);
+
+    fireEvent.click(screen.getByRole('button', { name: 'act 1' }));
+    await waitFor(() => {
+      expect(shownNames()).toEqual(['Captain Vex']);
+    });
+    expect(screen.getByRole('button', { name: 'harbour', pressed: true })).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'harbour' }));
+    await waitFor(() => {
+      expect(currentUrl()).toBe(`${listUrl(coast)}?tag=act+1`);
+    });
+  });
+
+  it('offers the Area filter only for Spots, and drops it with another type', async () => {
+    const { coast, harbor } = searchWorld();
+    renderAt(listUrl(coast));
+
+    await screen.findByRole('button', { name: 'All (5)' });
+    expect(screen.queryByRole('combobox', { name: 'Area' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spot (2)' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Area' }), {
+      target: { value: harbor.id },
+    });
+    expect(currentUrl()).toBe(`${listUrl(coast)}?type=spot&area=${harbor.id}`);
+    await waitFor(() => {
+      expect(shownNames()).toEqual(['Fish Market']);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }));
+    expect(currentUrl()).toBe(listUrl(coast));
+    await waitFor(() => {
+      expect(shownNames()).toHaveLength(5);
+    });
+  });
+
+  it('says when nothing matches, and clears every filter but the type', async () => {
+    const { coast } = searchWorld();
+    renderAt(`${listUrl(coast)}?type=npc&q=bell&tag=harbour`);
+
+    expect(await screen.findByText('No records match.')).toBeDefined();
+    // One under the filters and one in the empty state; either clears.
+    const [clear] = screen.getAllByRole('button', { name: 'Clear filters' });
+    if (clear === undefined) throw new Error('no Clear filters button');
+    fireEvent.click(clear);
+
+    expect(currentUrl()).toBe(`${listUrl(coast)}?type=npc`);
+    expect(screen.getByRole('searchbox', { name: 'Search records' })).toHaveProperty('value', '');
+    await waitFor(() => {
+      expect(shownNames()).toEqual(['Captain Vex']);
+    });
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull();
+  });
+});

@@ -31,7 +31,7 @@ import {
   type MeResponse,
   type Member,
   type PlayerCharacterSheet,
-  type RecordSummary,
+  type RecordListItem,
   type RecordType,
   type StatBlock,
   type StatBlockSummary,
@@ -222,14 +222,36 @@ const recordsPath = (campaignId: string, recordId?: string) =>
     recordId === undefined ? '/records' : `/records/${encodeURIComponent(recordId)}`,
   );
 
-/** Summaries of the campaign's records, optionally of one type, by name. GM only. */
+/** What the records list can be narrowed by (D-25); every filter given must match. */
+export interface RecordListFilter {
+  type?: RecordType;
+  /** Search text; blank means no search. */
+  q?: string;
+  /** The record must have every one of these tags. */
+  tags?: readonly string[];
+  /** Only the Spots of this Area. */
+  areaId?: string;
+  limit?: number;
+}
+
+/**
+ * The campaign's records, narrowed by `filter`: by name, or by how well they match `q`,
+ * each with an excerpt when only its text matched. GM only.
+ */
 export async function fetchRecords(
   campaignId: string,
-  type?: RecordType,
-): Promise<RecordSummary[]> {
-  const query = type === undefined ? '' : `?${new URLSearchParams({ type }).toString()}`;
-  return recordListResponseSchema.parse(await getJson(`${recordsPath(campaignId)}${query}`))
-    .records;
+  filter: RecordListFilter = {},
+): Promise<RecordListItem[]> {
+  const params = new URLSearchParams();
+  if (filter.type !== undefined) params.set('type', filter.type);
+  if (filter.q !== undefined && filter.q.trim() !== '') params.set('q', filter.q.trim());
+  for (const tag of filter.tags ?? []) params.append('tag', tag);
+  if (filter.areaId !== undefined) params.set('areaId', filter.areaId);
+  if (filter.limit !== undefined) params.set('limit', String(filter.limit));
+  const query = params.toString();
+  return recordListResponseSchema.parse(
+    await getJson(`${recordsPath(campaignId)}${query === '' ? '' : `?${query}`}`),
+  ).records;
 }
 
 /** One record with every field, or null when it isn't in this campaign. GM only. */

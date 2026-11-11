@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { CharacterSheetForm } from '@/components/sheets/CharacterSheetForm';
 import { CharacterSheetView } from '@/components/sheets/CharacterSheetView';
 import { useCampaign, useCharacterSheet, useMembers, useOwnCharacterSheet } from '@/lib/queries';
+import { useRememberRecent } from '@/lib/recent-items';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
@@ -55,6 +56,8 @@ function GmSheet({ campaign, characterId }: { campaign: Campaign; characterId: s
   const sheetQuery = useCharacterSheet(campaign.id, characterId, true);
   const { data: members } = useMembers(campaign.id);
   const navigate = useNavigate();
+  const loaded = sheetQuery.data ?? null;
+  useRememberRecent(campaign.id, loaded === null ? null : { kind: 'character', id: loaded.id });
 
   if (sheetQuery.isPending) return <p className="text-muted-foreground">Loading sheet…</p>;
   if (sheetQuery.isError) {

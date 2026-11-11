@@ -356,3 +356,13 @@ Per governance §1, assumptions the build relies on:
 - **Tag filters are "has all" and case-sensitive** (tags are stored as typed). `areaId` keeps the Spots of that Area. Every filter is still scoped to the campaign, and the route stays GM only.
 - **The vector holds private text (GM notes).** When players can search (F3.5), they need a public-only vector or query, never this one.
 - **Backups still restore**: both functions name their own calls with `public.` because pg_restore runs with an empty search_path. A dump and restore of the dev database gave identical vectors.
+
+## Working assumptions (F1.6b)
+
+- **The Records page keeps its filters in the URL** (`?type=&q=&tag=&tag=&area=`), so a reload, the back button and a shared link all show the same list. The search box writes `q` after a 250 ms pause, replacing the history entry rather than adding one per keystroke; Esc clears it.
+- **Two lists**: the unfiltered one (tag chips, the Area options, "no records yet") and, while a search, tag or Area is set, the server's search (`useRecordSearch`), which keeps showing the previous results while the next ones load. The type chips still filter in the browser and count the current matches.
+- **Tags are a row of toggle chips**, every tag in the campaign; a record must have all the selected ones. A selected tag no record has any more stays visible so it can be turned off.
+- **The Area filter shows only while Spots are shown**, and picking another type drops it.
+- **A hit found in the text shows an excerpt** naming the field ("GM notes: …"), with the matching words in bold. The bolding is React text, never HTML.
+- **Quick jump** (header button, Ctrl+K or Cmd+K, also from inside the editor) is GM only and only inside a campaign. It finds records through the same search (8 at most) and stat blocks and PCs by name in the browser (5 each). With nothing typed it lists the 5 items opened most recently in that campaign, kept in this browser's localStorage as kinds and ids only; items since deleted are skipped, and blocked storage just means no recents.
+- **Quick jump waits for saves before leaving.** Every autosave registers with `lib/pending-saves.ts`; if a save fails, the GM stays on the page, where the save status offers Retry. Ctrl/Cmd+Enter (or Ctrl/Cmd+click) opens the item in a new tab instead.

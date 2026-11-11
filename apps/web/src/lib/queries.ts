@@ -11,7 +11,7 @@ import type {
   UpdateRecordRequest,
   UpdateStatBlockRequest,
 } from '@stagehand/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   acceptInvite,
@@ -46,6 +46,7 @@ import {
   revokeInvite,
   setCampaignArchived,
   updateMe,
+  type RecordListFilter,
 } from './api';
 import { signOut } from './auth-client';
 
@@ -235,7 +236,21 @@ const recordKey = (campaignId: string, recordId: string) =>
 export function useRecords(campaignId: string, type: RecordType | undefined, enabled: boolean) {
   return useQuery({
     queryKey: [...partKey(campaignId, 'records'), type ?? 'all'],
-    queryFn: () => fetchRecords(campaignId, type),
+    queryFn: () => fetchRecords(campaignId, type === undefined ? {} : { type }),
+    enabled,
+  });
+}
+
+/**
+ * Records matching a search and filters (F1.6b, D-25), best match first. While a new
+ * search is on its way, the previous results stay. Refetched with the other record lists
+ * after any record change. GM only: pass `enabled: false` for players.
+ */
+export function useRecordSearch(campaignId: string, filter: RecordListFilter, enabled: boolean) {
+  return useQuery({
+    queryKey: [...partKey(campaignId, 'records'), 'search', filter],
+    queryFn: () => fetchRecords(campaignId, filter),
+    placeholderData: keepPreviousData,
     enabled,
   });
 }

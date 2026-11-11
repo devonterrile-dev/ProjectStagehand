@@ -8,6 +8,8 @@
 import type { UpdateRecordRequest } from '@stagehand/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { registerPendingSave } from './pending-saves';
+
 export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export type SendPatch<P extends object = UpdateRecordRequest> = (
@@ -151,6 +153,9 @@ export function useAutosave<P extends object = UpdateRecordRequest>(
     // A failure puts its patch back in `pending`.
     return pending.current === null;
   }, [flush]);
+
+  // Lets quick jump (F1.6b) wait for this page's edits before it leaves.
+  useEffect(() => registerPendingSave(settle), [settle]);
 
   useEffect(() => {
     mounted.current = true;
