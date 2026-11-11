@@ -77,7 +77,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F1.4 Character sheets for PCs, stat blocks for monsters and NPCs
 - [x] F1.5 Links between records, with a backlinks panel and @-mentions inside note fields
 - [x] F1.6 Search and filter across a campaign's records
-- [ ] F1.7 Settings: GM stores an Anthropic API key (encrypted)
+- [x] F1.7 Settings: GM stores an Anthropic API key (encrypted)
 - [ ] F1.8 AI import: brain-dump to proposed records, with a review screen (section 10)
 - [ ] F1.9 Prompt files, schemas and eval suite for AI import
 
