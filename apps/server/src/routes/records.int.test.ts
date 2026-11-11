@@ -9,7 +9,7 @@ import {
   RECORD_TYPES,
   type Campaign,
   type CampaignRecord,
-  type RecordSummary,
+  type RecordListItem,
   type RecordType,
 } from '@stagehand/shared';
 import { eq } from 'drizzle-orm';
@@ -110,10 +110,10 @@ describe('Records API', () => {
 
   const get = (id: string, c = campaign, who = gm) => call('GET', `${base(c)}/${id}`, who);
 
-  async function list(query = '', c = campaign): Promise<RecordSummary[]> {
+  async function list(query = '', c = campaign): Promise<RecordListItem[]> {
     const response = await call('GET', `${base(c)}${query}`, gm);
     expect(response.statusCode).toBe(200);
-    return response.json<{ records: RecordSummary[] }>().records;
+    return response.json<{ records: RecordListItem[] }>().records;
   }
 
   const patch = (id: string, body: Record<string, unknown>, c = campaign, who = gm) =>
@@ -278,6 +278,7 @@ describe('Records API', () => {
         revealedAt: null,
         createdAt: alpha.createdAt,
         updatedAt: alpha.updatedAt,
+        match: null,
       });
 
       expect((await list('?type=npc', c)).map((r) => r.name)).toEqual(['beta', 'zeta']);

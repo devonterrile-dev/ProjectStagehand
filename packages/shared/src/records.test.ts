@@ -170,3 +170,31 @@ describe('recordSchema', () => {
     expect(recordListQuerySchema.safeParse({ type: 'monster' }).success).toBe(false);
   });
 });
+
+describe('recordListQuerySchema search and filters (F1.6)', () => {
+  it('trims the search, and treats a blank one as none', () => {
+    expect(recordListQuerySchema.parse({ q: '  mira  ' })).toEqual({ q: 'mira' });
+    expect(recordListQuerySchema.parse({ q: '   ' })).toEqual({ q: undefined });
+    expect(recordListQuerySchema.safeParse({ q: 'x'.repeat(200) }).success).toBe(true);
+    expect(recordListQuerySchema.safeParse({ q: 'x'.repeat(201) }).success).toBe(false);
+  });
+
+  it('takes one tag or several, trimmed, at most 20', () => {
+    expect(recordListQuerySchema.parse({ tag: ' harbour ' })).toEqual({ tag: ['harbour'] });
+    expect(recordListQuerySchema.parse({ tag: ['a', 'b'] })).toEqual({ tag: ['a', 'b'] });
+    expect(recordListQuerySchema.safeParse({ tag: '' }).success).toBe(false);
+    const many = Array.from({ length: 21 }, (_, i) => `t${String(i)}`);
+    expect(recordListQuerySchema.safeParse({ tag: many }).success).toBe(false);
+  });
+
+  it('takes an area id and a limit from 1 to 100', () => {
+    expect(recordListQuerySchema.parse({ areaId: AREA_ID, limit: '8' })).toEqual({
+      areaId: AREA_ID,
+      limit: 8,
+    });
+    expect(recordListQuerySchema.safeParse({ areaId: 'nope' }).success).toBe(false);
+    for (const limit of ['0', '101', '2.5', 'two']) {
+      expect(recordListQuerySchema.safeParse({ limit }).success, limit).toBe(false);
+    }
+  });
+});

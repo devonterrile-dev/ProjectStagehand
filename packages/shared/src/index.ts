@@ -130,10 +130,14 @@ export {
 } from './record-links';
 export {
   createRecordRequestSchema,
+  RECORD_LIST_LIMIT_MAX,
   RECORD_NAME_MAX,
+  RECORD_SEARCH_TEXT_FIELDS,
   RECORD_SOURCES,
+  recordListItemSchema,
   recordListQuerySchema,
   recordListResponseSchema,
+  recordMatchSchema,
   recordNameSchema,
   recordSchema,
   recordSourceSchema,
@@ -146,12 +150,22 @@ export {
   updateRecordRequestSchemaFor,
   type CampaignRecord,
   type CreateRecordRequest,
+  type RecordListItem,
   type RecordListQuery,
   type RecordListResponse,
+  type RecordMatch,
   type RecordSource,
   type RecordSummary,
   type UpdateRecordRequest,
 } from './records';
+export {
+  hasTermPrefix,
+  SEARCH_QUERY_MAX,
+  SEARCH_TERMS_MAX,
+  searchTerms,
+  SNIPPET_LENGTH,
+  snippetAround,
+} from './record-search';
 export {
   DEFAULT_RULESET_VERSION,
   RULESETS,

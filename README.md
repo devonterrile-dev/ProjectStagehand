@@ -346,3 +346,13 @@ Per governance §1, assumptions the build relies on:
 - **Backlinks sit in a side column** on wide screens (stacked below on narrow ones). The app shell widens only the record page (`max-w-6xl` through `useMatch`); every other page keeps `max-w-3xl`.
 - **Backlinks are marked stale, not refetched**, after any record or sheet save, and refetch when their page opens. The open record's own backlinks never change from its own edits. Deleting a record refetches cached records, backlinks and sheets.
 - **Inventory rows on the GM's sheet can link an Item** through the same picker; picking one fills a blank name. A link to an Item that no longer exists shows "Item record missing" with Unlink.
+
+## Working assumptions (F1.6a)
+
+- **Search looks at name, tags, public description and GM notes** (D-25), not the type-specific fields. Postgres keeps `records.search_vector` up to date itself: a generated column built by `stagehand_record_search_vector` (migration 0007), so no write path has to remember it and existing records were indexed by the migration. Its plain-text function mirrors `richTextToPlainText` (a paragraph's inline nodes joined directly, mentions as their label).
+- **The `simple` text-search config**, so words are lower-cased but never stemmed: homebrew names stay as written, and "guard" finds "guards" by prefix, but "guards" doesn't find "guard".
+- **Every word must match, by prefix, somewhere in the record** (`'mir':* & 'guild':*`), or the whole text must appear in the name (`ILIKE`, escaped). The terms are runs of letters and digits (`searchTerms`), so no tsquery syntax reaches Postgres. Order: exact name, name prefix, name substring, then `ts_rank_cd` (name and tags weigh most, then public description, then GM notes), then name.
+- **A hit explained only by the text gets an excerpt** (`match`: field and about 140 characters around the first matching word), so the GM can see why it was found; the public description wins over GM notes. Name and tag hits have `match: null`.
+- **Tag filters are "has all" and case-sensitive** (tags are stored as typed). `areaId` keeps the Spots of that Area. Every filter is still scoped to the campaign, and the route stays GM only.
+- **The vector holds private text (GM notes).** When players can search (F3.5), they need a public-only vector or query, never this one.
+- **Backups still restore**: both functions name their own calls with `public.` because pg_restore runs with an empty search_path. A dump and restore of the dev database gave identical vectors.

@@ -27,8 +27,8 @@ import {
   type InvitePreview,
   type Member,
   type MeResponse,
+  type RecordListItem,
   type RecordRef,
-  type RecordSummary,
   type RecordType,
   type StatBlock,
   type StatBlockSummary,
@@ -385,7 +385,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         .sort(byName);
       return Response.json(response);
     }
-    const toSummary = (r: CampaignRecord): RecordSummary => ({
+    const toSummary = (r: CampaignRecord): RecordListItem => ({
       id: r.id,
       type: r.type,
       name: r.name,
@@ -395,6 +395,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       revealedAt: r.revealedAt,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
+      match: null,
     });
 
     if (recordMatch === null) {

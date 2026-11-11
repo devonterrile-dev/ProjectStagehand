@@ -23,6 +23,7 @@ import {
   otherLinkSchema,
   otherLinksSchema,
 } from './record-links';
+import { SEARCH_QUERY_MAX } from './record-search';
 import { recordRichTextSchema } from './rich-text';
 
 /** Longest record name allowed. The database enforces the same limit. */
@@ -117,12 +118,61 @@ export const recordSummarySchema = z.object({
 });
 export type RecordSummary = z.infer<typeof recordSummarySchema>;
 
-/** `GET /api/campaigns/:campaignId/records[?type=npc]`. GM only. Sorted by name. */
-export const recordListResponseSchema = z.object({ records: z.array(recordSummarySchema) });
+/** The rich text fields a search looks through, besides the name and tags (D-25). */
+export const RECORD_SEARCH_TEXT_FIELDS = ['publicDescription', 'gmNotes'] as const;
+
+/** Where a search matched a record's text, with an excerpt around the first matching word. */
+export const recordMatchSchema = z.object({
+  field: z.enum(RECORD_SEARCH_TEXT_FIELDS),
+  snippet: z.string(),
+});
+export type RecordMatch = z.infer<typeof recordMatchSchema>;
+
+/**
+ * A record in a list. `match` is set only by a search (`q`) whose words aren't all in the
+ * name or tags, so the GM can see why the record was found.
+ */
+export const recordListItemSchema = recordSummarySchema.extend({
+  match: recordMatchSchema.nullable(),
+});
+export type RecordListItem = z.infer<typeof recordListItemSchema>;
+
+/**
+ * `GET /api/campaigns/:campaignId/records`. GM only. Sorted by name, or with `q` by how well
+ * each record matches (D-25).
+ */
+export const recordListResponseSchema = z.object({ records: z.array(recordListItemSchema) });
 export type RecordListResponse = z.infer<typeof recordListResponseSchema>;
 
-/** The query string of the list route. */
-export const recordListQuerySchema = z.object({ type: recordTypeSchema.optional() });
+/** Most records one list call returns when it asks for a `limit`. */
+export const RECORD_LIST_LIMIT_MAX = 100;
+
+/**
+ * The query string of the list route. Every filter narrows the list:
+ * - `type`: one record type.
+ * - `q`: search text (D-25). Every word must start a word in the record's name, tags,
+ *   public description or GM notes, or the whole text must appear in the name. Blank = no search.
+ * - `tag`: repeatable; the record must have every tag given.
+ * - `areaId`: only the Spots in that Area.
+ * - `limit`: at most this many records.
+ */
+export const recordListQuerySchema = z.object({
+  type: recordTypeSchema.optional(),
+  q: z
+    .string()
+    .trim()
+    .max(SEARCH_QUERY_MAX, `Search must be ${String(SEARCH_QUERY_MAX)} characters or fewer`)
+    .transform((q) => (q === '' ? undefined : q))
+    .optional(),
+  tag: z
+    .union([
+      tagSchema.transform((tag) => [tag]),
+      z.array(tagSchema).max(TAGS_MAX, `At most ${String(TAGS_MAX)} tags`),
+    ])
+    .optional(),
+  areaId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(RECORD_LIST_LIMIT_MAX).optional(),
+});
 export type RecordListQuery = z.infer<typeof recordListQuerySchema>;
 
 const createBase = {

@@ -13,15 +13,23 @@ import {
   applyFieldsPatch,
   emptyRichText,
   mentionIdsOfRecord,
+  hasTermPrefix,
+  RECORD_SEARCH_TEXT_FIELDS,
+  recordListItemSchema,
   recordSchema,
-  recordSummarySchema,
+  richTextToPlainText,
+  searchTerms,
+  snippetAround,
   type CampaignRecord,
   type CreateRecordRequest,
-  type RecordSummary,
+  type RecordListItem,
+  type RecordListQuery,
+  type RecordMatch,
   type RecordType,
+  type RichText,
   type UpdateRecordRequest,
 } from '@stagehand/shared';
-import { and, asc, count, eq, sql } from 'drizzle-orm';
+import { and, arrayContains, asc, count, desc, eq, or, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/client';
@@ -88,14 +96,56 @@ async function requireArea(tx: DbOrTx, scope: CampaignScope, areaId: string): Pr
   if (row === undefined) throw httpError(404, 'Area not found');
 }
 
-/** Summaries of the campaign's records, optionally of one type, by name. */
+/** Escapes `%`, `_` and `\` for a LIKE pattern (backslash is Postgres's default escape). */
+function likeLiteral(text: string): string {
+  return text.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * The campaign's records as list items, narrowed by every filter given (see
+ * `recordListQuerySchema`). Without `q` they are sorted by name. With `q` (D-25), a record
+ * matches when its name contains the whole text, or when every search term starts a word of
+ * its name, tags, public description or GM notes (`records.search_vector`). Matches are
+ * sorted exact name, then name prefix, then name substring, then text rank, then name; each
+ * carries an excerpt of the text that matched when the name and tags don't explain it.
+ */
 export async function listRecords(
   db: Database,
   scope: CampaignScope,
-  filter: { type?: RecordType } = {},
-): Promise<RecordSummary[]> {
+  filter: RecordListQuery = {},
+): Promise<RecordListItem[]> {
   const parent = alias(records, 'parent');
-  const rows = await db
+  const q = filter.q;
+  const terms = q === undefined ? [] : searchTerms(q);
+  const tsquery =
+    terms.length === 0
+      ? null
+      : sql`to_tsquery('simple', ${terms.map((t) => `'${t}':*`).join(' & ')})`;
+  const nameLower = sql`lower(${records.name})`;
+
+  let order: SQL[] = [asc(nameLower), asc(records.createdAt)];
+  let searchCondition: SQL | undefined;
+  if (q !== undefined) {
+    const lowered = q.toLowerCase();
+    const contains = sql`${records.name} ilike ${`%${likeLiteral(q)}%`}`;
+    searchCondition = or(
+      contains,
+      tsquery === null ? undefined : sql`${records.searchVector} @@ ${tsquery}`,
+    );
+    order = [
+      sql`case
+        when ${nameLower} = ${lowered} then 0
+        when ${records.name} ilike ${`${likeLiteral(q)}%`} then 1
+        when ${contains} then 2
+        else 3 end`,
+      ...(tsquery === null ? [] : [desc(sql`ts_rank_cd(${records.searchVector}, ${tsquery})`)]),
+      ...order,
+    ];
+  }
+
+  const searchText = (column: typeof records.publicDescription | typeof records.gmNotes) =>
+    q === undefined ? sql<RichText | null>`null` : sql<RichText | null>`${column}`;
+  const query = db
     .select({
       id: records.id,
       type: records.type,
@@ -106,6 +156,9 @@ export async function listRecords(
       revealedAt: records.revealedAt,
       createdAt: records.createdAt,
       updatedAt: records.updatedAt,
+      // Only a search needs the text, for the excerpt.
+      publicDescription: searchText(records.publicDescription),
+      gmNotes: searchText(records.gmNotes),
     })
     .from(records)
     .leftJoin(parent, eq(parent.id, records.parentId))
@@ -113,18 +166,49 @@ export async function listRecords(
       and(
         eq(records.campaignId, scope.campaignId),
         filter.type === undefined ? undefined : eq(records.type, filter.type),
+        filter.tag === undefined || filter.tag.length === 0
+          ? undefined
+          : arrayContains(records.tags, filter.tag),
+        filter.areaId === undefined ? undefined : eq(records.parentId, filter.areaId),
+        searchCondition,
       ),
     )
-    .orderBy(asc(sql`lower(${records.name})`), asc(records.createdAt));
+    .orderBy(...order)
+    .$dynamic();
+  const rows = await (filter.limit === undefined ? query : query.limit(filter.limit));
 
-  return rows.map((row) =>
-    recordSummarySchema.parse({
+  return rows.map(({ publicDescription, gmNotes, ...row }) =>
+    recordListItemSchema.parse({
       ...row,
       revealedAt: row.revealedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      match: q === undefined ? null : matchOf(q, terms, row, { publicDescription, gmNotes }),
     }),
   );
+}
+
+/**
+ * Where a search hit a record's text, for the excerpt in the list. Null when the name (or
+ * its tags) already explains the hit: the name contains the whole query, or every term
+ * starts a word of the name or a tag.
+ */
+function matchOf(
+  q: string,
+  terms: readonly string[],
+  row: { name: string; tags: string[] },
+  text: Record<RecordMatch['field'], RichText | null>,
+): RecordMatch | null {
+  if (row.name.toLowerCase().includes(q.toLowerCase())) return null;
+  const label = [row.name, ...row.tags].join(' ');
+  if (terms.every((term) => hasTermPrefix(label, [term]))) return null;
+  for (const field of RECORD_SEARCH_TEXT_FIELDS) {
+    const doc = text[field];
+    if (doc === null) continue;
+    const snippet = snippetAround(richTextToPlainText(doc), terms);
+    if (snippet !== null) return { field, snippet };
+  }
+  return null;
 }
 
 /** One record with every field and its outgoing links. */
