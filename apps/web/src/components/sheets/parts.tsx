@@ -32,7 +32,8 @@ interface PartProps<T> {
   /** Prefix of every input's accessible name, e.g. "Experience 2". */
   label: string;
   value: T;
-  set: (next: T) => void;
+  /** Replaces the value; `now` saves at once (a choice, not typing). */
+  set: (next: T, now?: boolean) => void;
   disabled: boolean;
   onBlur: () => void;
 }
@@ -360,7 +361,7 @@ export function InventoryFields({
   items,
 }: InventoryFieldsProps) {
   const unlink = () => {
-    set({ name: value.name, detail: value.detail });
+    set({ name: value.name, detail: value.detail }, true);
   };
   let itemLink: ReactNode = null;
   if (value.recordId !== undefined) {
@@ -402,11 +403,14 @@ export function InventoryFields({
         placeholder="Link an Item record…"
         candidates={items}
         onPick={(item) => {
-          set({
-            ...value,
-            recordId: item.id,
-            name: value.name.trim() === '' ? item.name : value.name,
-          });
+          set(
+            {
+              ...value,
+              recordId: item.id,
+              name: value.name.trim() === '' ? item.name : value.name,
+            },
+            true,
+          );
         }}
       />
     );

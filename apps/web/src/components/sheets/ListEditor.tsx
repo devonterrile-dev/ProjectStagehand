@@ -15,8 +15,8 @@ interface ListEditorProps<T> {
   max: number;
   disabled: boolean;
   emptyText: string;
-  /** The row's inputs. `set` replaces the row. */
-  renderRow: (row: T, set: (next: T) => void, index: number) => ReactNode;
+  /** The row's inputs. `set` replaces the row; `now` saves at once (a choice, not typing). */
+  renderRow: (row: T, set: (next: T, now?: boolean) => void, index: number) => ReactNode;
   /** The complete rows; `now` asks for an immediate save (a row added or removed). */
   onChange: (rows: T[], now: boolean) => void;
 }
@@ -64,12 +64,12 @@ export function ListEditor<T>({
             <div className="flex-1 space-y-2">
               {renderRow(
                 row.value,
-                (next) => {
+                (next, now = false) => {
                   emit(
                     rows.map((current) =>
                       current.key === row.key ? { key: row.key, value: next } : current,
                     ),
-                    false,
+                    now,
                   );
                 },
                 index,
