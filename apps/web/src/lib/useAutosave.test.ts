@@ -16,6 +16,15 @@ describe('mergeRecordPatch', () => {
   it('never adds a fields key when neither side has one', () => {
     expect(mergeRecordPatch({ name: 'A' }, { tags: [] })).toEqual({ name: 'A', tags: [] });
   });
+
+  it('merges link fields key by key, each one a whole list', () => {
+    expect(
+      mergeRecordPatch(
+        { links: { homeSpot: ['a'], factions: ['b'] } },
+        { links: { factions: ['b', 'c'] } },
+      ),
+    ).toEqual({ links: { homeSpot: ['a'], factions: ['b', 'c'] } });
+  });
 });
 
 describe('mergeShallow', () => {
@@ -145,5 +154,29 @@ describe('useAutosave', () => {
     second.unmount();
     await tick();
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles: sends what is pending, waits, and says whether it saved', async () => {
+    const send = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderHook(() => useAutosave(send, { delay: 100, merge: mergeRecordPatch }));
+
+    act(() => {
+      result.current.save({ name: 'A' });
+    });
+    let saved: boolean | undefined;
+    await act(async () => {
+      saved = await result.current.settle();
+    });
+    expect(saved).toBe(true);
+    expect(send).toHaveBeenCalledWith({ name: 'A' }, { keepalive: false });
+
+    act(() => {
+      result.current.save({ name: 'B' });
+    });
+    await act(async () => {
+      saved = await result.current.settle();
+    });
+    expect(saved).toBe(false);
+    expect(result.current.isDirty()).toBe(true);
   });
 });

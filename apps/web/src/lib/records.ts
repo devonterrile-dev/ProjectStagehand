@@ -39,3 +39,39 @@ export function pluralLabel(type: RecordType): string {
   const label = RECORD_TYPE_LABELS[type];
   return type === 'session_notes' ? label : `${label}s`;
 }
+
+/** The record list a picker or the @-mention menu filters. */
+interface FilterOptions {
+  /** Only these types. */
+  types?: readonly RecordType[];
+  /** Leave these ids out (the record itself, records already linked). */
+  exclude?: Iterable<string>;
+  limit?: number;
+}
+
+/**
+ * Records whose name contains `query`, ignoring case: names that start with it first, each
+ * group in the list's (alphabetical) order. An empty query matches everything.
+ */
+export function filterRecords<R extends { id: string; type: RecordType; name: string }>(
+  records: readonly R[],
+  query: string,
+  { types, exclude = [], limit = Infinity }: FilterOptions = {},
+): R[] {
+  const needle = query.trim().toLowerCase();
+  const skip = new Set(exclude);
+  const starts: R[] = [];
+  const contains: R[] = [];
+  for (const record of records) {
+    if (skip.has(record.id) || (types !== undefined && !types.includes(record.type))) continue;
+    const name = record.name.toLowerCase();
+    if (name.startsWith(needle)) starts.push(record);
+    else if (name.includes(needle)) contains.push(record);
+  }
+  return [...starts, ...contains].slice(0, limit);
+}
+
+/** The DOM id of option `index` of listbox `id`, for `aria-activedescendant`. */
+export function optionId(id: string, index: number): string {
+  return `${id}-option-${String(index)}`;
+}

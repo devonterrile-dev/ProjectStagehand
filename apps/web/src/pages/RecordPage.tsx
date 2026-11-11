@@ -1,15 +1,21 @@
 import { RECORD_TYPE_LABELS } from '@stagehand/shared';
 import { Link, useNavigate, useParams } from 'react-router';
 
+import { BacklinksPanel } from '@/components/records/BacklinksPanel';
 import { PlayersNote } from '@/components/records/PlayersNote';
 import { RecordForm } from '@/components/records/RecordForm';
+import { RecordNavigationProvider } from '@/components/records/RecordNavigationProvider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { useCampaign, useRecord, useRecords } from '@/lib/queries';
 import { recordsPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
-/** `/campaigns/:campaignId/records/:recordId`: one record, autosaving as the GM edits. */
+/**
+ * `/campaigns/:campaignId/records/:recordId`: one record, autosaving as the GM edits, with
+ * its backlinks in a side column (stacked below on narrow screens). The app shell widens
+ * this page (`AppShell`).
+ */
 export function RecordPage() {
   const { campaignId = '', recordId = '' } = useParams();
   const campaignQuery = useCampaign(campaignId);
@@ -69,19 +75,26 @@ export function RecordPage() {
         </div>
       )}
 
-      <Card>
-        <CardContent className="pt-6">
-          <RecordForm
-            key={record.id}
-            campaign={campaign}
-            record={record}
-            records={records ?? []}
-            onDeleted={() => {
-              void navigate(recordsPath(campaign.id, record.type), { replace: true });
-            }}
-          />
-        </CardContent>
-      </Card>
+      <RecordNavigationProvider campaignId={campaign.id}>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
+          <Card>
+            <CardContent className="pt-6">
+              <RecordForm
+                key={record.id}
+                campaign={campaign}
+                record={record}
+                records={records ?? []}
+                onDeleted={() => {
+                  void navigate(recordsPath(campaign.id, record.type), { replace: true });
+                }}
+              />
+            </CardContent>
+          </Card>
+          <aside className="lg:sticky lg:top-6">
+            <BacklinksPanel key={record.id} campaignId={campaign.id} recordId={record.id} />
+          </aside>
+        </div>
+      </RecordNavigationProvider>
     </div>
   );
 }

@@ -302,7 +302,6 @@ Per governance §1, assumptions the build relies on:
 - **Autosave, field by field.** Edits merge into one pending patch, sent after an 800 ms pause, on blur, when the page is left and on `beforeunload` (with `keepalive`). One request is in flight per record at a time, in order; a failed patch is kept under newer edits for Retry. Empty values clear a field with `null`; an unchanged value sends nothing.
 - **The form owns its text after the first render.** A save's response updates the query cache but never overwrites what the GM is typing. Last write wins (one GM per campaign).
 - **The records page fetches every summary once** and filters by type in the browser; the API's `?type=` filter is there for later.
-- **Link fields are hidden** until F1.5; the form skips `kind: 'links'` entries of `RECORD_FIELD_SPECS`.
 - **Editor styles are hand-written** in `apps/web/src/index.css` (no typography plugin); the jsdom polyfills TipTap needs live in `apps/web/src/test/setup.ts`.
 
 ## Working assumptions (F1.4a)
@@ -335,3 +334,15 @@ Per governance §1, assumptions the build relies on:
 - **Inventory rows can link an Item** with an optional `recordId` (no migration: it's jsonb and optional). The GM's sheet keeps it; the player's own sheet gets name and detail only, and the player schema strips it as a backstop.
 - **`updateRecord` locks FOR NO KEY UPDATE.** Inserting a link takes a KEY SHARE lock on its target, which FOR UPDATE would conflict with, so two records linking each other at once could deadlock. `deleteRecord` keeps FOR UPDATE.
 - **When players can see records (F3.5)**, the player view must turn mentions of records they haven't been shown into plain text without the id (§7 rule 4). `RichTextView` already renders every mention as plain text.
+
+## Working assumptions (F1.5b)
+
+- **Link fields sit in their §8 place** on the record form: chips for what's linked (× unlinks) and a type-to-search box offering only the field's record types, never the record itself or what's already linked. A `one` field shows its box only while empty. Each change saves at once, sending the field's whole list.
+- **Other links come after GM notes**: any record, with an optional relationship. Adds and removes save at once; typing a relationship is debounced like other text, and a blank one is sent as null.
+- **The pickers are our own** (`RecordPicker`, `RecordOptionList`), a combobox with a listbox below it: arrow keys, Enter, Esc. No popover or command-menu dependency. The @ menu uses the same list.
+- **@-mentions only exist inside a record form.** `RichTextEditor` adds the mention extension (`@tiptap/extension-mention` and `@tiptap/suggestion`, pinned at 3.33.1 and listed in `minimumReleaseAgeExclude`) when `RecordMentionsContext` is present, and then checks with `recordRichTextSchema`. Sheets and stat blocks keep plain rich text. Typing `@` lists up to 8 matching records; Enter or Tab inserts one, Esc closes the list. Backspace removes a mention whole.
+- **Clicking a linked or mentioned record opens a small menu**: Open, or Open in new tab. Open waits for the record's autosave (`useAutosave().settle()`) and stays put if a save failed, so nothing typed is lost or saved out of order. Clicking away or Esc opens nothing. Backlinks are plain links that wait the same way on a normal click.
+- **A mention of a deleted record** shows the name it was saved with, as plain text. A live mention shows the record's current name.
+- **Backlinks sit in a side column** on wide screens (stacked below on narrow ones). The app shell widens only the record page (`max-w-6xl` through `useMatch`); every other page keeps `max-w-3xl`.
+- **Backlinks are marked stale, not refetched**, after any record or sheet save, and refetch when their page opens. The open record's own backlinks never change from its own edits. Deleting a record refetches cached records, backlinks and sheets.
+- **Inventory rows on the GM's sheet can link an Item** through the same picker; picking one fills a blank name. A link to an Item that no longer exists shows "Item record missing" with Unlink.

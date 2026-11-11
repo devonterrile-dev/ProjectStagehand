@@ -24,6 +24,7 @@ import {
   deleteCharacter,
   deleteRecord,
   deleteStatBlock,
+  fetchBacklinks,
   fetchCampaign,
   fetchCampaigns,
   fetchCharacters,
@@ -260,21 +261,58 @@ export function useCreateRecord(campaignId: string) {
   });
 }
 
+const backlinksPrefix = (campaignId: string) =>
+  [...CAMPAIGNS_KEY, campaignId, 'backlinks'] as const;
+
+/** Everything pointing at a record (D-24; `null` when not found). GM only. */
+export function useBacklinks(campaignId: string, recordId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...backlinksPrefix(campaignId), recordId],
+    queryFn: () => fetchBacklinks(campaignId, recordId),
+    enabled,
+  });
+}
+
+/**
+ * Marks every cached backlinks list stale without refetching it: an edit here (a link, a
+ * mention, a rename) can change another record's backlinks, which refetch when that page
+ * opens. The open record's own backlinks never change from its own edits.
+ */
+function useStaleBacklinks(campaignId: string) {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({
+      queryKey: backlinksPrefix(campaignId),
+      refetchType: 'none',
+    });
+  };
+}
+
 /**
  * Saves part of a record; the response becomes the cached record. Linking a stat block
- * also refreshes the stat blocks, whose "used by" lists changed.
+ * also refreshes the stat blocks, whose "used by" lists changed. Other records' backlinks
+ * are marked stale, and after a rename so are other cached records (their links show it).
  */
 export function usePatchRecord(campaignId: string, recordId: string) {
   const queryClient = useQueryClient();
   const refetchLists = useRefetch(campaignId, 'records');
   const refetchStatBlocks = useRefetchStatBlocks(campaignId);
+  const staleBacklinks = useStaleBacklinks(campaignId);
   return useMutation({
     mutationFn: ({ patch, keepalive }: { patch: UpdateRecordRequest; keepalive?: boolean }) =>
       patchRecord(campaignId, recordId, patch, { keepalive }),
     onSuccess: (record, { patch }) => {
       queryClient.setQueryData(recordKey(campaignId, recordId), record);
       refetchLists();
+      staleBacklinks();
       if (patch.statBlockId !== undefined) refetchStatBlocks();
+      if (patch.name !== undefined) {
+        void queryClient.invalidateQueries({
+          queryKey: [...CAMPAIGNS_KEY, campaignId, 'record'],
+          predicate: (query) => query.queryKey[3] !== recordId,
+          refetchType: 'none',
+        });
+      }
     },
   });
 }
@@ -308,12 +346,15 @@ export function useOwnCharacterSheet(campaignId: string, characterId: string, en
 export function usePatchCharacter(campaignId: string, characterId: string) {
   const queryClient = useQueryClient();
   const refetchLists = useRefetch(campaignId, 'characters', 'members');
+  const staleBacklinks = useStaleBacklinks(campaignId);
   return useMutation({
     mutationFn: ({ patch, keepalive }: { patch: CharacterSheetPatch; keepalive?: boolean }) =>
       patchCharacterSheet(campaignId, characterId, patch, { keepalive }),
     onSuccess: (sheet) => {
       queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
       refetchLists();
+      // Items list the PCs carrying them.
+      staleBacklinks();
     },
   });
 }
@@ -402,6 +443,10 @@ export function useDeleteStatBlock(campaignId: string) {
   });
 }
 
+/**
+ * Deletes a record. Its links to and from other records go too, and an Item leaves the PC
+ * inventories carrying it (D-24), so cached records, backlinks and sheets are refetched.
+ */
 export function useDeleteRecord(campaignId: string) {
   const queryClient = useQueryClient();
   const refetchLists = useRefetch(campaignId, 'records');
@@ -409,6 +454,10 @@ export function useDeleteRecord(campaignId: string) {
     mutationFn: (recordId: string) => deleteRecord(campaignId, recordId),
     onSuccess: (_result, recordId) => {
       queryClient.removeQueries({ queryKey: recordKey(campaignId, recordId) });
+      queryClient.removeQueries({ queryKey: [...backlinksPrefix(campaignId), recordId] });
+      for (const part of ['record', 'backlinks', 'character'] as const) {
+        void queryClient.invalidateQueries({ queryKey: [...CAMPAIGNS_KEY, campaignId, part] });
+      }
       refetchLists();
     },
   });

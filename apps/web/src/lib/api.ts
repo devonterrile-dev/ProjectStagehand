@@ -1,5 +1,6 @@
 import {
   acceptInviteResponseSchema,
+  backlinksResponseSchema,
   campaignListResponseSchema,
   campaignSchema,
   characterListResponseSchema,
@@ -15,6 +16,7 @@ import {
   recordSchema,
   statBlockListResponseSchema,
   statBlockSchema,
+  type BacklinksResponse,
   type Campaign,
   type CampaignRecord,
   type Character,
@@ -267,6 +269,17 @@ export async function patchRecord(
 /** Deletes a record for good. An Area that still has Spots is refused (409). GM only. */
 export async function deleteRecord(campaignId: string, recordId: string): Promise<void> {
   await send(recordsPath(campaignId, recordId), 'DELETE');
+}
+
+/** Everything pointing at a record (D-24), or null when it isn't in this campaign. GM only. */
+export async function fetchBacklinks(
+  campaignId: string,
+  recordId: string,
+): Promise<BacklinksResponse | null> {
+  const response = await request(`${recordsPath(campaignId, recordId)}/backlinks`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw await errorFrom(response);
+  return backlinksResponseSchema.parse(await response.json());
 }
 
 const characterPath = (campaignId: string, characterId: string) =>

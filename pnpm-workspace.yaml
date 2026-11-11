@@ -24,6 +24,7 @@ minimumReleaseAgeExclude:
   - '@tiptap/extension-list-item@3.33.1'
   - '@tiptap/extension-list-keymap@3.33.1'
   - '@tiptap/extension-list@3.33.1'
+  - '@tiptap/extension-mention@3.33.1'
   - '@tiptap/extension-ordered-list@3.33.1'
   - '@tiptap/extension-paragraph@3.33.1'
   - '@tiptap/extension-strike@3.33.1'
@@ -33,3 +34,4 @@ minimumReleaseAgeExclude:
   - '@tiptap/pm@3.33.1'
   - '@tiptap/react@3.33.1'
   - '@tiptap/starter-kit@3.33.1'
+  - '@tiptap/suggestion@3.33.1'

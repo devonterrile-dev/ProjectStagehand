@@ -13,15 +13,20 @@ import {
   type Attack,
   type Experience,
   type InventoryItem,
+  type RecordSummary,
   type RulesetTrait,
   type Weapon,
 } from '@stagehand/shared';
-import { useState } from 'react';
+import { XIcon } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router';
 
+import { RecordPicker } from '@/components/records/RecordPicker';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
-import { enumLabel } from '@/lib/records';
+import { enumLabel, recordPath } from '@/lib/records';
 
 interface PartProps<T> {
   /** Prefix of every input's accessible name, e.g. "Experience 2". */
@@ -335,7 +340,78 @@ export function ArmorFields({ label, value, set, disabled, onBlur }: PartProps<A
   );
 }
 
-export function InventoryFields({ label, value, set, disabled, onBlur }: PartProps<InventoryItem>) {
+interface InventoryFieldsProps extends PartProps<InventoryItem> {
+  campaignId: string;
+  /** The campaign's Item records, or undefined while they load. */
+  items: readonly RecordSummary[] | undefined;
+}
+
+/**
+ * An inventory row: name, detail, and an optional link to an Item record (D-24). Picking an
+ * Item fills a blank name. The player's own sheet never sees the link.
+ */
+export function InventoryFields({
+  label,
+  value,
+  set,
+  disabled,
+  onBlur,
+  campaignId,
+  items,
+}: InventoryFieldsProps) {
+  const unlink = () => {
+    set({ name: value.name, detail: value.detail });
+  };
+  let itemLink: ReactNode = null;
+  if (value.recordId !== undefined) {
+    const item = items?.find((candidate) => candidate.id === value.recordId);
+    if (item !== undefined) {
+      itemLink = (
+        <Badge variant="secondary" className="gap-1 pr-1">
+          <Link to={recordPath(campaignId, item.id)} className="hover:underline">
+            {item.name}
+          </Link>
+          {!disabled && (
+            <button
+              type="button"
+              aria-label={`Unlink ${item.name} from ${label}`}
+              className="rounded-full hover:bg-muted-foreground/20"
+              onClick={unlink}
+            >
+              <XIcon aria-hidden className="size-3" />
+            </button>
+          )}
+        </Badge>
+      );
+    } else if (items !== undefined) {
+      itemLink = (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          Item record missing
+          {!disabled && (
+            <button type="button" className="underline" onClick={unlink}>
+              Unlink
+            </button>
+          )}
+        </p>
+      );
+    }
+  } else if (!disabled && items !== undefined && items.length > 0) {
+    itemLink = (
+      <RecordPicker
+        label={`${label} Item record`}
+        placeholder="Link an Item record…"
+        candidates={items}
+        onPick={(item) => {
+          set({
+            ...value,
+            recordId: item.id,
+            name: value.name.trim() === '' ? item.name : value.name,
+          });
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <RowText
@@ -358,6 +434,7 @@ export function InventoryFields({ label, value, set, disabled, onBlur }: PartPro
           set({ ...value, detail });
         }}
       />
+      {itemLink}
     </>
   );
 }

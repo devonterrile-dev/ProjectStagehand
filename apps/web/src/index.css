@@ -162,6 +162,19 @@
   .rich-text .ProseMirror hr {
     @apply my-3;
   }
+  /* @-mentions (F1.5b): a chip for a record that exists, plain text for a deleted one. */
+  .rich-text .mention {
+    @apply rounded bg-secondary px-1 font-medium text-secondary-foreground;
+  }
+  .rich-text .mention-button {
+    @apply cursor-pointer hover:underline;
+  }
+  .rich-text .mention-stale {
+    @apply bg-transparent px-0 font-normal text-muted-foreground;
+  }
+  .mention-menu {
+    @apply max-w-[calc(100vw-2rem)];
+  }
 }
 
 @layer base {

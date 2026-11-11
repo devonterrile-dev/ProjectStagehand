@@ -2,7 +2,7 @@ import {
   emptyRichText,
   isEmptyRichText,
   TEXT_FIELD_MAX,
-  type FieldSpec,
+  type ValueFieldSpec,
   type PointOfInterest,
   type RichText,
 } from '@stagehand/shared';
@@ -19,7 +19,7 @@ import { RichTextEditor } from './RichTextEditor';
 
 interface FieldInputProps {
   id: string;
-  spec: FieldSpec;
+  spec: ValueFieldSpec;
   /** The stored value when the form opened; the input keeps its own state after that. */
   initial: unknown;
   disabled: boolean;
@@ -33,7 +33,10 @@ interface FieldInputProps {
 const asString = (value: unknown) =>
   typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 
-/** One private field of a record, rendered by its kind from `RECORD_FIELD_SPECS`. */
+/**
+ * One private value field of a record, rendered by its kind from `RECORD_FIELD_SPECS`. Link
+ * fields have their own input (`LinkFieldInput`).
+ */
 export function FieldInput({
   id,
   spec,
@@ -44,8 +47,6 @@ export function FieldInput({
   onBlur,
 }: FieldInputProps) {
   const [draft, setDraft] = useState(() => asString(initial));
-
-  if (spec.kind === 'links') return null;
 
   const invalid = error !== null;
   const errorLine = invalid && (

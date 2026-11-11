@@ -191,7 +191,7 @@ describe('Creating a record', () => {
 });
 
 describe('Editing a record', () => {
-  it('shows every field of the type in order, without link fields', async () => {
+  it('shows every field of the type in order, link fields included', async () => {
     const { coast, vex } = world();
     renderAt(recordUrl(coast, vex));
 
@@ -201,7 +201,7 @@ describe('Editing a record', () => {
     );
     const labels = screen
       .getAllByText(
-        /^(Appearance|Personality|Voice and mannerisms|Wants and motivations|What they know|Secrets|Role in the story|Status)$/,
+        /^(Appearance|Personality|Voice and mannerisms|Wants and motivations|What they know|Secrets|Role in the story|Status|Home spot|Factions)$/,
       )
       .map((node) => node.textContent);
     expect(labels).toEqual([
@@ -213,8 +213,9 @@ describe('Editing a record', () => {
       'Secrets',
       'Role in the story',
       'Status',
+      'Home spot',
+      'Factions',
     ]);
-    expect(screen.queryByText('Home spot')).toBeNull();
     expect(screen.getByLabelText('Appearance')).toHaveProperty('value', 'Tall, salt-stained coat');
     expect(screen.getByLabelText('Status')).toHaveProperty('value', 'alive');
   });

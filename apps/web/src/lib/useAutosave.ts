@@ -27,12 +27,17 @@ export interface Autosave<P extends object = UpdateRecordRequest> {
   discard: () => void;
   /** True while an edit is waiting to be sent. */
   isDirty: () => boolean;
+  /**
+   * Sends what's pending and waits for every request to finish. True when everything is
+   * saved, false when a save failed (its edits are kept for Retry). Used before leaving.
+   */
+  settle: () => Promise<boolean>;
 }
 
 /**
- * For records: `next` over `base`, where top-level keys replace and `fields` merge key by
- * key. Null values survive the merge, so clearing a field and setting it again each win in
- * the order they happened.
+ * For records: `next` over `base`, where top-level keys replace and `fields` and `links`
+ * merge key by key (each link field is a whole list). Null values survive the merge, so
+ * clearing a field and setting it again each win in the order they happened.
  */
 export function mergeRecordPatch(
   base: UpdateRecordRequest,
@@ -41,6 +46,9 @@ export function mergeRecordPatch(
   const merged: UpdateRecordRequest = { ...base, ...next };
   if (base.fields !== undefined || next.fields !== undefined) {
     merged.fields = { ...base.fields, ...next.fields };
+  }
+  if (base.links !== undefined || next.links !== undefined) {
+    merged.links = { ...base.links, ...next.links };
   }
   return merged;
 }
@@ -137,6 +145,13 @@ export function useAutosave<P extends object = UpdateRecordRequest>(
 
   const isDirty = useCallback(() => pending.current !== null, []);
 
+  const settle = useCallback(async () => {
+    flush();
+    await queue.current;
+    // A failure puts its patch back in `pending`.
+    return pending.current === null;
+  }, [flush]);
+
   useEffect(() => {
     mounted.current = true;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -164,5 +179,6 @@ export function useAutosave<P extends object = UpdateRecordRequest>(
     },
     discard,
     isDirty,
+    settle,
   };
 }

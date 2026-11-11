@@ -34,7 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
-import { useDeleteCharacter, usePatchCharacter } from '@/lib/queries';
+import { useDeleteCharacter, usePatchCharacter, useRecords } from '@/lib/queries';
 import { useAutosave, type SendPatch } from '@/lib/useAutosave';
 
 import { formatModifier } from './format';
@@ -95,6 +95,8 @@ export function CharacterSheetForm({
     [sendPatch],
   );
   const autosave = useAutosave(send);
+  // Inventory rows can link an Item record (D-24).
+  const { data: items } = useRecords(campaign.id, 'item', true);
   const readOnly = campaign.archivedAt !== null;
 
   /** The last valid value of every key, saved or queued: what the cross-field rules check. */
@@ -463,6 +465,8 @@ export function CharacterSheetForm({
               set={set}
               disabled={readOnly}
               onBlur={autosave.flush}
+              campaignId={campaign.id}
+              items={items}
             />
           )}
           onChange={(rows, now) => {

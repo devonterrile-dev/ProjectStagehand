@@ -9,6 +9,7 @@ import {
   member,
   MIRA,
   mockApi,
+  record,
   renderAt,
 } from '@/test/app-harness';
 
@@ -180,6 +181,46 @@ describe('The GM’s sheet editor', () => {
     });
   });
 
+  it('links an inventory row to an Item record, filling a blank name', async () => {
+    const coast = campaign({ name: 'Shattered Coast' });
+    const key = record({ type: 'item', name: 'Brass Key' });
+    const vex = characterSheet({ name: 'Vex', traits: TRAITS });
+    const fetchMock = mockApi(MIRA, [coast], {
+      campaignData: { [coast.id]: { characters: [vex], records: [key] } },
+    });
+    renderAt(sheetUrl(coast, vex));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    const picker = await screen.findByRole('combobox', { name: 'Item 1 Item record' });
+    fireEvent.focus(picker);
+    fireEvent.mouseDown(
+      within(screen.getByRole('listbox', { name: 'Item 1 Item record' })).getByRole('option', {
+        name: /Brass Key/,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(bodiesOf(fetchMock, 'PATCH')).toEqual([
+        { inventory: [{ name: 'Brass Key', detail: '', recordId: key.id }] },
+      ]);
+    });
+    expect(screen.getByRole('textbox', { name: 'Item 1 name' })).toHaveProperty(
+      'value',
+      'Brass Key',
+    );
+    expect(screen.getByRole('link', { name: 'Brass Key' })).toHaveProperty(
+      'href',
+      expect.stringContaining(`/campaigns/${coast.id}/records/${key.id}`),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink Brass Key from Item 1' }));
+    await waitFor(() => {
+      expect(bodiesOf(fetchMock, 'PATCH')[1]).toEqual({
+        inventory: [{ name: 'Brass Key', detail: '' }],
+      });
+    });
+  });
+
   it('removes the armor with null', async () => {
     const { coast, vex, fetchMock } = gmWorld();
     renderAt(sheetUrl(coast, vex));
@@ -342,6 +383,25 @@ describe('A player’s own sheet', () => {
     expect(screen.queryByText('GM notes')).toBeNull();
     // Empty groups are left out.
     expect(screen.queryByRole('heading', { name: 'Armor' })).toBeNull();
+  });
+
+  it('shows an inventory row without its Item record', async () => {
+    const coast = campaign({ name: 'Shattered Coast', role: 'player' });
+    const key = record({ type: 'item', name: 'Brass Key' });
+    const vex = characterSheet({
+      name: 'Vex',
+      assignedToUserId: MIRA.id,
+      traits: TRAITS,
+      inventory: [{ name: 'Odd key', detail: 'Hums', recordId: key.id }],
+    });
+    mockApi(MIRA, [coast], {
+      campaignData: { [coast.id]: { characters: [vex], records: [key] } },
+    });
+    renderAt(sheetUrl(coast, vex));
+
+    expect(await screen.findByText(/Odd key/)).toBeDefined();
+    expect(screen.queryByText(/Brass Key/)).toBeNull();
+    expect(document.body.innerHTML).not.toContain(key.id);
   });
 
   it("shows another player's PC as not found", async () => {

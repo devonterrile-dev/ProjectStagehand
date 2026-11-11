@@ -10,10 +10,14 @@ import {
   createRecordRequestSchema,
   createStatBlockRequestSchema,
   emptyRichText,
+  linkFieldSpec,
+  linkTargetsLabel,
+  mentionIdsOfRecord,
   playerCharacterSheetSchema,
   rulesetFor,
   updateRecordRequestSchemaFor,
   updateStatBlockRequestSchema,
+  type BacklinksResponse,
   type Campaign,
   type CampaignRecord,
   type CampaignRole,
@@ -23,6 +27,7 @@ import {
   type InvitePreview,
   type Member,
   type MeResponse,
+  type RecordRef,
   type RecordSummary,
   type RecordType,
   type StatBlock,
@@ -294,8 +299,92 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
   ): Response | null => {
     const [path = '', queryString = ''] = rest.split('?');
     const recordMatch = /^\/records\/([^/]+)$/.exec(path);
-    if (path !== '/records' && recordMatch === null) return null;
+    const backlinksMatch = /^\/records\/([^/]+)\/backlinks$/.exec(path);
+    if (path !== '/records' && recordMatch === null && backlinksMatch === null) return null;
     if (found.role !== 'gm') return refused(403, 'Only the GM can do that');
+
+    const byId = (id: string) => d.records.find((r) => r.id === id);
+    const refOf = (r: CampaignRecord): RecordRef => ({ id: r.id, type: r.type, name: r.name });
+    const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+    /** Like the server: links under the targets' current names, sorted, deleted ones gone. */
+    const present = (r: CampaignRecord): CampaignRecord => ({
+      ...r,
+      links: Object.fromEntries(
+        Object.entries(r.links).map(([key, refs]) => [
+          key,
+          refs
+            .flatMap((ref) => {
+              const target = byId(ref.id);
+              return target === undefined ? [] : [refOf(target)];
+            })
+            .sort(byName),
+        ]),
+      ),
+      otherLinks: r.otherLinks
+        .flatMap((link) => {
+          const target = byId(link.record.id);
+          return target === undefined ? [] : [{ record: refOf(target), label: link.label }];
+        })
+        .sort((a, b) => byName(a.record, b.record)),
+    });
+    const SELF_LINK = "A record can't link to itself";
+    /** The server's link checks: a refusal, or null when every id may be linked. */
+    const linkRefusal = (
+      from: CampaignRecord,
+      links: Record<string, string[] | undefined> | undefined,
+      others: { recordId: string }[] | undefined,
+    ): Response | null => {
+      for (const [key, ids] of Object.entries(links ?? {})) {
+        const spec = linkFieldSpec(from.type, key);
+        if (spec === undefined || ids === undefined) continue;
+        for (const id of ids) {
+          if (id === from.id) return refused(400, SELF_LINK);
+          const target = byId(id);
+          if (target === undefined) return notFound('Linked record not found');
+          if (!spec.targets.includes(target.type)) {
+            return refused(400, `${spec.label} can only link ${linkTargetsLabel(spec.targets)}`);
+          }
+        }
+      }
+      for (const { recordId } of others ?? []) {
+        if (recordId === from.id) return refused(400, SELF_LINK);
+        if (byId(recordId) === undefined) return notFound('Linked record not found');
+      }
+      return null;
+    };
+
+    if (backlinksMatch !== null) {
+      const target = byId(backlinksMatch[1] ?? '');
+      if (target === undefined) return notFound('Record not found');
+      if (method !== 'GET') return null;
+      const response: BacklinksResponse = { links: [], mentions: [], inventories: [] };
+      for (const source of [...d.records].sort(byName)) {
+        for (const [fieldKey, refs] of Object.entries(source.links)) {
+          if (refs.some((ref) => ref.id === target.id)) {
+            response.links.push({ record: refOf(source), kind: 'field', fieldKey, label: null });
+          }
+        }
+        for (const link of source.otherLinks) {
+          if (link.record.id === target.id) {
+            response.links.push({
+              record: refOf(source),
+              kind: 'other',
+              fieldKey: null,
+              label: link.label,
+            });
+          }
+        }
+        const mentioned = mentionIdsOfRecord(source.type, source);
+        if (source.id !== target.id && mentioned.includes(target.id)) {
+          response.mentions.push(refOf(source));
+        }
+      }
+      response.inventories = d.characters
+        .filter((pc) => pc.inventory.some((row) => row.recordId === target.id))
+        .map((pc) => ({ id: pc.id, name: pc.name }))
+        .sort(byName);
+      return Response.json(response);
+    }
     const toSummary = (r: CampaignRecord): RecordSummary => ({
       id: r.id,
       type: r.type,
@@ -335,19 +424,21 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
           parentId,
         });
         d.records.push(created);
-        return Response.json(created, { status: 201 });
+        return Response.json(present(created), { status: 201 });
       }
       return null;
     }
 
     const existing = d.records.find((r) => r.id === recordMatch[1]);
     if (existing === undefined) return notFound('Record not found');
-    if (method === 'GET') return Response.json(existing);
+    if (method === 'GET') return Response.json(present(existing));
     if (method === 'PATCH') {
       if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
       const parsed = updateRecordRequestSchemaFor(existing.type).safeParse(rawBody);
       if (!parsed.success) return invalid(parsed.error.issues);
       const patch = parsed.data;
+      const refusal = linkRefusal(existing, patch.links, patch.otherLinks);
+      if (refusal !== null) return refusal;
       if (patch.name !== undefined) existing.name = patch.name;
       if (patch.publicDescription !== undefined)
         existing.publicDescription = patch.publicDescription;
@@ -366,8 +457,24 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       if (patch.fields !== undefined) {
         existing.fields = applyFieldsPatch(existing.type, existing.fields, patch.fields);
       }
+      for (const [key, ids] of Object.entries(patch.links ?? {})) {
+        if (ids === undefined) continue;
+        existing.links = {
+          ...existing.links,
+          [key]: ids.flatMap((id) => {
+            const target = byId(id);
+            return target === undefined ? [] : [refOf(target)];
+          }),
+        };
+      }
+      if (patch.otherLinks !== undefined) {
+        existing.otherLinks = patch.otherLinks.flatMap(({ recordId, label }) => {
+          const target = byId(recordId);
+          return target === undefined ? [] : [{ record: refOf(target), label }];
+        });
+      }
       existing.updatedAt = '2026-11-10T12:00:00.000Z';
-      return Response.json(existing);
+      return Response.json(present(existing));
     }
     if (method === 'DELETE') {
       if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
@@ -375,6 +482,12 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         return refused(409, 'This area still has spots. Move or delete them first.');
       }
       d.records = d.records.filter((r) => r.id !== existing.id);
+      // Links to it disappear (`present` drops them); PC inventories lose the Item.
+      for (const pc of d.characters) {
+        pc.inventory = pc.inventory.map((row) =>
+          row.recordId === existing.id ? { name: row.name, detail: row.detail } : row,
+        );
+      }
       return new Response(null, { status: 204 });
     }
     return null;
@@ -412,6 +525,10 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         sheet,
       ).safeParse(rawBody);
       if (!parsed.success) return invalid(parsed.error.issues);
+      for (const row of parsed.data.inventory ?? []) {
+        const item = d.records.find((r) => r.id === row.recordId);
+        if (row.recordId !== undefined && item?.type !== 'item') return notFound('Item not found');
+      }
       Object.assign(sheet, parsed.data, { updatedAt: '2026-11-10T12:00:00.000Z' });
       for (const m of d.members) {
         if (m.character?.id === sheet.id) m.character = { id: sheet.id, name: sheet.name };
