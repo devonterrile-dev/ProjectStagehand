@@ -1,13 +1,7 @@
-import {
-  assignCharacterRequestSchema,
-  createCharacterRequestSchema,
-  type CharacterListResponse,
-  type MemberListResponse,
-} from '@stagehand/shared';
+import { assignCharacterRequestSchema, type MemberListResponse } from '@stagehand/shared';
 import type { FastifyInstance } from 'fastify';
 
 import type { Auth } from '../auth/auth';
-import { createCharacter, listCharacters } from '../campaigns/characters';
 import { campaignOf, memberOnly, uuidParam } from '../campaigns/guard';
 import { assignCharacter, listMembers, removeMember } from '../campaigns/members';
 import { assertGm, assertWritable } from '../campaigns/scope';
@@ -15,7 +9,8 @@ import type { Database } from '../db/client';
 import { sendValidationError } from '../http/errors';
 
 /**
- * Members and PCs (F1.2): the roster, removing or leaving, and creating and assigning PCs.
+ * Members (F1.2): the roster, removing or leaving, and assigning PCs. The PCs themselves are
+ * in `characters.ts`.
  * Every route here is campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerMemberRoutes(
@@ -60,31 +55,4 @@ export function registerMemberRoutes(
       return reply.code(204).send();
     },
   );
-
-  app.get(
-    '/api/campaigns/:campaignId/characters',
-    { preHandler },
-    async (request): Promise<CharacterListResponse> => {
-      const scope = campaignOf(request);
-      assertGm(scope);
-      return { characters: await listCharacters(deps.db, scope) };
-    },
-  );
-
-  app.post('/api/campaigns/:campaignId/characters', { preHandler }, async (request, reply) => {
-    const scope = campaignOf(request);
-    assertGm(scope);
-    assertWritable(scope);
-
-    const parsed = createCharacterRequestSchema.safeParse(request.body);
-    if (!parsed.success) return sendValidationError(reply, parsed.error);
-
-    const character = await createCharacter(
-      deps.db,
-      scope,
-      parsed.data.name,
-      parsed.data.assignToUserId,
-    );
-    return reply.code(201).send(character);
-  });
 }

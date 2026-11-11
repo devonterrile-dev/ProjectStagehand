@@ -61,6 +61,8 @@ const recordBase = {
   tags: z.array(z.string()),
   /** The Area a Spot belongs to (D-15). Null for every other type. */
   parentId: z.uuid().nullable(),
+  /** The stat block an NPC fights with (F1.4). Null for every other type. */
+  statBlockId: z.uuid().nullable(),
   /** Null = hidden from players. Set by the reveal flow (F3.5). */
   revealedAt: timestamp.nullable(),
   source: recordSourceSchema,
@@ -156,6 +158,8 @@ const updateBase = {
   tags: tagsSchema.optional(),
   /** Spots only: move to another Area. */
   parentId: z.uuid().nullable().optional(),
+  /** NPCs only: link a stat block of the same campaign, or null to unlink. */
+  statBlockId: z.uuid().nullable().optional(),
 };
 const hasKeys = (patch: object) => Object.keys(patch).length > 0;
 

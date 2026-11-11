@@ -11,10 +11,12 @@ import { registerCsrfProtection } from './http/csrf';
 import { serializeRequest } from './http/log';
 import { registerSecurityHeaders } from './http/security-headers';
 import { registerCampaignRoutes } from './routes/campaigns';
+import { registerCharacterRoutes } from './routes/characters';
 import { registerInviteRoutes } from './routes/invites';
 import { registerMeRoutes } from './routes/me';
 import { registerMemberRoutes } from './routes/members';
 import { registerRecordRoutes } from './routes/records';
+import { registerStatBlockRoutes } from './routes/stat-blocks';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -91,7 +93,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerCampaignRoutes(app, { auth: options.auth, db: handle.db });
     registerMemberRoutes(app, { auth: options.auth, db: handle.db });
     registerInviteRoutes(app, { auth: options.auth, db: handle.db });
+    registerCharacterRoutes(app, { auth: options.auth, db: handle.db });
     registerRecordRoutes(app, { auth: options.auth, db: handle.db });
+    registerStatBlockRoutes(app, { auth: options.auth, db: handle.db });
   }
 
   if (options.webDistDir !== undefined) {

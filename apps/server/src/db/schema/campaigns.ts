@@ -1,15 +1,28 @@
 /**
- * Campaigns, their members (F1.1) and player characters (F1.2). Governance §7 and §8.
+ * Campaigns, their members (F1.1) and player characters with their sheets (F1.2, F1.4).
+ * Governance §7 and §8.
  * `characters` lives here because it and `campaign_members` reference each other.
  *
  * Only the data-access layer in `src/campaigns/` queries these tables.
  */
+import {
+  emptyRichText,
+  type Ability,
+  type Armor,
+  type ClassFeature,
+  type Experience,
+  type Gold,
+  type InventoryItem,
+  type RichText,
+  type Weapon,
+} from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
   check,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -87,9 +100,24 @@ export const campaignMembers = pgTable(
   ],
 );
 
+/** A PC's weapons: what's in hand, plus spares. */
+export interface CharacterWeapons {
+  primary: Weapon | null;
+  secondary: Weapon | null;
+  inventory: Weapon[];
+}
+
+/** A sheet number column: whole, never negative (checked below). */
+const sheetInt = (name: string, initial = 0) => integer(name).default(initial).notNull();
+
 /**
- * Player characters (F1.2: just a name). F1.4 extends this table into the full character
- * sheet. Which player has it is `campaign_members.character_id` (D-21).
+ * Player characters and their sheets (F1.2, F1.4). Which player has one is
+ * `campaign_members.character_id` (D-21).
+ *
+ * Hybrid storage (D-23): numbers that change in play are columns with database checks;
+ * the lists and sections are JSON, validated by the shared sheet schemas. Rules that
+ * depend on the campaign's ruleset (the trait list and range, the Hope max) are checked
+ * only by those schemas. Every column has a default, so a new PC is a valid blank sheet.
  */
 export const characters = pgTable(
   'characters',
@@ -101,6 +129,45 @@ export const characters = pgTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+
+    level: sheetInt('level', 1),
+    className: text('class_name').default('').notNull(),
+    publicDescription: jsonb('public_description')
+      .$type<RichText>()
+      .default(emptyRichText())
+      .notNull(),
+    /** Private to the GM. */
+    gmNotes: jsonb('gm_notes').$type<RichText>().default(emptyRichText()).notNull(),
+    /** Trait id → modifier; missing traits read as 0. */
+    traits: jsonb('traits').$type<Record<string, number>>().default({}).notNull(),
+
+    evasion: sheetInt('evasion'),
+    armorScore: sheetInt('armor_score'),
+    armorSlotsMax: sheetInt('armor_slots_max'),
+    armorSlotsMarked: sheetInt('armor_slots_marked'),
+    minorThreshold: sheetInt('minor_threshold'),
+    majorThreshold: sheetInt('major_threshold'),
+    severeThreshold: sheetInt('severe_threshold'),
+    hpMax: sheetInt('hp_max'),
+    hpCurrent: sheetInt('hp_current'),
+    stressMax: sheetInt('stress_max'),
+    stressCurrent: sheetInt('stress_current'),
+    hope: sheetInt('hope'),
+    proficiency: sheetInt('proficiency', 1),
+
+    experiences: jsonb('experiences').$type<Experience[]>().default([]).notNull(),
+    weapons: jsonb('weapons')
+      .$type<CharacterWeapons>()
+      .default({ primary: null, secondary: null, inventory: [] })
+      .notNull(),
+    /** Null = no armor. */
+    armor: jsonb('armor').$type<Armor>(),
+    inventory: jsonb('inventory').$type<InventoryItem[]>().default([]).notNull(),
+    gold: jsonb('gold').$type<Gold>().default({ handfuls: 0, bags: 0, chests: 0 }).notNull(),
+    /** Null = none yet. */
+    classFeature: jsonb('class_feature').$type<ClassFeature>(),
+    combatOptions: jsonb('combat_options').$type<Ability[]>().default([]).notNull(),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -112,5 +179,17 @@ export const characters = pgTable(
     /** Target of the composite FK from `campaign_members`. */
     unique('characters_id_campaign_id_unique').on(table.id, table.campaignId),
     check('characters_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    check('characters_class_name_length', sql`char_length(${table.className}) <= 80`),
+    check('characters_level_min', sql`${table.level} >= 1`),
+    check(
+      'characters_numbers_nonnegative',
+      sql`least(${table.evasion}, ${table.armorScore}, ${table.armorSlotsMax}, ${table.armorSlotsMarked}, ${table.minorThreshold}, ${table.majorThreshold}, ${table.severeThreshold}, ${table.hpMax}, ${table.hpCurrent}, ${table.stressMax}, ${table.stressCurrent}, ${table.hope}, ${table.proficiency}) >= 0`,
+    ),
+    check('characters_hp_current_max', sql`${table.hpCurrent} <= ${table.hpMax}`),
+    check('characters_stress_current_max', sql`${table.stressCurrent} <= ${table.stressMax}`),
+    check(
+      'characters_armor_slots_marked_max',
+      sql`${table.armorSlotsMarked} <= ${table.armorSlotsMax}`,
+    ),
   ],
 );

@@ -120,6 +120,7 @@ describe('recordSchema', () => {
     gmNotes: emptyRichText(),
     tags: ['harbour'],
     parentId: null,
+    statBlockId: null,
     revealedAt: null,
     source: 'manual',
     createdAt: '2026-11-09T10:00:00.000Z',

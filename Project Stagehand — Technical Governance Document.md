@@ -102,7 +102,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [ ] F3.3 Static location scene type
 - [ ] F3.4 Live sessions: start, join (6-player cap), presence, reconnect (section 13)
 - [ ] F3.5 Reveal flow, player journal, click-a-prop popups, shared player notes
-- [ ] F3.6 Players view their own sheet; GM calls rolls; Hope and Fear tracking; roll log (section 9)
+- [ ] F3.6 Players spend Hope from their own sheet; GM calls rolls; Hope and Fear tracking; roll log (section 9)
 - [ ] F3.7 Cutout animations and a player emote menu
 - [ ] F3.8 GM "take over" an NPC
 - [ ] F3.9 Speaking detection: browser mic and Discord Activity
@@ -185,7 +185,7 @@ Every person has one account and signs in with Discord. Their role is set per ca
 | Add notes to revealed records | Yes | Yes |
 | Edit or delete a note | Any note | Own notes only |
 | View own PC sheet | Yes (all sheets) | Own sheet only |
-| Edit own PC sheet | Yes | Hope spending and combat option picks during play; other edits by GM (open question 19.7) |
+| Edit own PC sheet | Yes | Not in Phase 1: view only (D-23). Hope spending arrives with live play (F3.6), combat option picks with battle scenes (F4.2); all other edits by the GM |
 | Start a session, load scenes, call rolls, spend Fear | Yes | No |
 | Emote, click prompts, roll when called | Yes (through NPCs) | Yes |
 | Run AI import, generate images | Yes, with own keys | No |
@@ -263,11 +263,11 @@ Fields appear in this order on every record of the type, so the GM always knows 
 
 ### Character sheet (PCs)
 
-One per PC, linked to the player who owns it. Field names follow your homebrew. Rule values such as the trait list, Hope max and Fear cap come from a ruleset config, not hard-coded, so sheets can be customized later.
+One per PC, linked to the player who owns it. Field names follow your homebrew. Rule values such as the trait list, Hope max and Fear cap come from a ruleset config, not hard-coded, so sheets can be customized later. Numbers that change in play are columns; lists and sections are validated JSON (D-23).
 
 | Group | Fields |
 | --- | --- |
-| Identity | Character name, player (user link), level, class or role name, public description, visual asset |
+| Identity | Character name, player (user link), level, class or role name, public description, GM notes (private), visual asset (F2.x) |
 | Traits | Six traits: Agility, Strength, Finesse, Instinct, Presence, Knowledge, each a modifier from −1 to +2 |
 | Defense | Evasion; armor score; armor slots (max and marked) |
 | Health | Damage thresholds (minor, major, severe); HP max and current; Stress max and current |
@@ -276,7 +276,7 @@ One per PC, linked to the player who owns it. Field names follow your homebrew. 
 | Proficiency | Number |
 | Weapons | Primary and secondary: name, trait, range, damage dice and type, feature text. Plus inventory weapons. |
 | Armor | Name, base thresholds, base score, feature text |
-| Inventory | List of items (free text or Item record links); gold (handfuls, bags, chest) |
+| Inventory | List of items (free text; Item record links arrive with F1.5); gold (handfuls, bags, chest) |
 | Class feature | Name and description |
 | Combat options | List the player can pick from in battle: name, kind (action, reaction, passive), cost (e.g. Hope, Stress), description |
 
@@ -291,9 +291,9 @@ Standalone records. Monsters are stat blocks with a visual; an NPC can link one 
 | Experiences | List of name + bonus |
 | Motives and tactics | Short text list |
 | Features | List of: name, kind (passive, action, reaction), cost (e.g. mark a Stress, spend Fear), description |
-| Health | Damage thresholds (major, severe); HP max and current; Stress max and current |
+| Health | Damage thresholds (major, severe); HP max; Stress max |
 
-In a battle, each copy of a monster on stage tracks its own HP and Stress. The stat block holds the template values.
+A stat block is a template: it holds HP and Stress maximums only. In a battle, each copy of a monster on stage tracks its own current HP and Stress (F4.2, open question 19.9). Deleting a stat block unlinks the NPCs that used it (D-23).
 
 ### Supporting tables
 
@@ -319,6 +319,8 @@ In a battle, each copy of a monster on stage tracks its own HP and Stress. The s
 Every action roll is 2d12 (one Hope die, one Fear die) plus a trait modifier, compared against a difficulty the GM sets. Whichever die is higher hands out Hope or Fear, whether the roll succeeds or not. All rolling happens on the server, never in the browser.
 
 ### Ruleset values (config, not code)
+
+These live in `packages/shared/src/ruleset.ts` as version 1. Each campaign picks a version with `campaigns.ruleset_version`; a published version is never edited, only superseded by a new one (D-23).
 
 | Setting | Value |
 | --- | --- |
@@ -669,6 +671,7 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 
 | ID | Date | Decision | Why | Rejected options |
 | --- | --- | --- | --- | --- |
+| D-23 | 2026-11-10 | Character sheets (the grown `characters` table) and stat blocks (`stat_blocks`) use hybrid storage: numbers that change in play are integer columns with database checks (never negative; current ≤ max for HP, Stress and armor slots), while traits and the repeating lists and sections are jsonb validated by shared Zod schemas. Ruleset values live in a versioned config in the shared package, picked by `campaigns.ruleset_version`; published versions are immutable, and rules that depend on them (trait ids and range, Hope max) are checked only in Zod. Answers 19.7 for Phase 1: a player can only view their own PC's sheet, built from an explicit allow-list (no GM notes), and any other PC is 404. Stat blocks hold template values only (HP and Stress max). NPC records link one through `records.stat_block_id` (composite FK, NPCs only). Deleting a PC leaves its player without one; deleting a stat block unlinks its NPCs. PATCH replaces each key it sends whole, validated inside the row lock against the stored sheet, and lowering a max below its current value is refused. Damage thresholds have no ordering rule. F1.4 ships in two parts: F1.4a (API) and F1.4b (UI) | The governance split (§8) wants real columns for live mechanical data, but the trait list must come from config; whole-key replace keeps autosave simple; allow-list responses are the only safe way to give players part of a private row; unlinking loses only a link, while refusing the delete would send the GM through every NPC first | Everything in one jsonb column; fully normalized child tables; letting players edit Hope before live play; refusing a stat block delete while NPCs use it (409); `ON DELETE SET NULL` on the composite FK (it would null `campaign_id` too); clamping current values when a max drops |
 | D-22 | 2026-11-09 | Rich text (public description, GM notes and the rich record fields) is stored as TipTap/ProseMirror document JSON, validated by a shared Zod schema with a closed set of nodes (paragraph, heading 1–3, bullet and ordered list, list item, blockquote, hard break, horizontal rule, text) and marks (bold, italic, strike, code, link to http(s) or mailto); anything else is rejected. `mention` is added in F1.5. Record edits autosave field by field through a partial PATCH merged on the server, where null clears a field; last write wins (one GM, D-14). Records are hard-deleted, and deleting an Area that still has Spots is refused. The §8 link fields are `record_links` rows (F1.5), not part of `fields`. F1.3 ships in two parts: F1.3a (schemas and API) and F1.3b (editor UI) | One format for the editor, storage, search and AI-import output; a closed schema is easier to keep safe than sanitising HTML; per-field autosave loses nothing when a tab closes; refusing the delete keeps Spots from vanishing by accident | HTML strings; Markdown (no stable mapping for mentions); a single Save button; cascading or detaching Spots when an Area is deleted |
 | D-21 | 2026-11-09 | Invites are reusable links with an optional expiry (never, 1 day, 7 days), revocable, several active at once. The code (128 random bits) is stored as-is so the GM can copy a link again. There is no cap on campaign membership; the 6-player limit applies when a live session starts (Phase 3). A PC is a row in `characters`: just a name in F1.2, extended into the full sheet by F1.4. The player link is `campaign_members.character_id`, which means one PC per player and one player per PC, and a composite FK keeps both in the same campaign. Removing a player or leaving keeps the PC, unassigned. Refines D-20: actions that only remove access (revoking an invite, removing a player, leaving) still work on an archived campaign | Groups share one link in Discord; rotating groups can have more than 6 members; F1.2 needs PCs to assign before sheets exist, and growing the same table avoids a data move in F1.4 | Single-use links; links with a max-use count; capping membership at 6; deferring PC assignment to F1.4 |
 | D-20 | 2026-11-09 | Archiving a campaign is reversible and makes it read-only: only the GM can archive or unarchive, and every other write is refused while it is archived. No hard delete for now. The §8 "archived flag" is an `archived_at` timestamp (null = active). The GM is stored both as `campaigns.gm_user_id` and as the campaign's only `gm` row in `campaign_members`; a partial unique index enforces D-14 | Archive is a safe "put away" for finished campaigns that keeps the player journal intact; deleting a campaign with linked records, assets and sessions needs its own design | Hiding without making read-only; permanent delete in F1.1 |
@@ -704,7 +707,7 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.4 | Teamwork: who pays the 3 Hope, and does the unused roll give Hope or Fear? | The player asking for help pays; only the chosen roll gives Hope or Fear | Phase 3 |
 | 19.5 | Do any rolls other than action rolls (e.g. reaction rolls) give Hope or Fear? | No, action rolls only | Phase 3 |
 | 19.6 | Can players move their own token on stage? | No in the MVP; the GM places tokens. Revisit after the first playtest. | Phase 3 |
-| 19.7 | What can players edit on their own sheet? | During play: spend Hope, pick combat options. Everything else edited by the GM. | Phase 1 |
+| 19.7 | What can players edit on their own sheet? | Answered for Phase 1 by D-23: nothing; players view their own sheet only. Later: spend Hope (F3.6) and pick combat options (F4.2); everything else edited by the GM. | Phase 1 |
 | 19.8 | How is leveling up handled? | GM edits the sheet by hand; no level-up wizard in the 12-month plan | Phase 4 |
 | 19.9 | Are monster HP and Stress tracked before battle scenes exist? | No; tracking arrives with battle scenes in Phase 4 | Phase 4 |
 

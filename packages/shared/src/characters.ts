@@ -7,7 +7,7 @@ export const characterNameSchema = z
   .min(1, 'Character name cannot be empty')
   .max(80, 'Character name must be 80 characters or fewer');
 
-/** A player character (F1.2: just a name; F1.4 adds the sheet). */
+/** A player character in a list. The full sheet is `CharacterSheet` (F1.4). */
 export const characterSchema = z.object({
   id: z.uuid(),
   name: z.string(),

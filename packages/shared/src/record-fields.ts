@@ -40,7 +40,7 @@ export const RECORD_TYPE_LABELS: Record<RecordType, string> = {
 
 /** Longest plain-text field. Rich text has its own limits. */
 export const TEXT_FIELD_MAX = 2000;
-const textField = z
+export const textField = z
   .string()
   .trim()
   .max(TEXT_FIELD_MAX, `Must be ${String(TEXT_FIELD_MAX)} characters or fewer`);

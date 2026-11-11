@@ -26,6 +26,7 @@ import { httpError } from '../http/errors';
 
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
+import { requireStatBlock } from './stat-blocks';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -39,6 +40,7 @@ function toRecord(row: RecordRow): CampaignRecord {
     fields: row.fields,
     tags: row.tags,
     parentId: row.parentId,
+    statBlockId: row.statBlockId,
     revealedAt: row.revealedAt?.toISOString() ?? null,
     source: row.source,
     createdAt: row.createdAt.toISOString(),
@@ -152,7 +154,7 @@ export async function createRecord(
  * Applies a partial update. `patch.fields` must already have passed
  * `updateRecordRequestSchemaFor(record.type)`; it is merged into the stored fields, where
  * null clears a field (D-22). Only Spots have a parent, and it must stay an Area in this
- * campaign. Last write wins. Callers check `assertGm` and `assertWritable`.
+ * campaign; only NPCs link a stat block, one of this campaign's (F1.4). Last write wins. Callers check `assertGm` and `assertWritable`.
  */
 export async function updateRecord(
   db: Database,
@@ -181,6 +183,13 @@ export async function updateRecord(
         await requireArea(tx, scope, patch.parentId);
         values.parentId = patch.parentId;
       }
+    }
+    if (patch.statBlockId !== undefined) {
+      if (patch.statBlockId !== null) {
+        if (current.type !== 'npc') throw httpError(400, 'Only NPCs have a stat block');
+        await requireStatBlock(tx, scope, patch.statBlockId);
+      }
+      values.statBlockId = patch.statBlockId;
     }
     if (Object.keys(values).length === 0) return toRecord(current);
 

@@ -32,6 +32,7 @@ export function toCampaign(row: CampaignRow, role: CampaignRole): Campaign {
     id: row.id,
     name: row.name,
     role,
+    rulesetVersion: row.rulesetVersion,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   });

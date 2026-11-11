@@ -65,6 +65,7 @@ Sign in with Discord only, via [Better Auth](https://www.better-auth.com) (gover
 - Campaign data is only read or written through the data-access layer in `apps/server/src/campaigns/` (governance §7). Every function there takes a `CampaignScope` and filters by its campaign, so ids from another campaign are never found. The one unscoped lookup is joining by invite code (`campaigns/invites.ts`), where the code itself is the credential.
 - Routes under `/api/campaigns/:campaignId` use the `memberOnly(auth, db)` preHandlers from `campaigns/guard.ts`, so non-members get 404. Before writing, they call `assertGm` and `assertWritable`, because archived campaigns are read-only apart from actions that only remove access (D-20, D-21). Other ids in the path go through `uuidParam`. Each such route must be added to the isolation table in `campaigns.int.test.ts`, and a guard test fails if one is missing.
 - Record routes (`/api/campaigns/:campaignId/records`) are GM-only until the reveal flow (F3.5) adds the allow-listed player view. `PATCH` is partial: any subset of the top-level keys, and `fields` is a partial of that type's fields, validated with `updateRecordRequestSchemaFor(type)` and merged on the server, where `null` clears a field. Rich text is TipTap JSON validated by `richTextSchema` (D-22). Adding a record type is a shared-package change (`record-fields.ts`: shape and display spec, plus the fixture in `apps/server/test/record-fixtures.ts`), not a migration.
+- Character sheet routes (`/api/campaigns/:campaignId/characters/:characterId`) are GM-only except `GET`, which also answers a player for their own PC, through the player allow-list. Anything a player may receive is built by an explicit serializer (`toPlayerCharacterSheet` in `campaigns/characters.ts`) and tested by key set. Stat block routes (`/api/campaigns/:campaignId/stat-blocks`) are GM-only.
 
 ## Database
 
@@ -290,7 +291,7 @@ Per governance §1, assumptions the build relies on:
 - **Rich text is TipTap/ProseMirror document JSON** (D-22) with a closed set of nodes and marks, checked by `richTextSchema` in the shared package. Limits: `RICH_TEXT_MAX_JSON_CHARS` (50,000) per field and `RICH_TEXT_MAX_DEPTH` (32). The `mention` node arrives with links (F1.5).
 - **Stored `fields` are re-validated on every read** (`recordSchema.parse`), so renaming or retyping a field needs a jsonb data migration in the same commit, or reads of old rows fail.
 - **Link fields live in `record_links` (F1.5), not in `fields`.** `RECORD_FIELD_SPECS` lists them as `kind: 'links'` so the display order from governance §8 is kept.
-- **`visual_asset_id` and `stat_block_id` are deferred** to the features that create those tables (F2.x, F1.4).
+- **`visual_asset_id` is deferred** to the feature that creates its table (F2.x). `stat_block_id` arrived with stat blocks (F1.4a).
 - **Records are hard-deleted.** An Area that still has Spots can't be deleted (409); a record's `type` never changes. The Spot → Area foreign key is `NO ACTION`, not `RESTRICT`, so a future cascading campaign delete can remove both in one statement.
 - **Last write wins** on concurrent edits (one GM per campaign, D-14). The UI autosaves field by field (F1.3b).
 - **Record names allow 120 characters**; campaign and PC names stay at 80.
@@ -303,3 +304,14 @@ Per governance §1, assumptions the build relies on:
 - **The records page fetches every summary once** and filters by type in the browser; the API's `?type=` filter is there for later.
 - **Link fields are hidden** until F1.5; the form skips `kind: 'links'` entries of `RECORD_FIELD_SPECS`.
 - **Editor styles are hand-written** in `apps/web/src/index.css` (no typography plugin); the jsdom polyfills TipTap needs live in `apps/web/src/test/setup.ts`.
+
+## Working assumptions (F1.4a)
+
+- **Hybrid storage for sheets and stat blocks** (D-23). Numbers that change in play (HP, Stress, Hope, armor slots, thresholds, evasion…) are integer columns with database checks: never negative, and current ≤ max for HP, Stress and armor slots. Traits and the repeating lists and sections (experiences, weapons, armor, inventory, gold, class feature, combat options; a stat block's attack, experiences, motives and features) are jsonb, checked by the shared schemas in `character-sheets.ts`, `stat-blocks.ts` and `sheet-parts.ts`.
+- **Ruleset values live in `packages/shared/src/ruleset.ts`**, picked by `campaigns.ruleset_version` (1 for now). Published versions are immutable: stored sheets are re-checked on every read, so the trait list or limits of a version must never change. Rules that depend on the ruleset (trait ids and range, Hope max) are checked only in Zod; the database checks only rules that hold for any ruleset.
+- **PATCH replaces each key it sends whole**, including lists and sections (send the whole `weapons` object, all six traits). Null is allowed only where it removes something: a PC's `armor` and `classFeature`, a stat block's `standardAttack`. The sheet is validated inside the row lock against the stored values, so lowering a max below its current value is refused (lower the current value first) rather than clamped.
+- **Damage thresholds have no ordering rule**, so a GM can fill them in any order. Damage dice must look like `1d8` or `2d6+3`, because rolling (F3.6, F4.2) will parse them. Ranges and damage types are free text until the ruleset defines them.
+- **Players read their own PC's sheet only**, at `GET …/characters/:characterId`, built from the allow-list in `playerCharacterSheetSchema` (no GM notes, no player id). Every other PC is 404, not 403. Players edit nothing in Phase 1 (D-23, 19.7).
+- **Deleting a PC leaves its player in the campaign without one; deleting a stat block unlinks its NPCs** and keeps them. Both foreign keys stay `NO ACTION` as a backstop; Postgres can't `SET NULL` one column of a composite key from Drizzle.
+- **Stat blocks are templates**: HP and Stress maximums only. Each copy's current values arrive with battle scenes (F4.2, 19.9). Stat block names allow 120 characters, like records.
+- **New sheet columns all have defaults**, so PCs created before F1.4 became blank sheets (level 1, proficiency 1, zeros, empty lists) with no data migration.

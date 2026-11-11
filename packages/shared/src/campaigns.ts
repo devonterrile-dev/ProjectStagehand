@@ -19,6 +19,8 @@ export const campaignSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   role: campaignRoleSchema,
+  /** The campaign's ruleset (`rulesetFor`): trait list, Hope max, Fear cap (§9). */
+  rulesetVersion: z.int().min(1),
   /** When the campaign was archived (ISO timestamp), or null if active. Archived = read-only (D-20). */
   archivedAt: z.iso.datetime({ offset: true }).nullable(),
   createdAt: z.iso.datetime({ offset: true }),

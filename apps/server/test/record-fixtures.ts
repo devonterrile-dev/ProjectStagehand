@@ -83,3 +83,81 @@ export const FOREIGN_FIELD: Record<RecordType, Record<string, unknown>> = {
   item: { arcName: 'x' },
   session_notes: { kind: 'x' },
 };
+
+/** Every editable key of a character sheet, valid for ruleset 1 (F1.4). */
+export const FULL_SHEET_PATCH = {
+  name: 'Vex Tidecaller',
+  level: 3,
+  className: 'Ranger',
+  publicDescription: richText('A wiry sailor with a harpoon'),
+  gmNotes: richText('Secretly heir to the Tide Guild'),
+  traits: { agility: 2, strength: 1, finesse: 0, instinct: 1, presence: -1, knowledge: 0 },
+  evasion: 11,
+  armorScore: 3,
+  armorSlotsMax: 4,
+  armorSlotsMarked: 1,
+  minorThreshold: 3,
+  majorThreshold: 7,
+  severeThreshold: 14,
+  hpMax: 7,
+  hpCurrent: 5,
+  stressMax: 6,
+  stressCurrent: 2,
+  hope: 4,
+  proficiency: 2,
+  experiences: [{ name: 'Sailor', bonus: 2 }],
+  weapons: {
+    primary: {
+      name: 'Harpoon',
+      trait: 'finesse',
+      range: 'Close',
+      damageDice: '1d10+2',
+      damageType: 'physical',
+      feature: 'Reel in a hit target',
+    },
+    secondary: null,
+    inventory: [
+      {
+        name: 'Knife',
+        trait: null,
+        range: 'Melee',
+        damageDice: '1d6',
+        damageType: 'physical',
+        feature: '',
+      },
+    ],
+  },
+  armor: {
+    name: 'Oilskin',
+    baseMajorThreshold: 6,
+    baseSevereThreshold: 13,
+    baseScore: 3,
+    feature: 'Waterproof',
+  },
+  inventory: [{ name: 'Rope', detail: '50 ft' }],
+  gold: { handfuls: 3, bags: 1, chests: 0 },
+  classFeature: { name: 'Hunter’s Mark', description: 'Track one target' },
+  combatOptions: [
+    { name: 'Volley', kind: 'action', cost: '1 Hope', description: 'Hit two targets' },
+  ],
+};
+
+/** Every editable key of a stat block (F1.4). */
+export const FULL_STAT_BLOCK_PATCH = {
+  name: 'Reef Shark',
+  tier: 2,
+  role: 'Bruiser',
+  publicDescription: richText('A grey shape under the boat'),
+  difficulty: 14,
+  attackModifier: -1,
+  standardAttack: { name: 'Bite', range: 'Melee', damageDice: '2d8+3', damageType: 'physical' },
+  experiences: [{ name: 'Blood in the water', bonus: 3 }],
+  motives: ['Circle', 'Ambush from below'],
+  features: [
+    { name: 'Thrash', kind: 'reaction', cost: 'Mark a Stress', description: 'Knock back' },
+  ],
+  majorThreshold: 9,
+  severeThreshold: 17,
+  hpMax: 6,
+  stressMax: 3,
+};
