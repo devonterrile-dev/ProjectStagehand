@@ -297,6 +297,8 @@ export interface StepInputs {
   targetTypes: ImportRow['targetTypes'];
   recordId: string | null;
   conversation: ImportRound[];
+  /** The questions waiting for an answer, before the step starts. */
+  pending: string[];
 }
 
 function stepInputs(row: ImportRow): StepInputs {
@@ -307,6 +309,7 @@ function stepInputs(row: ImportRow): StepInputs {
     targetTypes: row.targetTypes,
     recordId: row.fillRecordId,
     conversation: row.conversation,
+    pending: row.status === 'questions' ? row.questions : [],
   };
 }
 

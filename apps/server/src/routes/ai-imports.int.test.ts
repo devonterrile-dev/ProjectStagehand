@@ -329,7 +329,7 @@ describe('AI import API', () => {
         mode: 'bootstrap',
         status: 'running',
         model: 'claude-sonnet-5-5',
-        promptVersion: 3,
+        promptVersion: 4,
         phase: 'questions',
         steps: 1,
         attempts: 0,

@@ -17,7 +17,16 @@ import type { EvalCase, Expectations } from './types';
 export const LOCAL_DIR = fileURLToPath(new URL('./local/', import.meta.url));
 
 /** Keys of `expect` whose values (or array items) are patterns. */
-const PATTERN_KEYS = new Set(['name', 'notName', 'names', 'record', 'value', 'contains', 'about']);
+const PATTERN_KEYS = new Set([
+  'name',
+  'notName',
+  'names',
+  'record',
+  'to',
+  'value',
+  'contains',
+  'about',
+]);
 const PATTERN_LISTS = new Set(['secrets', 'updates']);
 
 function patterns(value: unknown, key = ''): unknown {

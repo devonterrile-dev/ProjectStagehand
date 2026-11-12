@@ -335,9 +335,43 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
       return;
     }
     if (record.full === null) {
-      issues.push(
-        `${where}: this record was not shown in full, so its fields can't be replaced. Link to it, or ask a question`,
+      // Renaming and tagging overwrite nothing, so they need no full view of the record
+      // (D-35); any other field does.
+      const replaced = update.fields.filter(
+        (field) => field.value.trim() !== '' && squash(field.key) !== squash(WIRE_NAME_KEY),
       );
+      if (replaced.length > 0 || update.pointsOfInterest.length > 0) {
+        issues.push(
+          `${where}: this record was not shown in full, so its fields can't be replaced; only its name and tags can change. Link to it, or ask a question`,
+        );
+        return;
+      }
+      if (mode === 'fill') {
+        issues.push(`${where}: fill mode changes only the record named in the task`);
+        return;
+      }
+      if (updatedRefs.has(ref)) {
+        issues.push(
+          `${where}: ${ref} is updated more than once. Merge the changes into one update`,
+        );
+        return;
+      }
+      updatedRefs.add(ref);
+      const { name } = convertFields(record.type, update.fields, [], where, true);
+      const payload: UpdateProposalPayload = { recordId: record.id, type: record.type };
+      if (name !== undefined && name !== record.name) {
+        if (name === '' || name.length > RECORD_NAME_MAX) {
+          issues.push(`${where}: a record name must be 1 to ${String(RECORD_NAME_MAX)} characters`);
+        } else {
+          payload.name = name;
+        }
+      }
+      const addTags = cleanTags(update.addTags).slice(0, TAGS_MAX);
+      if (addTags.length > 0) payload.addTags = addTags;
+      if (Object.keys(payload).length <= 2) return;
+      const parsed = updateProposalPayloadSchema.safeParse(payload);
+      if (parsed.success) updates.push(parsed.data);
+      else for (const issue of zodIssues(parsed.error)) issues.push(`${where}: ${issue}`);
       return;
     }
     if (mode === 'fill' && record.id !== pack.fillTargetId) {

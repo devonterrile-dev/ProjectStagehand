@@ -1,5 +1,5 @@
 /**
- * The AI import eval cases (F1.9b, D-32): 12 steps of made-up notes in different writing
+ * The AI import eval cases (F1.9b, D-32): 13 steps of made-up notes in different writing
  * styles, with what each must and must not produce. They are synthetic on purpose: the GM's
  * real notes stay in the git-ignored `local/` folder.
  *
@@ -338,6 +338,24 @@ It isn't evil, just hungry, and it hoards shiny ore. The miners leave it offerin
               fields: ['appearance'],
             },
           ],
+        },
+      },
+    ],
+  },
+  {
+    id: 'rename',
+    title: 'A rename of a record the notes describe but do not name',
+    style: 'Short news, record named only by description',
+    campaign: ASHFORD,
+    steps: [
+      {
+        mode: 'add',
+        notes:
+          'The inn by the town gate has a new owner, a retired sea captain, and she has renamed it The Gilded Lamp.',
+        answer: 'Yes, that one. Rename it, and leave the new owner unnamed for now.',
+        expect: {
+          renames: [{ record: /lamplighter/i, to: /gilded lamp/i }],
+          atMost: [{ type: 'spot', name: /gilded lamp|lamplighter|\binn\b/i, max: 0 }],
         },
       },
     ],

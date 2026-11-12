@@ -44,6 +44,8 @@ export interface Expectations {
   onlyNamed?: { type: RecordType; names: RegExp }[];
   /** Existing records (by name) that must receive an update. */
   updates?: RegExp[];
+  /** Existing records (by name) that must be renamed, and what to. */
+  renames?: { record: RegExp; to: RegExp }[];
   /** A field an update must set: the record, the field key, and a matching value. */
   updateValues?: { record: RegExp; field: string; value: RegExp }[];
   /** Words that must not appear in any players' description (`publicDescription`). */

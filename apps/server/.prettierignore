@@ -1,0 +1,3 @@
+# Prettier run from this folder does not read the root ignore files.
+eval/import/local/
+eval/results/

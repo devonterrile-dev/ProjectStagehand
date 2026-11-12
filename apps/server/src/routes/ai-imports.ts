@@ -89,6 +89,7 @@ function inputsOf(request: StartImportRequest): StepInputs {
     targetTypes: request.targetTypes ?? null,
     recordId: request.mode === 'fill' ? (request.recordId ?? null) : null,
     conversation: [],
+    pending: [],
   };
 }
 
@@ -198,19 +199,22 @@ export function registerImportRoutes(
   }
 
   /**
-   * The context of a later step, built from the import itself. The GM's answers count as
-   * text, so records they name go in full.
+   * The context of a later step, built from the import itself. The model's questions and the
+   * GM's answers count as text, so the records they name go in full (D-35): a record the
+   * model asked about can then be changed.
    */
   async function packForStep(scope: CampaignScope, inputs: StepInputs, answer: string | null) {
-    const answers = [...inputs.conversation.map((round) => round.answer), answer].filter(
-      (text): text is string => text !== null,
-    );
+    const asked = [
+      ...inputs.conversation.flatMap((round) => [...round.questions, round.answer]),
+      ...inputs.pending,
+      answer,
+    ].filter((text): text is string => text !== null);
     const { pack } = await prepareImport(
       db,
       scope,
       {
         mode: inputs.mode,
-        text: [inputs.text, ...answers].join('\n\n'),
+        text: [inputs.text, ...asked].join('\n\n'),
         ...(inputs.targetTypes === null ? {} : { targetTypes: inputs.targetTypes }),
         ...(inputs.recordId === null ? {} : { recordId: inputs.recordId }),
       },

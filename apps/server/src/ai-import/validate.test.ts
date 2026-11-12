@@ -450,6 +450,58 @@ describe('updates', () => {
     ]);
   });
 
+  it('renames and tags a record it was not shown in full, and nothing more (D-35)', () => {
+    const proposals = proposalsOf(
+      wire({
+        updates: [
+          {
+            id: 'E1',
+            fields: [{ key: 'name', value: '  Saltmarsh   Harbour ' }],
+            addTags: ['coast'],
+            pointsOfInterest: [],
+          },
+          // Only a name that says what the record already says: no change at all.
+          {
+            id: 'E5',
+            fields: [{ key: 'name', value: 'Tidecallers' }],
+            addTags: [],
+            pointsOfInterest: [],
+          },
+        ],
+      }),
+    );
+    expect(proposals).toEqual([
+      {
+        action: 'update',
+        payload: {
+          recordId: IDS.saltmarsh,
+          type: 'area',
+          name: 'Saltmarsh Harbour',
+          addTags: ['coast'],
+        },
+      },
+    ]);
+
+    const issues = issuesOf(
+      wire({
+        updates: [
+          {
+            id: 'E1',
+            fields: [
+              { key: 'name', value: 'Saltmarsh Harbour' },
+              { key: 'overview', value: 'Rewritten.' },
+            ],
+            addTags: [],
+            pointsOfInterest: [],
+          },
+        ],
+      }),
+    );
+    expect(issues).toEqual([
+      expect.stringMatching(/not shown in full, so its fields can't be replaced; only its name/),
+    ]);
+  });
+
   it('checks an update against the type of its record', () => {
     expect(
       issuesOf(

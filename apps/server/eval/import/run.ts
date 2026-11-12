@@ -179,7 +179,8 @@ async function runStep(
 
   const records =
     askError === null
-      ? await call('records', [step.notes, answer ?? ''].join('\n\n'), conversation)
+      ? // As in the app, the questions and answers count towards which records go in full.
+        await call('records', [step.notes, ...questions, answer ?? ''].join('\n\n'), conversation)
       : null;
   if (records !== null) usage = addTokenUsage(usage, records.usage);
   const recordsError = records === null ? askError : failed(records);

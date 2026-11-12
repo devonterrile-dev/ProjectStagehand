@@ -197,6 +197,15 @@ const ORACLE: Record<string, Answers[]> = {
         }),
     },
   ],
+  rename: [
+    {
+      questions: ['Is the inn by the town gate the Lamplighter Inn?'],
+      records: (ref) =>
+        wire({
+          updates: [update(ref('The Lamplighter Inn'), [field('name', 'The Gilded Lamp')])],
+        }),
+    },
+  ],
   'type-filter': [
     {
       records: () =>
@@ -263,7 +272,7 @@ describe('the eval grader', () => {
       steps += runs.length;
       passed += runs.filter((run) => run.grade?.pass === true).length;
     }
-    expect(steps).toBe(12);
+    expect(steps).toBe(13);
     expect(passed).toBe(0);
   });
 

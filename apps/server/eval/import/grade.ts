@@ -185,6 +185,7 @@ export function gradeStep(input: GradeInput): StepGrade {
   const wanted =
     (expect.creates?.length ?? 0) +
     (expect.updates?.length ?? 0) +
+    (expect.renames?.length ?? 0) +
     (expect.updateValues?.length ?? 0) +
     (expect.fills?.length ?? 0);
   if (wanted > 0) {
@@ -208,6 +209,11 @@ export function gradeStep(input: GradeInput): StepGrade {
     }
     for (const name of expect.updates ?? []) {
       if (updated(name).length === 0) fail('expected', `no update to ${String(name)}`);
+    }
+    for (const want of expect.renames ?? []) {
+      if (!updated(want.record).some((update) => want.to.test(update.name ?? ''))) {
+        fail('expected', `${String(want.record)} was not renamed to ${String(want.to)}`);
+      }
     }
     for (const want of expect.updateValues ?? []) {
       const hit = updated(want.record).some((update) =>
