@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
+    "eval": "tsx --env-file-if-exists=.env eval/import/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env src/migrate-cli.ts",
     "db:check": "drizzle-kit check",

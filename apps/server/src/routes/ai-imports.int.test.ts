@@ -329,7 +329,7 @@ describe('AI import API', () => {
         mode: 'bootstrap',
         status: 'running',
         model: 'claude-sonnet-5-5',
-        promptVersion: 2,
+        promptVersion: 3,
         phase: 'questions',
         steps: 1,
         attempts: 0,
@@ -981,7 +981,7 @@ describe('AI import API', () => {
   });
 
   describe('filling in a record', () => {
-    it('retries once with the problems, then proposes only the empty fields', async () => {
+    it('retries once with the problems, then fills the record in', async () => {
       const world = await harborCampaign('Fill Campaign');
       calls.length = 0;
       scripts = [
@@ -993,7 +993,7 @@ describe('AI import API', () => {
                 id: ref('Captain Voss'),
                 fields: [
                   field('personality', 'Dour, loyal to the port.'),
-                  // Already has a value: fill mode leaves it alone.
+                  // Already has a value: fill mode may rewrite it when the notes ask (D-34).
                   field('status', 'dead'),
                 ],
                 addTags: [],
@@ -1018,9 +1018,10 @@ describe('AI import API', () => {
         proposalCounts: { create: 0, update: 1, link: 0 },
       });
       const [update] = detail.proposals;
-      expect(update?.action === 'update' && Object.keys(update.payload.fields ?? {})).toEqual([
-        'personality',
-      ]);
+      // jsonb keeps no key order.
+      expect(
+        update?.action === 'update' && Object.keys(update.payload.fields ?? {}).sort(),
+      ).toEqual(['personality', 'status']);
 
       expect(calls).toHaveLength(2);
       expect(calls[0]?.user.step).toMatch(/Record to fill in: E\d+\./);

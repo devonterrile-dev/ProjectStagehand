@@ -211,7 +211,7 @@ describe('createAnthropicProvider().generateImport', () => {
       { type: 'text', text: 'SYSTEM PROMPT', cache_control: { type: 'ephemeral' } },
     ]);
     expect(body.messages).toEqual([{ role: 'user', content: USER_CONTENT }]);
-    expect(body.output_config.effort).toBe('medium');
+    expect(body.output_config.effort).toBe('high');
     expect(body.output_config.format.type).toBe('json_schema');
     expect(Object.keys(body.output_config.format.schema.properties)).toEqual([
       'creates',

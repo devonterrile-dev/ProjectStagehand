@@ -26,3 +26,7 @@ Thumbs.db
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+
+# AI import eval (F1.9b): the GM's real notes and paid-run results stay on this machine.
+apps/server/eval/import/local/
+apps/server/eval/results/

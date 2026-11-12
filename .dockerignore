@@ -14,3 +14,5 @@ infra/
 docs/
 Dockerfile
 .dockerignore
+# The AI import eval: never part of the image, and the local notes stay private.
+apps/server/eval/

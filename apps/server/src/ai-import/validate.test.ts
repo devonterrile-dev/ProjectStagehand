@@ -640,7 +640,7 @@ describe('fill mode', () => {
     return pack;
   };
 
-  it('fills empty fields and leaves filled ones alone', () => {
+  it('fills empty fields, may rewrite filled ones, and never renames', () => {
     const proposals = proposalsOf(
       wire({
         updates: [
@@ -664,8 +664,18 @@ describe('fill mode', () => {
     );
     expect(proposals).toHaveLength(2);
     const payload = proposals[0]?.payload as Record<string, unknown>;
-    expect(Object.keys(payload).sort()).toEqual(['fields', 'gmNotes', 'recordId', 'type']);
-    expect(Object.keys(payload['fields'] as object)).toEqual(['personality']);
+    expect(Object.keys(payload).sort()).toEqual([
+      'fields',
+      'gmNotes',
+      'publicDescription',
+      'recordId',
+      'type',
+    ]);
+    expect(Object.keys(payload['fields'] as object)).toEqual([
+      'appearance',
+      'personality',
+      'status',
+    ]);
     expect(proposals[1]).toMatchObject({ action: 'link', payload: { fieldKey: 'homeSpot' } });
   });
 

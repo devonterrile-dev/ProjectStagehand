@@ -203,6 +203,7 @@ describe('buildUserMessage', () => {
         'Record to fill in: E3.',
         'Its empty fields: personality, voiceAndMannerisms, wants, knowledge, roleInStory, gmNotes.',
         'Its empty link fields: homeSpot.',
+        'Change a field that already has content only if the notes ask for that change.',
         '</task>',
       ].join('\n'),
     );

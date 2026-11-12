@@ -87,11 +87,10 @@ export type ProposalReviewState = z.infer<typeof proposalReviewStateSchema>;
 export const AI_IMPORT_MODEL = 'claude-sonnet-5-5';
 
 /**
- * How hard the model thinks about an import (`output_config.effort`). Set explicitly, since
- * the model's own default is higher and costs more; the eval suite (F1.9b) decides whether
- * `high` earns its price.
+ * How hard the model thinks about an import (`output_config.effort`). `high` since the F1.9b
+ * eval (D-34): it passed 29 of 30 steps against 25 for `medium`, for about 40% more per call.
  */
-export const AI_IMPORT_EFFORT = 'medium';
+export const AI_IMPORT_EFFORT = 'high';
 
 /** USD per million tokens. Check against Anthropic's pricing page before relying on them. */
 export interface ModelPrice {

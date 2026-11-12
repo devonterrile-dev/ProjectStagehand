@@ -249,6 +249,7 @@ function taskBlock(input: ImportPromptInput): string {
         : `Its empty fields: ${empty.fields.join(', ')}.`,
     );
     if (empty.links.length > 0) lines.push(`Its empty link fields: ${empty.links.join(', ')}.`);
+    lines.push('Change a field that already has content only if the notes ask for that change.');
   }
   return `<task>\n${lines.join('\n')}\n</task>`;
 }

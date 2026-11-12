@@ -360,11 +360,10 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
     );
     const payload: UpdateProposalPayload = { recordId: record.id, type: record.type };
 
-    // A value that says what the record already says is no change. In fill mode a field
-    // that already has content is left alone: that mode only fills gaps.
+    // A value that says what the record already says is no change. Fill mode may rewrite a
+    // field that has content too, when the GM's notes ask for it (D-34); the review shows it.
     const keepRich = (current: RichText, next: RichText | undefined): RichText | undefined => {
       if (next === undefined) return undefined;
-      if (mode === 'fill' && !isEmptyValue(current)) return undefined;
       return richTextToMarkdown(current) === richTextToMarkdown(next) ? undefined : next;
     };
     const publicDescription = keepRich(full.publicDescription, converted.publicDescription);
@@ -384,7 +383,6 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
     const fields: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(converted.fields)) {
       const current = full.fields[key];
-      if (mode === 'fill' && !isEmptyValue(current)) continue;
       const same =
         specs[key]?.kind === 'rich' && !isEmptyValue(current)
           ? richTextToMarkdown(current as RichText) === richTextToMarkdown(value as RichText)
@@ -397,10 +395,11 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
     const addTags = cleanTags(update.addTags, full.tags).slice(0, room);
     if (addTags.length > 0) payload.addTags = addTags;
 
+    // An update that changes nothing is simply dropped; any other failure is a real problem.
+    if (Object.keys(payload).length <= 2) return;
     const parsed = updateProposalPayloadSchema.safeParse(payload);
     if (parsed.success) updates.push(parsed.data);
-    // An update that changes nothing is simply dropped; any other failure is a real problem.
-    else if (Object.keys(payload).length > 2) {
+    else {
       for (const issue of zodIssues(parsed.error)) issues.push(`${where}: ${issue}`);
     }
   });

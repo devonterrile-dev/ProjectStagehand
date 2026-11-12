@@ -94,7 +94,13 @@ export interface AnthropicProviderOptions {
   importTimeoutMs?: number;
   /** How often the SDK retries an import call that failed before any answer (429, 5xx). */
   importMaxRetries?: number;
+  /** For the eval (F1.9b): another model or effort than the pinned ones. */
+  model?: string;
+  effort?: ImportEffort;
 }
+
+/** The `output_config.effort` levels the import may run at. */
+export type ImportEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * The answer's shape as Anthropic's structured output takes it. Only the schema is sent: we
@@ -108,7 +114,10 @@ const WIRE_FORMAT = (() => {
 
 type MessageParams = Parameters<Anthropic['messages']['stream']>[0];
 
-function importRequest(input: Pick<ImportCallInput, 'system' | 'user' | 'retry'>) {
+function importRequest(
+  input: Pick<ImportCallInput, 'system' | 'user' | 'retry'>,
+  settings: { model: string; effort: ImportEffort },
+) {
   const messages: MessageParams['messages'] = [
     {
       role: 'user',
@@ -135,7 +144,7 @@ function importRequest(input: Pick<ImportCallInput, 'system' | 'user' | 'retry'>
     );
   }
   return {
-    model: AI_IMPORT_MODEL,
+    model: settings.model,
     // The prompt file is identical across imports, and the start of the user message across
     // an import's rounds: both are marked cacheable. Every step sends the same output format
     // and effort, so nothing else breaks the cache between rounds.
@@ -145,7 +154,7 @@ function importRequest(input: Pick<ImportCallInput, 'system' | 'user' | 'retry'>
     messages,
     // No sampling parameters and no `thinking`: the model thinks adaptively by default, and
     // `effort` sets how much.
-    output_config: { effort: AI_IMPORT_EFFORT, format: WIRE_FORMAT },
+    output_config: { effort: settings.effort, format: WIRE_FORMAT },
   } satisfies Partial<MessageParams>;
 }
 
@@ -174,6 +183,10 @@ export function createAnthropicProvider(options: AnthropicProviderOptions = {}):
       openTelemetry: false,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     });
+  const settings = {
+    model: options.model ?? AI_IMPORT_MODEL,
+    effort: options.effort ?? AI_IMPORT_EFFORT,
+  };
   const quick = (apiKey: string) =>
     client(apiKey, { maxRetries: 0, timeout: options.timeoutMs ?? 10_000 });
 
@@ -196,7 +209,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions = {}):
         // Streamed, so a long answer can't hit an idle timeout; only the whole message is used.
         const message = await anthropic.messages
           .stream(
-            { ...importRequest(input), max_tokens: AI_IMPORT_LIMITS.maxOutputTokens },
+            { ...importRequest(input, settings), max_tokens: AI_IMPORT_LIMITS.maxOutputTokens },
             input.signal === undefined ? {} : { signal: input.signal },
           )
           .finalMessage();
@@ -225,7 +238,9 @@ export function createAnthropicProvider(options: AnthropicProviderOptions = {}):
 
     async countImportTokens(input) {
       try {
-        const count = await quick(input.apiKey).messages.countTokens(importRequest(input));
+        const count = await quick(input.apiKey).messages.countTokens(
+          importRequest(input, settings),
+        );
         return { status: 'ok', inputTokens: count.input_tokens };
       } catch (error) {
         return failureOf(error);
