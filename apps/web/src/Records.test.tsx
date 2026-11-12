@@ -465,26 +465,56 @@ describe('Search and filters', () => {
     expect(calledWith(fetchMock, `/api${listUrl(coast)}?q=fish`, 'GET')).toBe(true);
   });
 
-  it('combines tag chips: a record needs every tag picked', async () => {
+  it('picks tags from a search box: a record needs every tag picked', async () => {
     const { coast } = searchWorld();
     renderAt(listUrl(coast));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'harbour', pressed: false }));
+    const box = await screen.findByRole('combobox', { name: 'Filter by tag' });
+    // Tags are suggested, not all listed up front.
+    expect(screen.queryByRole('option')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'harbour' })).toBeNull();
+
+    fireEvent.change(box, { target: { value: 'harb' } });
+    const options = within(screen.getByRole('listbox', { name: 'Tags' })).getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['harbour']);
+    if (options[0] === undefined) throw new Error('no harbour option');
+    fireEvent.mouseDown(options[0]);
     await waitFor(() => {
       expect(shownNames()).toEqual(['Captain Vex', 'Fish Market']);
     });
     expect(currentUrl()).toBe(`${listUrl(coast)}?tag=harbour`);
+    expect(box).toHaveProperty('value', '');
 
-    fireEvent.click(screen.getByRole('button', { name: 'act 1' }));
+    // A picked tag is no longer suggested.
+    fireEvent.change(box, { target: { value: 'a' } });
+    expect(
+      within(screen.getByRole('listbox', { name: 'Tags' }))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['act 1']);
+
+    fireEvent.change(box, { target: { value: 'act' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => {
       expect(shownNames()).toEqual(['Captain Vex']);
     });
-    expect(screen.getByRole('button', { name: 'harbour', pressed: true })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Remove act 1' })).toBeDefined();
 
-    fireEvent.click(screen.getByRole('button', { name: 'harbour' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove harbour' }));
     await waitFor(() => {
       expect(currentUrl()).toBe(`${listUrl(coast)}?tag=act+1`);
     });
+    expect(screen.queryByRole('button', { name: 'Remove harbour' })).toBeNull();
+  });
+
+  it('says when no tag matches the search', async () => {
+    const { coast } = searchWorld();
+    renderAt(listUrl(coast));
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Filter by tag' }), {
+      target: { value: 'zzz' },
+    });
+    expect(screen.getByText('No matching tags')).toBeDefined();
   });
 
   it('offers the Area filter only for Spots, and drops it with another type', async () => {
