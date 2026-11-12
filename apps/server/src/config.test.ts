@@ -31,6 +31,7 @@ describe('loadConfig', () => {
       logLevel: 'info',
       databaseUrl: REQUIRED.DATABASE_URL,
       webDistDir: undefined,
+      promptsDir: undefined,
       publicUrl: 'http://localhost:5173',
       trustProxy: false,
       credentialsKey: Buffer.alloc(32, 7),
@@ -59,6 +60,7 @@ describe('loadConfig', () => {
       LOG_LEVEL: 'debug',
       DATABASE_URL: 'postgres://user:pass@postgres:5432/stagehand',
       WEB_DIST_DIR: '/app/web',
+      PROMPTS_DIR: '/app/prompts',
       PUBLIC_URL: 'https://stagehand.example',
     });
 
@@ -69,6 +71,7 @@ describe('loadConfig', () => {
       logLevel: 'debug',
       databaseUrl: 'postgres://user:pass@postgres:5432/stagehand',
       webDistDir: '/app/web',
+      promptsDir: '/app/prompts',
       publicUrl: 'https://stagehand.example',
     });
   });

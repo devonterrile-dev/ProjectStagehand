@@ -14,6 +14,8 @@ const envSchema = z
       .default('info'),
     DATABASE_URL: postgresUrl,
     WEB_DIST_DIR: z.string().min(1).optional(),
+    // Where the versioned AI prompt files are (F1.9). Unset in dev: read from the package.
+    PROMPTS_DIR: z.string().min(1).optional(),
     PUBLIC_URL: z
       .url({ protocol: /^https?$/, error: 'must be an http(s) URL' })
       .transform((value) => new URL(value).origin)
@@ -62,6 +64,11 @@ export interface Config {
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   databaseUrl: string | undefined;
   webDistDir: string | undefined;
+  /**
+   * Folder holding the AI prompt files (`<task>/v<N>.md`). Set in the production image, where
+   * the bundled server can't find the `@stagehand/prompts` package on its own; unset in dev.
+   */
+  promptsDir: string | undefined;
   /** Origin users reach the app at (no trailing slash), e.g. http://localhost:5173. */
   publicUrl: string | undefined;
   /**
@@ -112,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: parsed.LOG_LEVEL,
     databaseUrl: parsed.DATABASE_URL,
     webDistDir: parsed.WEB_DIST_DIR,
+    promptsDir: parsed.PROMPTS_DIR,
     publicUrl: parsed.PUBLIC_URL,
     trustProxy: parsed.TRUST_PROXY,
     credentialsKey: parsed.CREDENTIALS_ENCRYPTION_KEY,

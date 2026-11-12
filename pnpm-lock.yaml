@@ -229,6 +229,9 @@ importers:
       '@fastify/static':
         specifier: ^10.1.10
         version: 10.1.10
+      '@stagehand/prompts':
+        specifier: workspace:*
+        version: link:../../packages/prompts
       '@stagehand/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -241,6 +244,9 @@ importers:
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
+      marked:
+        specifier: ^18.2.0
+        version: 18.2.0
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -358,6 +364,8 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+
+  packages/prompts: {}
 
   packages/shared:
     dependencies:
@@ -3835,6 +3843,11 @@ packages:
 
   magicast@0.5.5:
     resolution: {integrity: sha512-UicdXN8zQ3JHlxVq+28afMXPr1z7WNY6+7EJnzTdQWkTAlMLF5fNCCKxJHBQwGaNGR11581EiQmQzx73+MvszA==}
+
+  marked@18.2.0:
+    resolution: {integrity: sha512-KaeL+tAbtvI930q7HE2PN5lYXYdT8EiSmxHlN6F3rsfb57wd5mp5W5TLazpdj4inTQBJdgjYwbs40W/0VUGU+Q==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   merge-stream@2.0.0:
     resolution: {integrity: sha512-abv/qOcuPfk3URPfDzmZU1LKmuw8kT+0nIHvKrKgFrwifol/doWcdA4ZqsWQ8ENrFKkd67Mfpo/LovbIUsbt3w==}
@@ -8154,6 +8167,8 @@ snapshots:
       '@babel/parser': 7.29.13
       '@babel/types': 7.29.11
       source-map-js: 1.2.2
+
+  marked@18.2.0: {}
 
   merge-stream@2.0.0: {}
 

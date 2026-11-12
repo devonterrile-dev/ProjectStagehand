@@ -1,5 +1,8 @@
 import { resolve } from 'node:path';
 
+import { PromptError } from '@stagehand/prompts';
+
+import { loadImportSystemPrompt } from './ai-import/prompt';
 import { buildApp } from './app';
 import { createAuth } from './auth/auth';
 import { ConfigError, loadConfig } from './config';
@@ -13,6 +16,19 @@ function start(): void {
   } catch (error) {
     if (error instanceof ConfigError) {
       console.error(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+
+  // The AI import prompt (F1.9) is read here, so a wrong PROMPTS_DIR, or a prompt file that
+  // no longer matches the record types, stops the server now instead of failing a GM's first
+  // import. F1.8a hands the text to the import routes.
+  try {
+    loadImportSystemPrompt(config.promptsDir);
+  } catch (error) {
+    if (error instanceof PromptError) {
+      console.error(`${error.message}\nSet PROMPTS_DIR to the folder holding import/v<N>.md.`);
       process.exit(1);
     }
     throw error;

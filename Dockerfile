@@ -18,6 +18,7 @@ FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
+COPY packages/prompts/package.json packages/prompts/
 COPY packages/shared/package.json packages/shared/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir /pnpm/store
@@ -34,11 +35,15 @@ FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
-    WEB_DIST_DIR=/app/web
+    WEB_DIST_DIR=/app/web \
+    PROMPTS_DIR=/app/prompts
 WORKDIR /app
 
 COPY --from=build --chown=node:node /out/server ./
 COPY --from=build --chown=node:node /repo/apps/web/dist ./web
+# The versioned AI prompt files (F1.9). They are read from disk, not bundled; the server
+# loads its prompt at startup and exits if it isn't here.
+COPY --from=build --chown=node:node /repo/packages/prompts/import ./prompts/import
 
 USER node
 EXPOSE 3000

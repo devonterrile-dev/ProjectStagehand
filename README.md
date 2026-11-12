@@ -193,6 +193,7 @@ apps/
   server/     Fastify API                          (@stagehand/server)
 packages/
   shared/     Zod schemas, types, shared logic     (@stagehand/shared)
+  prompts/    Versioned AI prompts, read from disk (@stagehand/prompts)
 infra/        Docker Compose (production + dev DB), env templates
   scripts/    Backup, shutdown and restore commands (@stagehand/infra)
 Dockerfile    App image (server + web client)
@@ -387,3 +388,17 @@ Per governance §1, assumptions the build relies on:
 - **Logs never carry a key.** The request serializer logs no headers or bodies, pino `redact` (`LOG_REDACT_PATHS` in `app.ts`) censors `apiKey`, `encryptedKey`, `authorization` and `cookie` fields if anything ever logs them, the Anthropic SDK runs with `logLevel: 'off'`, and refusals are answered directly rather than thrown. The integration test runs the routes with a trace-level logger and scans every line and every response for the keys and ciphertexts.
 - **No rate limit on saving a key yet.** Each save makes one free Anthropic call; per-user rate limits arrive with the AI import route (F1.8, §14).
 - **OpenRouter has no routes yet** (F2.2). The table already allows `openrouter`, and its paths answer 404.
+
+## Working assumptions (F1.9a)
+
+The prompt, the proposal schemas and the Markdown conversion for the AI import (governance §10). Nothing here calls Anthropic yet; F1.8a adds the call and the Decision log entry.
+
+- **The model writes a flat, type-agnostic answer** (`importWireSchema` in `packages/shared/src/ai-import.ts`): `creates`, `updates`, `links`, `questions`. Anthropic's structured output refuses recursive schemas and allows at most 24 optional and 16 union-typed properties, so every property is required (an empty string or list means "nothing"), a record's fields travel as `{ key, value }` pairs, and rich text travels as Markdown. A test checks the schema has no optional property, union or reference.
+- **The real rules are enforced on the server** (`apps/server/src/ai-import/validate.ts`) against the same schemas the record API uses: field keys and values per type, link targets and cardinality, a Spot's Area, ids that exist or are created in the same answer. What the model couldn't have known better is fixed quietly (the letter case of a choice, blank values, over-long tags); everything else becomes an issue written for the model, to be sent back once.
+- **Records are named to the model by short refs**, `E1…` for existing ones and `N1…` for new ones, never by UUID. Each proposed record gets its real id when it is validated, so proposals of one import can link to and mention each other before anything is saved.
+- **Only records shown in full can be updated.** An update replaces a field's whole value, so the model must have read what it replaces; any record can still be linked. A value that says what the record already says is dropped, and so is an update left with no changes. In `fill` mode a field that already has content is never touched.
+- **Links have one home.** A link from a proposed record is folded into its create proposal; a link from an existing record is a proposal of its own. A link field belongs to the from-record's type, exactly as in the record API.
+- **Markdown ↔ rich text** (`ai-import/markdown.ts`) uses the `marked` lexer and only ever produces the closed node set of `recordRichTextSchema`. Tables, code blocks, images and HTML are kept as plain text. A single newline is a line break. A mention is `[[E3]]`; an unknown ref stays as text and is reported.
+- **Prompts are files**, `packages/prompts/<task>/v<N>.md`, read from disk at startup: from the package in dev, from `PROMPTS_DIR` (`/app/prompts`) in the image. A missing file stops the server with a clear message. The leading `<!-- … -->` note is not sent to the model, and Prettier leaves these files alone. A released version is never edited: copy it to the next number and bump `IMPORT_PROMPT_VERSION`.
+- **The prompt's field lists are generated** from `RECORD_FIELD_SPECS` into `{{fields_<type>}}` slots, so the prompt can't name a field the schemas lack. A slot without a value, or a value without a slot, is an error. A changed field label therefore changes the prompt text without a version bump; the eval suite (F1.9b) is the check for that.
+- **Limits and prices are config** (`AI_IMPORT_LIMITS`, `AI_MODEL_PRICES` in the shared package): 40,000 characters of notes, 80 new records per import, 20 imports per GM per hour, and Sonnet 5.5 at $2 / $10 per million tokens. The limits are first guesses until real imports and the eval say otherwise.

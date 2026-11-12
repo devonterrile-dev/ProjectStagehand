@@ -24,10 +24,12 @@
     "@anthropic-ai/sdk": "^1.8.0",
     "@better-auth/drizzle-adapter": "^1.7.18",
     "@fastify/static": "^10.1.10",
+    "@stagehand/prompts": "workspace:*",
     "@stagehand/shared": "workspace:*",
     "better-auth": "^1.7.18",
     "drizzle-orm": "~0.45.4",
     "fastify": "^5.12.8",
+    "marked": "^18.2.0",
     "pg": "^8.23.1",
     "zod": "^4.6.7"
   },
