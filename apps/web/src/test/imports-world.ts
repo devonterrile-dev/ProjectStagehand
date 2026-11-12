@@ -1,12 +1,15 @@
 /**
- * The AI import part of the fake API (F1.8b): imports that run, become ready or fail, and
- * proposals the review screen accepts, rejects, edits and commits, following the server's
- * rules and messages (`apps/server/src/campaigns/ai-imports.ts`).
+ * The AI import part of the fake API (F1.8b): imports that ask questions first (D-30), then
+ * run, become ready or fail, and proposals the review screen accepts, rejects, edits and
+ * commits, following the server's rules and messages (`apps/server/src/campaigns/ai-imports.ts`).
  */
 import {
+  AI_IMPORT_LIMITS,
+  answerQuestionsRequestSchema,
   emptyLinksFor,
   emptyRichText,
   emptyTokenUsage,
+  generateRecordsRequestSchema,
   importSummarySchema,
   proposalPayloadSchemas,
   startImportRequestSchema,
@@ -17,6 +20,7 @@ import {
   type ImportDetail,
   type ImportError,
   type ImportProposal,
+  type ImportRound,
   type ImportSummary,
   type LinkProposalPayload,
   type ProposalRefs,
@@ -57,9 +61,11 @@ export function importDetail(campaignId: string, overrides: Partial<ImportDetail
     campaignId,
     mode: 'add',
     status: 'ready',
+    phase: 'records',
+    steps: 2,
     targetTypes: null,
     recordId: null,
-    promptVersion: 1,
+    promptVersion: 2,
     model: 'claude-sonnet-5-5',
     attempts: 1,
     usage: { inputTokens: 5000, outputTokens: 2000, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -68,10 +74,12 @@ export function importDetail(campaignId: string, overrides: Partial<ImportDetail
     textPreview: '',
     proposalCounts: { create: 0, update: 0, link: 0 },
     createdAt: '2026-11-12T09:00:00.000Z',
+    stepStartedAt: null,
     finishedAt: '2026-11-12T09:01:00.000Z',
     committedAt: null,
     text: '',
     questions: [],
+    conversation: [],
     proposals: [],
     refs: {},
     ...overrides,
@@ -185,8 +193,13 @@ export type ImportOutcome =
 export interface ImportsWorldOptions {
   /** Seeded imports per campaign id. */
   imports?: Record<string, ImportDetail[]>;
-  /** What started imports turn into. Default: no proposals (or a failure for `FAIL_WORD`). */
-  importResult?: (request: StartImportRequest) => ImportOutcome;
+  /**
+   * What each questions step asks, given the rounds so far. Default: nothing, so the import
+   * goes straight on to its records.
+   */
+  importQuestions?: (request: StartImportRequest, conversation: ImportRound[]) => string[];
+  /** What a records step turns into. Default: no proposals (or a failure for `FAIL_WORD`). */
+  importResult?: (request: StartImportRequest, conversation: ImportRound[]) => ImportOutcome;
 }
 
 interface Ctx {
@@ -202,6 +215,26 @@ interface Ctx {
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
+
+/** Why a step can't start, by the state it needs and the state the import is in. */
+const STEP_REFUSALS: Record<'questions' | 'failed', Record<ImportDetail['status'], string>> = {
+  questions: {
+    running: 'This import is still running.',
+    questions: '',
+    ready: "Claude has already written this import's records.",
+    failed: 'This import failed. Try it again instead.',
+    committed: 'This import has already been saved.',
+    discarded: 'This import was discarded.',
+  },
+  failed: {
+    running: 'This import is still running.',
+    questions: "This import didn't fail: it's waiting for your answers.",
+    ready: "This import didn't fail: it's ready to review.",
+    failed: '',
+    committed: 'This import has already been saved.',
+    discarded: 'This import was discarded.',
+  },
+};
 
 /** JSON with object keys sorted, so equal payloads compare equal whatever their key order. */
 function stable(value: unknown): string {
@@ -240,14 +273,48 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
     return list;
   };
 
-  /** On its second read (the review page polling), a running import gets its answer. */
+  /** Adds one model step's tokens and cost to the import. */
+  const charge = (detail: ImportDetail) => {
+    detail.usage = {
+      inputTokens: detail.usage.inputTokens + 6000,
+      outputTokens: detail.usage.outputTokens + 3000,
+      cacheReadTokens: detail.usage.cacheReadTokens,
+      cacheWriteTokens: detail.usage.cacheWriteTokens,
+    };
+    detail.estimatedCostUsd = (detail.estimatedCostUsd ?? 0) + 0.042;
+  };
+
+  /**
+   * On its second read (the review page polling), a running step gets its answer: questions,
+   * or (when there are none, or this is the records step) the records or a failure.
+   */
   const advance = (detail: ImportDetail) => {
     if (detail.status !== 'running') return;
     const count = (polls.get(detail.id) ?? 0) + 1;
     polls.set(detail.id, count);
     if (count < 2) return;
-    const request = requests.get(detail.id);
-    if (request === undefined) return;
+    // A seeded import was never started here: its request is read back from it.
+    const request: StartImportRequest = requests.get(detail.id) ?? {
+      mode: detail.mode,
+      text: detail.text,
+      ...(detail.targetTypes === null ? {} : { targetTypes: detail.targetTypes }),
+      ...(detail.recordId === null ? {} : { recordId: detail.recordId }),
+    };
+    detail.finishedAt = '2026-11-12T10:02:00.000Z';
+    detail.stepStartedAt = null;
+    charge(detail);
+
+    if (detail.phase === 'questions') {
+      const questions = options.importQuestions?.(request, detail.conversation) ?? [];
+      if (questions.length > 0) {
+        detail.status = 'questions';
+        detail.questions = questions;
+        return;
+      }
+      detail.phase = 'records';
+      detail.steps += 1;
+    }
+
     const outcome: ImportOutcome = request.text.includes(FAIL_WORD)
       ? {
           error: {
@@ -257,15 +324,7 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
             details: ['creates.0.fields.status: Invalid option'],
           },
         }
-      : (options.importResult?.(request) ?? { proposals: [] });
-    detail.finishedAt = '2026-11-12T10:02:00.000Z';
-    detail.usage = {
-      inputTokens: 6000,
-      outputTokens: 3000,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    };
-    detail.estimatedCostUsd = 0.042;
+      : (options.importResult?.(request, detail.conversation) ?? { proposals: [] });
     if ('error' in outcome) {
       detail.status = 'failed';
       detail.error = outcome.error;
@@ -278,6 +337,34 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
     detail.questions = outcome.questions ?? [];
     detail.proposalCounts = countsOf(detail.proposals);
   };
+
+  /** Starts the next step of an import, like the server's `startStep`. */
+  function step(
+    detail: ImportDetail,
+    from: 'questions' | 'failed',
+    next: { phase: ImportDetail['phase']; conversation: ImportRound[] },
+  ): Response {
+    if (!ctx.hasKey()) return ctx.refused(409, NO_KEY_MESSAGE);
+    if (detail.status !== from) return ctx.refused(409, STEP_REFUSALS[from][detail.status]);
+    if (detail.steps >= AI_IMPORT_LIMITS.stepsPerImport) {
+      return ctx.refused(
+        409,
+        `This import has used all ${String(AI_IMPORT_LIMITS.stepsPerImport)} of its steps. Start a new import to go on.`,
+      );
+    }
+    Object.assign(detail, {
+      status: 'running',
+      phase: next.phase,
+      conversation: next.conversation,
+      questions: [],
+      error: null,
+      steps: detail.steps + 1,
+      stepStartedAt: new Date().toISOString(),
+      finishedAt: null,
+    });
+    polls.delete(detail.id);
+    return json(summaryOf(detail), 202);
+  }
 
   const viewOf = (detail: ImportDetail): ImportDetail => ({
     ...structuredClone(detail),
@@ -299,6 +386,8 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
     const detail = importDetail(found.id, {
       mode: request.mode,
       status: 'running',
+      phase: 'questions',
+      steps: 1,
       targetTypes: request.targetTypes ?? null,
       recordId: request.recordId ?? null,
       usage: emptyTokenUsage(),
@@ -306,6 +395,7 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
       text: request.text,
       textPreview: request.text.slice(0, 200),
       createdAt: new Date().toISOString(),
+      stepStartedAt: new Date().toISOString(),
       finishedAt: null,
     });
     requests.set(detail.id, request);
@@ -317,7 +407,10 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
     const accepted = detail.proposals.filter(
       (p) => p.reviewState === 'accepted' || p.reviewState === 'edited',
     );
-    if (accepted.length === 0) return ctx.refused(409, NOTHING_ACCEPTED_MESSAGE);
+    // An import the model proposed nothing for is simply closed.
+    if (accepted.length === 0 && detail.proposals.length > 0) {
+      return ctx.refused(409, NOTHING_ACCEPTED_MESSAGE);
+    }
     const result: Omit<CommitImportResponse, 'import'> = {
       created: [],
       updated: [],
@@ -420,6 +513,7 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
 
   const NOT_READY: Record<Exclude<ImportDetail['status'], 'ready'>, string> = {
     running: 'This import is still running.',
+    questions: "Answer Claude's questions or generate the records first.",
     failed: 'This import failed, so there is nothing to review.',
     committed: 'This import has already been saved.',
     discarded: 'This import was discarded.',
@@ -452,7 +546,9 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
     if (rest === '/imports' && method === 'POST') return start(found, records, rawBody);
 
     const match =
-      /^\/imports\/([^/]+)(?:\/(accept-all|commit|discard)|\/proposals\/([^/]+))?$/.exec(rest);
+      /^\/imports\/([^/]+)(?:\/(accept-all|commit|discard|answers|generate|retry)|\/proposals\/([^/]+))?$/.exec(
+        rest,
+      );
     if (match === null) return null;
     const [, importId, action, proposalId] = match;
     const detail = list.find((d) => d.id === importId);
@@ -463,9 +559,40 @@ export function importsWorld(options: ImportsWorldOptions, ctx: Ctx) {
       return json(viewOf(detail));
     }
     if (action === 'discard' && method === 'POST') {
-      if (detail.status === 'ready' || detail.status === 'failed') detail.status = 'discarded';
-      else if (detail.status !== 'discarded') return ctx.refused(409, NOT_READY[detail.status]);
+      if (detail.status === 'running' || detail.status === 'committed') {
+        return ctx.refused(409, NOT_READY[detail.status]);
+      }
+      Object.assign(detail, { status: 'discarded', error: null });
       return json(summaryOf(detail));
+    }
+    if (action === 'answers' && method === 'POST') {
+      const parsed = answerQuestionsRequestSchema.safeParse(rawBody);
+      if (!parsed.success) return ctx.refused(400, parsed.error.issues[0]?.message ?? 'Invalid');
+      return step(detail, 'questions', {
+        phase: 'questions',
+        conversation: [
+          ...detail.conversation,
+          { questions: detail.questions, answer: parsed.data.answer },
+        ],
+      });
+    }
+    if (action === 'generate' && method === 'POST') {
+      const parsed = generateRecordsRequestSchema.safeParse(rawBody ?? {});
+      if (!parsed.success) return ctx.refused(400, parsed.error.issues[0]?.message ?? 'Invalid');
+      const answer = parsed.data.answer;
+      return step(detail, 'questions', {
+        phase: 'records',
+        conversation: [
+          ...detail.conversation,
+          {
+            questions: detail.questions,
+            answer: answer === undefined || answer === '' ? null : answer,
+          },
+        ],
+      });
+    }
+    if (action === 'retry' && method === 'POST') {
+      return step(detail, 'failed', { phase: detail.phase, conversation: detail.conversation });
     }
     if (detail.status !== 'ready') return ctx.refused(409, NOT_READY[detail.status]);
     if (proposalId !== undefined && method === 'PATCH') {

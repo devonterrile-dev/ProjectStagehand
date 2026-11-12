@@ -265,6 +265,11 @@ export function ImportForm({ campaignId, records, initial }: ImportFormProps) {
         are sent to Anthropic under your own API key, private fields included. Nothing is saved
         until you review and accept what Claude proposes.
       </p>
+      <p className="text-sm text-muted-foreground">
+        Claude first asks about anything unclear. Answer as many rounds as you like, or go straight
+        to the records. Each round is another call, mostly read from Anthropic&apos;s cache, so it
+        costs much less than the first.
+      </p>
 
       {problem !== null && (
         <p role="alert" className="text-sm text-destructive">
@@ -285,7 +290,7 @@ export function ImportForm({ campaignId, records, initial }: ImportFormProps) {
         <p role="status" className="text-sm">
           {shownEstimate.estimatedCostUsd === null
             ? `No price is listed for ${shownEstimate.model}, so there is no estimate.`
-            : `About ${formatUsd(shownEstimate.estimatedCostUsd.likely)}, at most ${formatUsd(
+            : `Writing the records: about ${formatUsd(shownEstimate.estimatedCostUsd.likely)}, at most ${formatUsd(
                 shownEstimate.estimatedCostUsd.max,
               )}.`}{' '}
           <span className="text-muted-foreground">

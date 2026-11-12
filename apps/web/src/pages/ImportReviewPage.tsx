@@ -1,6 +1,11 @@
 import { Link, useParams } from 'react-router';
 
-import { FailedImport, ImportReview, RunningImport } from '@/components/ai-import/ImportReview';
+import {
+  FailedImport,
+  ImportReview,
+  QuestionsStep,
+  RunningImport,
+} from '@/components/ai-import/ImportReview';
 import { ImportStatusBadge } from '@/components/ai-import/ImportList';
 import { PlayersNote } from '@/components/records/PlayersNote';
 import { RecordNavigationProvider } from '@/components/records/RecordNavigationProvider';
@@ -69,7 +74,8 @@ export function ImportReviewPage() {
           {campaign.name} · started {formatWhen(detail.createdAt)}
         </p>
       </div>
-      {detail.status === 'running' && <RunningImport startedAt={detail.createdAt} />}
+      {detail.status === 'running' && <RunningImport detail={detail} />}
+      {detail.status === 'questions' && <QuestionsStep campaign={campaign} detail={detail} />}
       {(detail.status === 'failed' || (detail.status === 'discarded' && detail.error !== null)) && (
         <FailedImport detail={detail} />
       )}

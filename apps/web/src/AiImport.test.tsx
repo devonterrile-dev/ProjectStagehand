@@ -140,14 +140,16 @@ describe('Starting an AI import', () => {
     expect(bodiesTo(fetchMock, '/imports/estimate', 'POST')).toHaveLength(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Check cost' }));
-    expect(await screen.findByText(/About \$0\.04, at most \$1\.29\./)).toBeDefined();
+    expect(
+      await screen.findByText(/Writing the records: about \$0\.04, at most \$1\.29\./),
+    ).toBeDefined();
     expect(bodiesTo(fetchMock, '/imports/estimate', 'POST')).toEqual([
       { mode: 'add', text: 'Old Mags runs the tavern.' },
     ]);
     expect(bodiesTo(fetchMock, '/imports', 'POST')).toHaveLength(0);
 
     fireEvent.change(notes, { target: { value: 'Old Mags runs the tavern. She is a spy.' } });
-    expect(screen.queryByText(/About \$0\.04/)).toBeNull();
+    expect(screen.queryByText(/about \$0\.04/)).toBeNull();
   });
 
   it('refuses empty notes before sending anything', async () => {
@@ -290,7 +292,9 @@ describe('Waiting for and reviewing an import', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /Send to Claude/ }));
 
-    expect(await screen.findByText('Claude is reading your notes…')).toBeDefined();
+    expect(
+      await screen.findByText('Claude is reading your notes and thinking of questions…'),
+    ).toBeDefined();
     expect(currentUrl()).toMatch(new RegExp(`/campaigns/${coast.id}/imports/`));
 
     expect(await screen.findByText('Is Old Mags related to Captain Vex?')).toBeDefined();
@@ -605,10 +609,190 @@ describe('Saving or dropping an import', () => {
       "Claude's answer didn't fit the record shapes",
     );
     expect(screen.getByText('creates.0.fields.status: Invalid option')).toBeDefined();
-    fireEvent.click(screen.getByRole('link', { name: 'Try again' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Edit notes and start over' }));
 
     expect(await screen.findByDisplayValue(notes)).toBeDefined();
     expect(currentUrl()).toMatch(/\/import\?from=/);
+  });
+});
+
+describe("Claude's questions first (D-30)", () => {
+  it('loops through questions and answers, then writes the records with every answer', async () => {
+    const { coast, fetchMock } = world({
+      importQuestions: (_request, conversation) =>
+        conversation.length === 0
+          ? ['Is Old Mags new?', 'Which pier is the den on?']
+          : conversation.length === 1
+            ? ['Does Mags work for the Iron Fleet?']
+            : [],
+      importResult: () => {
+        const proposals = [createProposal({ type: 'npc', name: 'Old Mags' })];
+        return { proposals, refs: proposedRefs(proposals) };
+      },
+    });
+    renderAt(importUrl(coast));
+    fireEvent.change(await screen.findByLabelText('Your notes'), {
+      target: { value: 'Old Mags hides in a den.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Send to Claude/ }));
+
+    expect(
+      await screen.findByText('Claude is reading your notes and thinking of questions…'),
+    ).toBeDefined();
+    expect(await screen.findByText('Which pier is the den on?')).toBeDefined();
+    expect(screen.getByText('Has questions')).toBeDefined();
+    const submit = screen.getByRole('button', { name: 'Submit answers' });
+    expect(submit).toHaveProperty('disabled', true);
+
+    fireEvent.change(screen.getByLabelText('Your answers'), {
+      target: { value: '  New. The north pier.  ' },
+    });
+    fireEvent.click(submit);
+
+    expect(await screen.findByText('Does Mags work for the Iron Fleet?')).toBeDefined();
+    // The answered round is folded away but kept.
+    const earlier = screen.getByText('Your earlier answers (1 round)').closest('details');
+    if (earlier === null) throw new Error('no earlier answers');
+    expect(within(earlier).getByText('Which pier is the den on?')).toBeDefined();
+    expect(within(earlier).getByText('New. The north pier.')).toBeDefined();
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Your answers').value).toBe('');
+
+    fireEvent.change(screen.getByLabelText('Your answers'), {
+      target: { value: 'No, she works alone.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate records' }));
+
+    expect(await screen.findByText('Claude is writing the records…')).toBeDefined();
+    expect(await findCard('New NPC: Old Mags')).toBeDefined();
+    expect(screen.getByText('Your earlier answers (2 rounds)')).toBeDefined();
+
+    const base = `/imports/${currentUrl().split('/').at(-1) ?? ''}`;
+    expect(bodiesTo(fetchMock, `${base}/answers`, 'POST')).toEqual([
+      { answer: 'New. The north pier.' },
+    ]);
+    expect(bodiesTo(fetchMock, `${base}/generate`, 'POST')).toEqual([
+      { answer: 'No, she works alone.' },
+    ]);
+  });
+
+  it('goes straight to the records when Claude has no questions, or the box is empty', async () => {
+    const coast = campaign({ name: 'Shattered Coast' });
+    const asking = importDetail(coast.id, {
+      status: 'questions',
+      phase: 'questions',
+      steps: 1,
+      questions: ['Is the den on the north pier?'],
+      proposals: [],
+    });
+    const fetchMock = mockApi(MIRA, [coast], {
+      credentials: [KEY],
+      imports: { [coast.id]: [asking] },
+    });
+    renderAt(reviewUrl(coast, asking));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate records' }));
+
+    expect(
+      await screen.findByText('Claude found nothing to add or change from these notes.'),
+    ).toBeDefined();
+    expect(bodiesTo(fetchMock, `/imports/${asking.id}/generate`, 'POST')).toEqual([{}]);
+    expect(screen.getByText('Not answered.')).toBeDefined();
+  });
+
+  it('keeps the last step for the records', async () => {
+    const coast = campaign({ name: 'Shattered Coast' });
+    const asking = importDetail(coast.id, {
+      status: 'questions',
+      phase: 'questions',
+      steps: 9,
+      questions: ['Anything else?'],
+    });
+    mockApi(MIRA, [coast], { credentials: [KEY], imports: { [coast.id]: [asking] } });
+    renderAt(reviewUrl(coast, asking));
+
+    fireEvent.change(await screen.findByLabelText('Your answers'), {
+      target: { value: 'Nothing.' },
+    });
+    expect(screen.getByRole('button', { name: 'Submit answers' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Generate records' })).toHaveProperty(
+      'disabled',
+      false,
+    );
+    expect(screen.getByText(/room for one more step/)).toBeDefined();
+  });
+
+  it('discards an import while it waits for answers', async () => {
+    const coast = campaign({ name: 'Shattered Coast' });
+    const asking = importDetail(coast.id, {
+      status: 'questions',
+      phase: 'questions',
+      steps: 1,
+      questions: ['Is the den on the north pier?'],
+    });
+    mockApi(MIRA, [coast], { credentials: [KEY], imports: { [coast.id]: [asking] } });
+    renderAt(reviewUrl(coast, asking));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
+    await confirm('Discard');
+
+    expect(
+      await screen.findByText(/Discarded\. Nothing from this import was saved\./),
+    ).toBeDefined();
+    expect(
+      screen.getByText('This import was discarded before Claude wrote any records.'),
+    ).toBeDefined();
+    expect(screen.queryByLabelText('Your answers')).toBeNull();
+  });
+
+  it('tries a failed step again, keeping the answers', async () => {
+    let attempts = 0;
+    const { coast } = world({
+      importQuestions: (_request, conversation) =>
+        conversation.length === 0 ? ['Who runs the den?'] : [],
+      importResult: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            error: {
+              code: 'unreachable',
+              message: "Couldn't reach Anthropic, or it answered with an error.",
+              details: [],
+            },
+          };
+        }
+        const proposals = [createProposal({ type: 'npc', name: 'Old Mags' })];
+        return { proposals, refs: proposedRefs(proposals) };
+      },
+    });
+    renderAt(importUrl(coast));
+    fireEvent.change(await screen.findByLabelText('Your notes'), {
+      target: { value: 'A den on the pier.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Send to Claude/ }));
+    fireEvent.change(await screen.findByLabelText('Your answers'), {
+      target: { value: 'Old Mags.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate records' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't reach Anthropic");
+    expect(screen.getByText('Old Mags.')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await findCard('New NPC: Old Mags')).toBeDefined();
+    expect(screen.getByText('Your earlier answers (1 round)')).toBeDefined();
+  });
+
+  it('closes an import Claude proposed nothing for', async () => {
+    const coast = campaign({ name: 'Shattered Coast' });
+    const empty = importDetail(coast.id, { proposals: [] });
+    mockApi(MIRA, [coast], { credentials: [KEY], imports: { [coast.id]: [empty] } });
+    renderAt(reviewUrl(coast, empty));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Close import' }));
+
+    expect(await screen.findByText('Closed. Nothing needed saving.')).toBeDefined();
+    expect(screen.getByText('Saved')).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Close import' })).toBeNull();
   });
 });
 

@@ -3,9 +3,12 @@
  * every query is scoped to `scope.campaignId`, so an import or proposal id from another
  * campaign is never found. The only code that queries `ai_imports` and `ai_proposals`.
  *
- * An import moves `running` → `ready` (or `failed`) when the model call ends, then
- * `committed` or `discarded` by the GM. Nothing touches `records` before `commitImport`,
- * which saves every accepted proposal in one transaction.
+ * An import starts `running` in the `questions` phase (D-30). When the model asks something
+ * it waits as `questions` until the GM answers (another `questions` step) or asks for the
+ * records (the `records` step); when it asks nothing, the job goes straight on to the
+ * records. The records step ends `ready` (or `failed`), and the GM then commits or discards
+ * the import. Nothing touches `records` before `commitImport`, which saves every accepted
+ * proposal in one transaction.
  *
  * Callers check `assertGm` and `assertWritable`. Nothing here logs: the rows hold the GM's
  * notes and the model's answer.
@@ -23,7 +26,9 @@ import {
   type CommitImportResponse,
   type CreateProposalPayload,
   type ImportDetail,
+  type ImportPhase,
   type ImportProposal,
+  type ImportRound,
   type ImportSummary,
   type LinkProposalPayload,
   type PatchProposalRequest,
@@ -39,7 +44,7 @@ import {
   type UpdateRecordRequest,
   type UsageResponse,
 } from '@stagehand/shared';
-import { and, asc, count, desc, eq, getTableColumns, gt, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { z } from 'zod';
 
@@ -87,6 +92,7 @@ export async function prepareImport(
   db: Database,
   scope: CampaignScope,
   request: StartImportRequest,
+  options: { laterStep?: boolean } = {},
 ): Promise<BuiltPack> {
   const rows = await db
     .select({
@@ -103,7 +109,8 @@ export async function prepareImport(
     .where(eq(records.campaignId, scope.campaignId));
 
   if (request.mode === 'bootstrap') {
-    if (rows.length > 0) {
+    // A later step of a bootstrap import stays a bootstrap, even if records appeared since.
+    if (rows.length > 0 && options.laterStep !== true) {
       throw httpError(409, 'This campaign already has records. Add to the campaign instead.');
     }
     return { pack: emptyContextPack(), levels: { index: 0, summary: 0, full: 0 } };
@@ -150,7 +157,8 @@ export async function startImport(
       and(
         eq(aiImports.userId, scope.userId),
         eq(aiImports.status, 'running'),
-        lt(aiImports.createdAt, new Date(Date.now() - RUNNING_MAX_MS)),
+        // A later step starts long after the import was created, so its own start counts.
+        lt(aiImports.updatedAt, new Date(Date.now() - RUNNING_MAX_MS)),
       ),
     );
 
@@ -175,6 +183,7 @@ export async function startImport(
       targetTypes: request.targetTypes ?? null,
       fillRecordId: request.mode === 'fill' ? (request.recordId ?? null) : null,
       inputText: request.text,
+      phase: 'questions',
       promptVersion: meta.promptVersion,
       model: meta.model,
     })
@@ -186,47 +195,62 @@ export async function startImport(
   return toSummary(row, new Map());
 }
 
-function usageColumns(usage: TokenUsage) {
+/** Adds a step's usage to what the import's earlier steps used. */
+function addedUsage(usage: TokenUsage) {
   return {
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cacheReadTokens: usage.cacheReadTokens,
-    cacheWriteTokens: usage.cacheWriteTokens,
+    inputTokens: sql`${aiImports.inputTokens} + ${usage.inputTokens}`,
+    outputTokens: sql`${aiImports.outputTokens} + ${usage.outputTokens}`,
+    cacheReadTokens: sql`${aiImports.cacheReadTokens} + ${usage.cacheReadTokens}`,
+    cacheWriteTokens: sql`${aiImports.cacheWriteTokens} + ${usage.cacheWriteTokens}`,
   };
 }
 
+interface ImportIds {
+  importId: string;
+  campaignId: string;
+}
+
+/** The import while one of its steps is in flight, as the background job names it. */
+function runningStep(ids: ImportIds, phase: ImportPhase) {
+  return and(
+    eq(aiImports.id, ids.importId),
+    eq(aiImports.campaignId, ids.campaignId),
+    eq(aiImports.status, 'running'),
+    eq(aiImports.phase, phase),
+  );
+}
+
 /**
- * Stores how a running import ended: its proposals and the model's questions, or why it
- * failed. Called by the background job, which holds no campaign scope, so the import is named
- * by both its ids. An import that is no longer `running` is left alone.
+ * Stores how a step ended: the model's questions (status `questions`), its proposals and any
+ * questions left open (`ready`), or why it failed. Called by the background job, which holds
+ * no campaign scope, so the import is named by both its ids. An import that is no longer
+ * running this step is left alone.
  */
 export async function finishImport(
   db: Database,
-  ids: { importId: string; campaignId: string },
+  ids: ImportIds,
+  phase: ImportPhase,
   result: GenerateResult,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    const status = !result.ok ? 'failed' : phase === 'questions' ? 'questions' : 'ready';
     const [row] = await tx
       .update(aiImports)
       .set({
-        status: result.ok ? 'ready' : 'failed',
+        status,
         errorCode: result.ok ? null : result.error,
         errorDetails: result.ok ? null : result.details,
         questions: result.ok ? result.questions : [],
         model: result.model,
         attempts: result.attempts,
-        ...usageColumns(result.usage),
+        ...addedUsage(result.usage),
         finishedAt: new Date(),
       })
-      .where(
-        and(
-          eq(aiImports.id, ids.importId),
-          eq(aiImports.campaignId, ids.campaignId),
-          eq(aiImports.status, 'running'),
-        ),
-      )
+      .where(runningStep(ids, phase))
       .returning({ id: aiImports.id });
-    if (row === undefined || !result.ok || result.proposals.length === 0) return;
+    if (row === undefined || !result.ok || phase !== 'records' || result.proposals.length === 0) {
+      return;
+    }
 
     await tx.insert(aiProposals).values(
       result.proposals.map((proposal, position) => ({
@@ -239,6 +263,195 @@ export async function finishImport(
       })),
     );
   });
+}
+
+/**
+ * A questions step that asked nothing goes straight on to the records (D-30): its usage is
+ * kept and the import stays `running`, now in the `records` phase. False when the import is
+ * no longer running that step.
+ */
+export async function continueToRecords(
+  db: Database,
+  ids: ImportIds,
+  result: Extract<GenerateResult, { ok: true }>,
+): Promise<boolean> {
+  const rows = await db
+    .update(aiImports)
+    .set({
+      phase: 'records',
+      model: result.model,
+      attempts: result.attempts,
+      steps: sql`${aiImports.steps} + 1`,
+      ...addedUsage(result.usage),
+    })
+    .where(runningStep(ids, 'questions'))
+    .returning({ id: aiImports.id });
+  return rows.length > 0;
+}
+
+/** What one step is run with, read from the import: its notes, mode and earlier rounds. */
+export interface StepInputs {
+  mode: ImportRow['mode'];
+  phase: ImportPhase;
+  text: string;
+  targetTypes: ImportRow['targetTypes'];
+  recordId: string | null;
+  conversation: ImportRound[];
+}
+
+function stepInputs(row: ImportRow): StepInputs {
+  return {
+    mode: row.mode,
+    phase: row.phase,
+    text: row.inputText,
+    targetTypes: row.targetTypes,
+    recordId: row.fillRecordId,
+    conversation: row.conversation,
+  };
+}
+
+/** What a step of this import would be run with, read before it starts. 404 if not found. */
+export async function importStepInputs(
+  db: Database,
+  scope: CampaignScope,
+  importId: string,
+): Promise<StepInputs> {
+  return stepInputs(await requireImport(db, scope, importId));
+}
+
+/** True for Postgres's unique_violation, however drizzle wraps it. */
+function isUniqueViolation(error: unknown): boolean {
+  const wrapped = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  return (wrapped?.cause?.code ?? wrapped?.code) === '23505';
+}
+
+const ANOTHER_RUNNING = 'Another import of yours is still running. Wait for it to finish.';
+
+/** The states a step starts from, and why it can't start from each other state. */
+const STEP_REFUSALS = {
+  questions: {
+    running: 'This import is still running.',
+    ready: "Claude has already written this import's records.",
+    failed: 'This import failed. Try it again instead.',
+    committed: 'This import has already been saved.',
+    discarded: 'This import was discarded.',
+  },
+  failed: {
+    running: 'This import is still running.',
+    questions: "This import didn't fail: it's waiting for your answers.",
+    ready: "This import didn't fail: it's ready to review.",
+    committed: 'This import has already been saved.',
+    discarded: 'This import was discarded.',
+  },
+} satisfies {
+  [From in 'questions' | 'failed']: Record<Exclude<ImportRow['status'], From>, string>;
+};
+
+/**
+ * Starts the next step of an import (D-30): `next` turns the locked row into the step's
+ * phase and conversation. 404 if the import isn't this campaign's; 409 when it isn't in the
+ * `from` state, when it has taken all its steps, or while another import of the GM's runs.
+ */
+async function startStep(
+  db: Database,
+  scope: CampaignScope,
+  importId: string,
+  from: keyof typeof STEP_REFUSALS,
+  next: (row: ImportRow) => { phase: ImportPhase; conversation: ImportRound[] },
+): Promise<{ summary: ImportSummary; inputs: StepInputs }> {
+  try {
+    const row = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(aiImports)
+        .where(scopedImport(scope, importId))
+        .for('update');
+      if (current === undefined) throw httpError(404, 'Import not found');
+      if (current.status !== from) {
+        const refusals: Partial<Record<ImportRow['status'], string>> = STEP_REFUSALS[from];
+        throw httpError(409, refusals[current.status] ?? 'This import has moved on.');
+      }
+      if (current.steps >= AI_IMPORT_LIMITS.stepsPerImport) {
+        throw httpError(
+          409,
+          `This import has used all ${String(AI_IMPORT_LIMITS.stepsPerImport)} of its steps. Start a new import to go on.`,
+        );
+      }
+      const [other] = await tx
+        .select({ id: aiImports.id })
+        .from(aiImports)
+        .where(
+          and(
+            eq(aiImports.userId, scope.userId),
+            eq(aiImports.status, 'running'),
+            ne(aiImports.id, importId),
+          ),
+        );
+      if (other !== undefined) throw httpError(409, ANOTHER_RUNNING);
+
+      const { phase, conversation } = next(current);
+      const [updated] = await tx
+        .update(aiImports)
+        .set({
+          status: 'running',
+          phase,
+          conversation,
+          questions: [],
+          errorCode: null,
+          errorDetails: null,
+          attempts: 0,
+          steps: sql`${aiImports.steps} + 1`,
+          finishedAt: null,
+        })
+        .where(scopedImport(scope, importId))
+        .returning();
+      if (updated === undefined) throw httpError(404, 'Import not found');
+      return updated;
+    });
+    return { summary: toSummary(row, new Map()), inputs: stepInputs(row) };
+  } catch (error) {
+    // Another of the GM's imports started between the check and the update.
+    if (isUniqueViolation(error)) throw httpError(409, ANOTHER_RUNNING);
+    throw error;
+  }
+}
+
+/** The GM answers the waiting questions; the model reads them and may ask more. */
+export function answerQuestions(
+  db: Database,
+  scope: CampaignScope,
+  importId: string,
+  answer: string,
+): Promise<{ summary: ImportSummary; inputs: StepInputs }> {
+  return startStep(db, scope, importId, 'questions', (row) => ({
+    phase: 'questions',
+    conversation: [...row.conversation, { questions: row.questions, answer }],
+  }));
+}
+
+/** The GM stops the questions and asks for the records, with a last answer if they wrote one. */
+export function beginRecords(
+  db: Database,
+  scope: CampaignScope,
+  importId: string,
+  answer: string | null,
+): Promise<{ summary: ImportSummary; inputs: StepInputs }> {
+  return startStep(db, scope, importId, 'questions', (row) => ({
+    phase: 'records',
+    conversation: [...row.conversation, { questions: row.questions, answer }],
+  }));
+}
+
+/** Runs a failed step again, with the same notes and answers. */
+export function retryImport(
+  db: Database,
+  scope: CampaignScope,
+  importId: string,
+): Promise<{ summary: ImportSummary; inputs: StepInputs }> {
+  return startStep(db, scope, importId, 'failed', (row) => ({
+    phase: row.phase,
+    conversation: row.conversation,
+  }));
 }
 
 /**
@@ -302,6 +515,8 @@ function toSummary(row: ImportRow, counts: ProposalCounts): ImportSummary {
     campaignId: row.campaignId,
     mode: row.mode,
     status: row.status,
+    phase: row.phase,
+    steps: row.steps,
     targetTypes: row.targetTypes,
     recordId: row.fillRecordId,
     promptVersion: row.promptVersion,
@@ -321,6 +536,8 @@ function toSummary(row: ImportRow, counts: ProposalCounts): ImportSummary {
       preview.length <= TEXT_PREVIEW_MAX ? preview : `${preview.slice(0, TEXT_PREVIEW_MAX)}…`,
     proposalCounts: counts.get(row.id) ?? { create: 0, update: 0, link: 0 },
     createdAt: row.createdAt.toISOString(),
+    // A running import's row last changed when its step started.
+    stepStartedAt: row.status === 'running' ? row.updatedAt.toISOString() : null,
     finishedAt: row.finishedAt?.toISOString() ?? null,
     committedAt: row.committedAt?.toISOString() ?? null,
   };
@@ -369,6 +586,7 @@ export async function getImport(
     ...toSummary(row, counts),
     text: row.inputText,
     questions: row.questions,
+    conversation: row.conversation,
     proposals,
     refs,
   };
@@ -625,6 +843,7 @@ async function lockReadyImport(
   if (row.status === 'ready') return row;
   const why: Record<Exclude<ImportRow['status'], 'ready'>, string> = {
     running: 'This import is still running.',
+    questions: "Answer Claude's questions or generate the records first.",
     failed: 'This import failed, so there is nothing to review.',
     committed: 'This import has already been saved.',
     discarded: 'This import was discarded.',
@@ -796,7 +1015,8 @@ export async function acceptAllProposals(
 
 /**
  * Drops an import without saving anything: its proposals stay as history but can no longer
- * be reviewed or saved. Works on a `ready` or `failed` import; discarding twice is fine.
+ * be reviewed or saved. Works on an import waiting for answers, `ready` or `failed`;
+ * discarding twice is fine.
  */
 export async function discardImport(
   db: Database,
@@ -835,6 +1055,8 @@ const isAccepted = (row: ProposalRow) =>
  * tagged `source = ai_import` with the import's id; then their links; then updates to
  * existing records; then links from existing records. If anything fails, nothing is saved.
  *
+ * - An import with no proposals at all is closed with nothing saved; one whose proposals are
+ *   all pending or rejected is refused with 409.
  * - Pending and rejected proposals are left out. Links to a record that was left out are
  *   dropped, as are links to a record deleted since the import ran.
  * - A Spot whose Area was left out is refused with 409 naming both, so the GM decides.
@@ -856,7 +1078,10 @@ export async function commitImport(
         .orderBy(asc(aiProposals.position))
     ).map(typed);
     const accepted = all.filter(({ row }) => isAccepted(row));
-    if (accepted.length === 0) throw httpError(409, 'Accept at least one proposal first.');
+    // An import the model proposed nothing for is simply closed.
+    if (accepted.length === 0 && all.length > 0) {
+      throw httpError(409, 'Accept at least one proposal first.');
+    }
 
     const proposed = new Map<string, { payload: CreateProposalPayload; accepted: boolean }>();
     for (const proposal of all) {

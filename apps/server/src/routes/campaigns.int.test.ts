@@ -133,6 +133,19 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
   },
   { method: 'POST', path: '/api/campaigns/:campaignId/imports/:importId/commit', gmOnly: true },
   { method: 'POST', path: '/api/campaigns/:campaignId/imports/:importId/discard', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/imports/:importId/answers',
+    gmOnly: true,
+    payload: { answer: 'Hijacked' },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/imports/:importId/generate',
+    gmOnly: true,
+    payload: {},
+  },
+  { method: 'POST', path: '/api/campaigns/:campaignId/imports/:importId/retry', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */

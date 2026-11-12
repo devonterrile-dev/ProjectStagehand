@@ -5,12 +5,15 @@ import type {
   ImportProposal,
   RecordSummary,
 } from '@stagehand/shared';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AI_IMPORT_LIMITS } from '@stagehand/shared';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   formatTokens,
   formatUsd,
@@ -21,14 +24,21 @@ import {
   reviewCounts,
   totalTokens,
 } from '@/lib/ai-import';
-import { useAcceptAllProposals, useCommitImport, useDiscardImport } from '@/lib/queries';
+import {
+  useAcceptAllProposals,
+  useAnswerImportQuestions,
+  useCommitImport,
+  useDiscardImport,
+  useGenerateImportRecords,
+  useRetryImport,
+} from '@/lib/queries';
 import { recordPath } from '@/lib/records';
 
 import { ProposalCard } from './ProposalCard';
 import { proposedSummary, ReviewContext, type Review } from './review-context';
 
 /** While the model works: the page polls (`useImport`), so this just reassures. */
-export function RunningImport({ startedAt }: { startedAt: string }) {
+export function RunningImport({ detail }: { detail: ImportDetail }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -38,28 +48,179 @@ export function RunningImport({ startedAt }: { startedAt: string }) {
       window.clearInterval(timer);
     };
   }, []);
+  const startedAt = detail.stepStartedAt ?? detail.createdAt;
   const seconds = Math.max(0, Math.round((now - new Date(startedAt).getTime()) / 1000));
   const elapsed = `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, '0')}`;
   return (
-    <Card>
-      <CardContent className="space-y-2 pt-6" role="status">
-        <p className="font-medium">Claude is reading your notes…</p>
-        <p className="text-sm text-muted-foreground">
-          A large import can take a few minutes ({elapsed} so far). You can leave this page and come
-          back: the import keeps running, and this page fills in when it is ready.
-        </p>
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <EarlierAnswers conversation={detail.conversation} />
+      <Card>
+        <CardContent className="space-y-2 pt-6" role="status">
+          <p className="font-medium">
+            {detail.phase === 'questions'
+              ? 'Claude is reading your notes and thinking of questions…'
+              : 'Claude is writing the records…'}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            This can take a few minutes ({elapsed} so far). You can leave this page and come back:
+            the import keeps running, and this page fills in when it is ready.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** The rounds of questions the GM has already answered, folded away (D-30). */
+export function EarlierAnswers({ conversation }: { conversation: ImportDetail['conversation'] }) {
+  if (conversation.length === 0) return null;
+  return (
+    <details className="rounded-md border px-4 py-3 text-sm">
+      <summary className="cursor-pointer font-medium">
+        Your earlier answers ({plural(conversation.length, 'round')})
+      </summary>
+      <ol className="mt-3 space-y-4">
+        {conversation.map((round, index) => (
+          <li key={index} className="space-y-1">
+            <ul className="list-disc space-y-1 pl-6 text-muted-foreground">
+              {round.questions.map((question, at) => (
+                <li key={at}>{question}</li>
+              ))}
+            </ul>
+            {round.answer === null ? (
+              <p className="italic text-muted-foreground">Not answered.</p>
+            ) : (
+              <p className="whitespace-pre-wrap">{round.answer}</p>
+            )}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+/**
+ * The model's questions, before any records (D-30): the GM answers them, which may bring more
+ * questions, or goes on to the records. One step of the import is always kept for those.
+ */
+export function QuestionsStep({ campaign, detail }: { campaign: Campaign; detail: ImportDetail }) {
+  const answer = useAnswerImportQuestions(campaign.id, detail.id);
+  const generate = useGenerateImportRecords(campaign.id, detail.id);
+  const discard = useDiscardImport(campaign.id, detail.id);
+  const [text, setText] = useState('');
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const fieldId = useId();
+
+  const readOnly = campaign.archivedAt !== null;
+  const busy = answer.isPending || generate.isPending || discard.isPending;
+  const tooLong = text.length > AI_IMPORT_LIMITS.answerMaxChars;
+  const roundsLeft = detail.steps < AI_IMPORT_LIMITS.stepsPerImport - 1;
+  const error = answer.error ?? generate.error ?? discard.error;
+
+  return (
+    <div className="space-y-4">
+      <EarlierAnswers conversation={detail.conversation} />
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h2 className="text-lg">Claude&apos;s questions</h2>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <ol className="list-decimal space-y-1 pl-6 text-sm">
+            {detail.questions.map((question, index) => (
+              <li key={index}>{question}</li>
+            ))}
+          </ol>
+          {!readOnly && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor={fieldId}>Your answers</Label>
+                <Textarea
+                  id={fieldId}
+                  className="min-h-32"
+                  value={text}
+                  disabled={busy}
+                  aria-describedby={`${fieldId}-hint`}
+                  placeholder="Answer in any order, and skip what doesn't matter."
+                  onChange={(event) => {
+                    setText(event.target.value);
+                  }}
+                />
+                <p
+                  id={`${fieldId}-hint`}
+                  className={`text-xs ${tooLong ? 'text-destructive' : 'text-muted-foreground'}`}
+                >
+                  {formatTokens(text.length)} / {formatTokens(AI_IMPORT_LIMITS.answerMaxChars)}{' '}
+                  characters.{' '}
+                  {roundsLeft
+                    ? 'Submit your answers and Claude may ask more, or generate the records now; anything in the box goes along.'
+                    : 'This import has room for one more step: generate the records now.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || tooLong || !roundsLeft || text.trim() === ''}
+                  onClick={() => {
+                    answer.mutate(text.trim());
+                  }}
+                >
+                  Submit answers
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={busy || tooLong}
+                  onClick={() => {
+                    generate.mutate(text.trim());
+                  }}
+                >
+                  Generate records
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setConfirmingDiscard(true);
+                  }}
+                >
+                  Discard
+                </Button>
+              </div>
+            </>
+          )}
+          {error !== null && (
+            <p role="alert" className="text-sm text-destructive">
+              {error.message}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      <ConfirmDialog
+        open={confirmingDiscard}
+        onOpenChange={setConfirmingDiscard}
+        title="Discard this import?"
+        description="Nothing from it will be saved. It stays in the list of past imports."
+        confirmLabel="Discard"
+        onConfirm={() => discard.mutateAsync()}
+      />
+    </div>
   );
 }
 
 /** A failed import: why, the raw problems (§10 step 4), and a way to try again. */
 export function FailedImport({ detail }: { detail: ImportDetail }) {
   const discard = useDiscardImport(detail.campaignId, detail.id);
+  const retry = useRetryImport(detail.campaignId, detail.id);
   const error = detail.error;
+  const busy = discard.isPending || retry.isPending;
+  const actionError = retry.error ?? discard.error;
   return (
     <Card>
       <CardContent className="space-y-3 pt-6">
+        <EarlierAnswers conversation={detail.conversation} />
         <p role="alert" className="font-medium text-destructive">
           {error?.message ?? 'This import failed.'}
         </p>
@@ -77,14 +238,27 @@ export function FailedImport({ detail }: { detail: ImportDetail }) {
         )}
         <p className="text-sm text-muted-foreground">Nothing was saved.</p>
         <div className="flex flex-wrap gap-2">
-          <Button asChild size="sm">
-            <Link to={importPath(detail.campaignId, { from: detail.id })}>Try again</Link>
+          {detail.status === 'failed' && (
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                retry.mutate(undefined);
+              }}
+            >
+              Try again
+            </Button>
+          )}
+          <Button asChild size="sm" variant="outline">
+            <Link to={importPath(detail.campaignId, { from: detail.id })}>
+              Edit notes and start over
+            </Link>
           </Button>
           {detail.status === 'failed' && (
             <Button
               size="sm"
               variant="ghost"
-              disabled={discard.isPending}
+              disabled={busy}
               onClick={() => {
                 discard.mutate();
               }}
@@ -93,6 +267,11 @@ export function FailedImport({ detail }: { detail: ImportDetail }) {
             </Button>
           )}
         </div>
+        {actionError !== null && (
+          <p role="alert" className="text-sm text-destructive">
+            {actionError.message}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -223,12 +402,18 @@ export function ImportReview({
   const actionError =
     acceptAll.error ?? (confirming === null ? commit.error : null) ?? discard.error;
 
+  const empty = detail.proposals.length === 0;
+
   return (
     <ReviewContext.Provider value={review}>
       <div className="space-y-6">
-        {commit.isSuccess && <CommitResult result={commit.data} campaignId={campaign.id} />}
+        {commit.isSuccess && !empty && (
+          <CommitResult result={commit.data} campaignId={campaign.id} />
+        )}
 
-        {detail.status === 'committed' && !commit.isSuccess && (
+        <EarlierAnswers conversation={detail.conversation} />
+
+        {detail.status === 'committed' && !commit.isSuccess && !empty && (
           <p className="rounded-md border bg-muted px-4 py-3 text-sm">
             Saved {detail.committedAt === null ? '' : formatWhen(detail.committedAt)}. The cards
             below show what was proposed and what you decided.
@@ -254,17 +439,53 @@ export function ImportReview({
                 ))}
               </ul>
               <p className="mt-3 text-xs text-muted-foreground">
-                Answer them by editing the cards, or in a later import.
+                {detail.phase === 'questions'
+                  ? 'This import was discarded before Claude wrote any records.'
+                  : 'Claude left these open. Settle them by editing the cards, or in a later import.'}
               </p>
             </CardContent>
           </Card>
         )}
 
-        {detail.proposals.length === 0 && (
-          <p className="text-muted-foreground">Claude proposed nothing for these notes.</p>
-        )}
+        {empty &&
+          (detail.status === 'committed' ? (
+            <p role="status" className="rounded-md border bg-muted px-4 py-3 text-sm">
+              Closed. Nothing needed saving.
+            </p>
+          ) : detail.status === 'ready' ? (
+            <Card>
+              <CardContent className="space-y-3 pt-6">
+                <p>Claude found nothing to add or change from these notes.</p>
+                {!readOnly && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => {
+                        commit.mutate();
+                      }}
+                    >
+                      Close import
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        setConfirming('discard');
+                      }}
+                    >
+                      Discard
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : detail.phase === 'records' ? (
+            <p className="text-muted-foreground">Claude proposed nothing for these notes.</p>
+          ) : null)}
 
-        {!readOnly && detail.proposals.length > 0 && (
+        {!readOnly && !empty && (
           <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
             <p className="text-sm" role="status">
               {counts.accepted} accepted · {counts.rejected} rejected · {counts.pending} pending

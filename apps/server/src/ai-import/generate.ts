@@ -1,7 +1,10 @@
 /**
- * One import from notes to proposals (governance §10 steps 3 and 4, D-27): ask the model,
- * check the answer, send it back once with its problems if it has any, and give up with
- * those problems if the second answer has some too.
+ * One step of an import (governance §10 steps 3 and 4, D-27, D-30): ask the model, check the
+ * answer, send it back once with its problems if it has any, and give up with those problems
+ * if the second answer has some too.
+ *
+ * A `questions` step only asks what the model needs to know: its answer is read for its
+ * questions, and anything else in it is dropped. A `records` step returns the proposals.
  *
  * No database and no HTTP in here: the routes hand in a context pack and store what comes
  * back, and the eval suite (F1.9b) calls this same function, so it measures the pipeline GMs
@@ -14,7 +17,9 @@ import {
   importWireSchema,
   type ImportErrorCode,
   type ImportMode,
+  type ImportPhase,
   type ImportProposalDraft,
+  type ImportRound,
   type RecordType,
   type TokenUsage,
 } from '@stagehand/shared';
@@ -23,7 +28,7 @@ import type { AnthropicProvider, ImportCallResult, ImportTurn } from '../provide
 
 import type { ContextPack } from './context';
 import { buildRetryMessage, buildUserMessage } from './prompt';
-import { validateImportOutput } from './validate';
+import { cleanQuestions, validateImportOutput } from './validate';
 
 export interface GenerateInput {
   provider: Pick<AnthropicProvider, 'generateImport'>;
@@ -31,9 +36,12 @@ export interface GenerateInput {
   /** The filled prompt file (`loadImportSystemPrompt`). */
   systemPrompt: string;
   mode: ImportMode;
+  phase: ImportPhase;
   text: string;
   targetTypes: readonly RecordType[] | null;
   pack: ContextPack;
+  /** Earlier rounds of questions and the GM's answers. */
+  conversation: readonly ImportRound[];
   /** Makes the id of each proposed record (a UUID). */
   newId: () => string;
   signal?: AbortSignal;
@@ -87,6 +95,9 @@ function check(text: string, input: GenerateInput): Checked {
       ),
     };
   }
+  if (input.phase === 'questions') {
+    return { ok: true, proposals: [], questions: cleanQuestions(wire.data.questions) };
+  }
   return validateImportOutput({
     output: wire.data,
     mode: input.mode,
@@ -99,9 +110,11 @@ function check(text: string, input: GenerateInput): Checked {
 export async function generateImport(input: GenerateInput): Promise<GenerateResult> {
   const user = buildUserMessage({
     mode: input.mode,
+    phase: input.phase,
     text: input.text,
     targetTypes: input.targetTypes,
     pack: input.pack,
+    conversation: input.conversation,
   });
   const stats: GenerateStats = { model: AI_IMPORT_MODEL, usage: emptyTokenUsage(), attempts: 0 };
   let retry: { previous: ImportTurn; message: string } | undefined;

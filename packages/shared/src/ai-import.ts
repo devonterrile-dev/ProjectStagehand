@@ -38,15 +38,41 @@ export const importModeSchema = z.enum(IMPORT_MODES);
 export type ImportMode = z.infer<typeof importModeSchema>;
 
 /**
- * - `running`: the model call is in flight.
+ * - `running`: a model call is in flight (`phase` says which).
+ * - `questions`: the model asked questions and is waiting for the GM's answers (D-30).
  * - `ready`: proposals are waiting for review.
  * - `failed`: nothing usable came back; `error` says why.
  * - `committed`: the accepted proposals were saved.
  * - `discarded`: the GM dropped the import without saving.
  */
-export const IMPORT_STATUSES = ['running', 'ready', 'failed', 'committed', 'discarded'] as const;
+export const IMPORT_STATUSES = [
+  'running',
+  'questions',
+  'ready',
+  'failed',
+  'committed',
+  'discarded',
+] as const;
 export const importStatusSchema = z.enum(IMPORT_STATUSES);
 export type ImportStatus = z.infer<typeof importStatusSchema>;
+
+/**
+ * Which model call an import is on (D-30): first `questions` (the model only asks what it
+ * needs to know, as many rounds as the GM likes), then `records` (the proposals).
+ */
+export const IMPORT_PHASES = ['questions', 'records'] as const;
+export const importPhaseSchema = z.enum(IMPORT_PHASES);
+export type ImportPhase = z.infer<typeof importPhaseSchema>;
+
+/**
+ * One finished round of questions: what the model asked and what the GM answered. `answer`
+ * is null when the GM went on to the records without answering.
+ */
+export const importRoundSchema = z.object({
+  questions: z.array(z.string()),
+  answer: z.string().nullable(),
+});
+export type ImportRound = z.infer<typeof importRoundSchema>;
 
 export const PROPOSAL_ACTIONS = ['create', 'update', 'link'] as const;
 export const proposalActionSchema = z.enum(PROPOSAL_ACTIONS);
@@ -99,6 +125,10 @@ export const AI_IMPORT_LIMITS = {
   questionsMax: 20,
   /** Longest question kept. */
   questionMaxChars: 500,
+  /** Longest answer the GM may send back to the model's questions. */
+  answerMaxChars: 10_000,
+  /** Model steps one import may take: question rounds, the records call and retries. */
+  stepsPerImport: 10,
   /** How many past imports the campaign's list and the usage page show. */
   listMax: 100,
 } as const;
@@ -464,6 +494,10 @@ export const importSummarySchema = z.object({
   campaignId: z.uuid(),
   mode: importModeSchema,
   status: importStatusSchema,
+  /** The model call running now, or the last one. */
+  phase: importPhaseSchema,
+  /** Model steps taken so far, at most `AI_IMPORT_LIMITS.stepsPerImport`. */
+  steps: z.int(),
   /** The type filter the GM set, if any. */
   targetTypes: z.array(recordTypeSchema).nullable(),
   /** `fill` mode: the record being completed. */
@@ -481,7 +515,9 @@ export const importSummarySchema = z.object({
   textPreview: z.string(),
   proposalCounts: z.object({ create: z.int(), update: z.int(), link: z.int() }),
   createdAt: timestamp,
-  /** When the model call ended, either way. */
+  /** While `running`: when the step in flight started. Null otherwise. */
+  stepStartedAt: timestamp.nullable(),
+  /** When the last model call ended, either way. */
   finishedAt: timestamp.nullable(),
   committedAt: timestamp.nullable(),
 });
@@ -554,7 +590,10 @@ export type ProposalRefs = z.infer<typeof proposalRefsSchema>;
 export const importDetailSchema = importSummarySchema.extend({
   /** The GM's notes, so a failed import can be tried again. */
   text: z.string(),
+  /** The questions waiting for an answer, or those the records call left open. */
   questions: z.array(z.string()),
+  /** Earlier rounds of questions and the GM's answers, oldest first. */
+  conversation: z.array(importRoundSchema),
   proposals: z.array(importProposalSchema),
   refs: proposalRefsSchema,
 });
@@ -619,6 +658,38 @@ export const patchProposalResponseSchema = z.object({
   refs: proposalRefsSchema,
 });
 export type PatchProposalResponse = z.infer<typeof patchProposalResponseSchema>;
+
+const answerSchema = z
+  .string()
+  .trim()
+  .min(1, 'Write an answer first.')
+  .max(
+    AI_IMPORT_LIMITS.answerMaxChars,
+    `Answers can be at most ${String(AI_IMPORT_LIMITS.answerMaxChars)} characters.`,
+  );
+
+/**
+ * `POST /api/campaigns/:campaignId/imports/:importId/answers`: the GM's answers to the
+ * waiting questions; the model reads them and may ask more. Answers 202 with the summary.
+ */
+export const answerQuestionsRequestSchema = z.strictObject({ answer: answerSchema });
+export type AnswerQuestionsRequest = z.infer<typeof answerQuestionsRequestSchema>;
+
+/**
+ * `POST /api/campaigns/:campaignId/imports/:importId/generate`: stop asking and write the
+ * records, with a last answer if the GM wrote one. Answers 202 with the summary.
+ */
+export const generateRecordsRequestSchema = z.strictObject({
+  answer: z
+    .string()
+    .trim()
+    .max(
+      AI_IMPORT_LIMITS.answerMaxChars,
+      `Answers can be at most ${String(AI_IMPORT_LIMITS.answerMaxChars)} characters.`,
+    )
+    .optional(),
+});
+export type GenerateRecordsRequest = z.infer<typeof generateRecordsRequestSchema>;
 
 /**
  * `POST /api/campaigns/:campaignId/imports/:importId/commit`: saves every accepted proposal

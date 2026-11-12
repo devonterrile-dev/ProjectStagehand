@@ -51,6 +51,7 @@ export const IMPORT_MODE_LABELS: Record<ImportMode, string> = {
 
 export const IMPORT_STATUS_LABELS: Record<ImportStatus, string> = {
   running: 'Running',
+  questions: 'Has questions',
   ready: 'Ready to review',
   failed: 'Failed',
   committed: 'Saved',

@@ -15,6 +15,7 @@ import {
 
 const STATUS_VARIANT: Record<ImportStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   running: 'outline',
+  questions: 'default',
   ready: 'default',
   failed: 'destructive',
   committed: 'secondary',
@@ -47,7 +48,9 @@ export function ImportList({ imports }: { imports: ImportSummary[] }) {
             <p className="line-clamp-2 text-sm text-muted-foreground">{summary.textPreview}</p>
           )}
           <p className="text-xs text-muted-foreground">
-            {summary.status === 'running' || summary.status === 'failed'
+            {summary.status === 'running' ||
+            summary.status === 'questions' ||
+            summary.status === 'failed'
               ? ''
               : `${proposalCountsLabel(summary.proposalCounts)} · `}
             {formatTokens(totalTokens(summary.usage))} tokens ·{' '}

@@ -22,6 +22,7 @@ import {
   acceptAllProposals,
   acceptInvite,
   assignCharacter,
+  answerImportQuestions,
   commitImport,
   createCampaign,
   createCharacter,
@@ -41,6 +42,7 @@ import {
   fetchCharacterSheet,
   fetchImport,
   fetchImports,
+  generateImportRecords,
   fetchInvitePreview,
   fetchInvites,
   fetchMe,
@@ -61,6 +63,7 @@ import {
   revokeInvite,
   saveAnthropicKey,
   setCampaignArchived,
+  retryImport,
   startImport,
   updateMe,
   type RecordListFilter,
@@ -638,6 +641,43 @@ export function useCommitImport(campaignId: string, importId: string) {
       void queryClient.invalidateQueries({ queryKey: USAGE_KEY });
     },
   });
+}
+
+/**
+ * Starts the next step of an import (D-30): answering the questions, writing the records, or
+ * trying a failed step again. The import is `running` again, so the page polls it.
+ */
+function useImportStep<Input>(
+  campaignId: string,
+  importId: string,
+  start: (input: Input) => Promise<ImportSummary>,
+) {
+  const queryClient = useQueryClient();
+  const summarySaved = useImportSummarySaved(campaignId);
+  return useMutation({
+    mutationFn: start,
+    onSuccess: (summary) => {
+      summarySaved(summary);
+      void queryClient.invalidateQueries({ queryKey: importKey(campaignId, importId) });
+      void queryClient.invalidateQueries({ queryKey: USAGE_KEY });
+    },
+  });
+}
+
+export function useAnswerImportQuestions(campaignId: string, importId: string) {
+  return useImportStep(campaignId, importId, (answer: string) =>
+    answerImportQuestions(campaignId, importId, { answer }),
+  );
+}
+
+export function useGenerateImportRecords(campaignId: string, importId: string) {
+  return useImportStep(campaignId, importId, (answer: string) =>
+    generateImportRecords(campaignId, importId, answer.trim() === '' ? {} : { answer }),
+  );
+}
+
+export function useRetryImport(campaignId: string, importId: string) {
+  return useImportStep(campaignId, importId, () => retryImport(campaignId, importId));
 }
 
 export function useDiscardImport(campaignId: string, importId: string) {

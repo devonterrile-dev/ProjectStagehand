@@ -171,7 +171,16 @@ function sent(fetch: ReturnType<typeof vi.fn<Fetch>>, call = 0) {
 }
 
 const WIRE_ANSWER = JSON.stringify({ creates: [], updates: [], links: [], questions: ['Who?'] });
-const CALL = { apiKey: KEY, system: 'SYSTEM PROMPT', user: '<notes>\nA port town.\n</notes>' };
+const CALL = {
+  apiKey: KEY,
+  system: 'SYSTEM PROMPT',
+  user: { prefix: '<notes>\nA port town.\n</notes>', step: '<task>\nmode: add\n</task>' },
+};
+/** The user message as sent: the cacheable prefix, then the step. */
+const USER_CONTENT = [
+  { type: 'text', text: CALL.user.prefix, cache_control: { type: 'ephemeral' } },
+  { type: 'text', text: CALL.user.step },
+];
 
 describe('createAnthropicProvider().generateImport', () => {
   it('streams one request and returns the text, model, usage and the turn', async () => {
@@ -201,7 +210,7 @@ describe('createAnthropicProvider().generateImport', () => {
     expect(body.system).toEqual([
       { type: 'text', text: 'SYSTEM PROMPT', cache_control: { type: 'ephemeral' } },
     ]);
-    expect(body.messages).toEqual([{ role: 'user', content: CALL.user }]);
+    expect(body.messages).toEqual([{ role: 'user', content: USER_CONTENT }]);
     expect(body.output_config.effort).toBe('medium');
     expect(body.output_config.format.type).toBe('json_schema');
     expect(Object.keys(body.output_config.format.schema.properties)).toEqual([
@@ -260,7 +269,7 @@ describe('createAnthropicProvider().generateImport', () => {
     });
 
     expect(sent(second).body.messages).toMatchObject([
-      { role: 'user', content: CALL.user },
+      { role: 'user', content: USER_CONTENT },
       {
         role: 'assistant',
         content: [
@@ -363,7 +372,7 @@ describe('createAnthropicProvider().countImportTokens', () => {
     expect(url.pathname).toBe('/v1/messages/count_tokens');
     expect(body.model).toBe('claude-sonnet-5-5');
     expect(body.system[0]?.text).toBe('SYSTEM PROMPT');
-    expect(body.messages).toEqual([{ role: 'user', content: CALL.user }]);
+    expect(body.messages).toEqual([{ role: 'user', content: USER_CONTENT }]);
     expect(body.output_config.format.type).toBe('json_schema');
     expect(body.max_tokens).toBeUndefined();
   });

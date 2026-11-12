@@ -4,7 +4,9 @@
  * - The **system prompt** is the versioned file from `@stagehand/prompts` with each type's
  *   field list filled in from `RECORD_FIELD_SPECS`, so the prompt can never name a field the
  *   schemas don't have. It is the same for every request, which lets Anthropic cache it.
- * - The **user message** carries what changes: the context pack, the task and the GM's notes.
+ * - The **user message** carries what changes, in two parts: a `prefix` (the context pack and
+ *   the GM's notes) that stays the same over an import's rounds of questions, so it can be
+ *   cached too, and a `step` (the earlier questions and answers, and the task) after it.
  *
  * Everything here is pure text building; `providers/anthropic.ts` makes the call.
  */
@@ -13,6 +15,8 @@ import {
   RECORD_TYPES,
   type FieldSpec,
   type ImportMode,
+  type ImportPhase,
+  type ImportRound,
   type PointOfInterest,
   type RecordType,
   type RichText,
@@ -88,7 +92,8 @@ export function loadImportSystemPrompt(promptsDir?: string): string {
 
 /** Invisible, and enough to stop `</notes>` in embedded text from being a tag. */
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
-const WRAPPER_TAGS = /<(\/?)(campaign|index|record|field|links|task|notes)\b/gi;
+const WRAPPER_TAGS =
+  /<(\/?)(campaign|index|record|field|links|task|notes|conversation|round|questions|answer)\b/gi;
 
 /**
  * Stops text we embed (the GM's notes, record contents) from closing or opening one of our
@@ -199,15 +204,30 @@ export function buildCampaignBlock(pack: ContextPack): string {
 
 export interface ImportPromptInput {
   mode: ImportMode;
+  /** Which call this is (D-30): asking questions, or writing the records. */
+  phase: ImportPhase;
   /** The GM's notes. May be empty in `fill` mode. */
   text: string;
   /** When set, only these record types may be created. */
   targetTypes: readonly RecordType[] | null;
   pack: ContextPack;
+  /** Earlier rounds of questions and the GM's answers, oldest first. */
+  conversation: readonly ImportRound[];
+}
+
+/** The user message in its two parts; see the file comment. */
+export interface ImportUserMessage {
+  prefix: string;
+  step: string;
 }
 
 function taskBlock(input: ImportPromptInput): string {
-  const lines = [`mode: ${input.mode}`];
+  const lines = [`mode: ${input.mode}`, `phase: ${input.phase}`];
+  lines.push(
+    input.phase === 'questions'
+      ? 'Return only questions, or none. Leave creates, updates and links empty.'
+      : 'Write the records now.',
+  );
   if (input.targetTypes !== null && input.targetTypes.length > 0) {
     const types = input.targetTypes
       .map((type) => `${type} (${RECORD_TYPE_LABELS[type]})`)
@@ -233,13 +253,39 @@ function taskBlock(input: ImportPromptInput): string {
   return `<task>\n${lines.join('\n')}\n</task>`;
 }
 
-/** The user message: campaign, task, then the GM's notes last. */
-export function buildUserMessage(input: ImportPromptInput): string {
+/** The earlier rounds of questions and answers, or nothing before the first round. */
+function conversationBlock(conversation: readonly ImportRound[]): string | null {
+  if (conversation.length === 0) return null;
+  const rounds = conversation.map((round, index) => {
+    const questions = round.questions.map((question) => `- ${guard(question)}`).join('\n');
+    const answer =
+      round.answer === null ? '(The GM did not answer these.)' : guard(round.answer.trim());
+    return [
+      `<round n="${String(index + 1)}">`,
+      `<questions>\n${questions}\n</questions>`,
+      `<answer>\n${answer}\n</answer>`,
+      '</round>',
+    ].join('\n');
+  });
+  return `<conversation>\n${rounds.join('\n')}\n</conversation>`;
+}
+
+/** The user message: campaign and notes (the cacheable prefix), then conversation and task. */
+export function buildUserMessage(input: ImportPromptInput): ImportUserMessage {
   const notes =
     input.text.trim() === '' ? '(The GM gave no notes for this request.)' : guard(input.text);
-  return [buildCampaignBlock(input.pack), taskBlock(input), `<notes>\n${notes}\n</notes>`].join(
-    '\n\n',
+  const step = [conversationBlock(input.conversation), taskBlock(input)].filter(
+    (part): part is string => part !== null,
   );
+  return {
+    prefix: `${buildCampaignBlock(input.pack)}\n\n<notes>\n${notes}\n</notes>`,
+    step: step.join('\n\n'),
+  };
+}
+
+/** The whole user message as one text, as the model reads it. */
+export function userMessageText(message: ImportUserMessage): string {
+  return `${message.prefix}\n\n${message.step}`;
 }
 
 /**

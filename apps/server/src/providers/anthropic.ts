@@ -57,7 +57,11 @@ export interface ImportCallInput {
   /** The filled prompt file. The same for every import, so Anthropic can cache it. */
   system: string;
   /** The campaign context, the task and the GM's notes. */
-  user: string;
+  /**
+   * The user message (`ai-import/prompt.ts`): `prefix` (campaign and notes) is the same over an
+   * import's rounds, so it is marked cacheable; `step` follows it.
+   */
+  user: { prefix: string; step: string };
   /** Second attempt: the first answer and what was wrong with it. */
   retry?: { previous: ImportTurn; message: string };
   /** Cancels the call. */
@@ -105,7 +109,19 @@ const WIRE_FORMAT = (() => {
 type MessageParams = Parameters<Anthropic['messages']['stream']>[0];
 
 function importRequest(input: Pick<ImportCallInput, 'system' | 'user' | 'retry'>) {
-  const messages: MessageParams['messages'] = [{ role: 'user', content: input.user }];
+  const messages: MessageParams['messages'] = [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: input.user.prefix,
+          cache_control: { type: 'ephemeral' },
+        },
+        { type: 'text', text: input.user.step },
+      ],
+    },
+  ];
   if (input.retry !== undefined) {
     messages.push(
       {
@@ -120,7 +136,9 @@ function importRequest(input: Pick<ImportCallInput, 'system' | 'user' | 'retry'>
   }
   return {
     model: AI_IMPORT_MODEL,
-    // The prompt file is identical across imports: mark it cacheable.
+    // The prompt file is identical across imports, and the start of the user message across
+    // an import's rounds: both are marked cacheable. Every step sends the same output format
+    // and effort, so nothing else breaks the cache between rounds.
     system: [
       { type: 'text' as const, text: input.system, cache_control: { type: 'ephemeral' as const } },
     ],

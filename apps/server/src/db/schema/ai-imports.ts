@@ -14,6 +14,8 @@ import {
   PROPOSAL_ACTIONS,
   PROPOSAL_REVIEW_STATES,
   type ImportErrorCode,
+  type ImportPhase,
+  type ImportRound,
   type RecordType,
 } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
@@ -67,15 +69,24 @@ export const aiImports = pgTable(
     /** The model asked for, replaced by the one that answered. */
     model: text('model').notNull(),
     status: aiImportStatus('status').notNull().default('running'),
+    /**
+     * The model call running now, or the last one (D-30): `questions` first, then `records`.
+     * Imports from before the questions step were records-only.
+     */
+    phase: text('phase').$type<ImportPhase>().notNull().default('records'),
+    /** Earlier rounds of questions and the GM's answers, oldest first. */
+    conversation: jsonb('conversation').$type<ImportRound[]>().notNull().default([]),
+    /** Model steps started: question rounds, the records call and retries. */
+    steps: integer('steps').notNull().default(1),
     /** Set when `status` is `failed`. */
     errorCode: text('error_code').$type<ImportErrorCode>(),
     /** Validation problems or the provider's message, for the GM. */
     errorDetails: jsonb('error_details').$type<string[]>(),
-    /** What the model asked back. */
+    /** The questions waiting for the GM, or those the records call left open. */
     questions: jsonb('questions').$type<string[]>().notNull().default([]),
-    /** Model calls made: 0 until the first returns, 2 after a retry. */
+    /** Model calls of the last step: 0 until the first returns, 2 after a retry. */
     attempts: integer('attempts').notNull().default(0),
-    /** Token usage over every attempt, as Anthropic reported it. */
+    /** Token usage over every step and attempt, as Anthropic reported it. */
     inputTokens: integer('input_tokens').notNull().default(0),
     outputTokens: integer('output_tokens').notNull().default(0),
     cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
@@ -105,6 +116,7 @@ export const aiImports = pgTable(
       sql`(${table.status} = 'failed') = (${table.errorCode} is not null)`,
     ),
     check('ai_imports_attempts_check', sql`${table.attempts} between 0 and 2`),
+    check('ai_imports_phase_check', sql`${table.phase} in ('questions', 'records')`),
   ],
 );
 

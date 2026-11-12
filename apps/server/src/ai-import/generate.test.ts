@@ -5,6 +5,7 @@ import { harborPack, idMaker, IDS, newId, wire, wireCreate } from '../../test/im
 import type { ImportCallInput, ImportCallResult } from '../providers/anthropic';
 
 import { generateImport, type GenerateInput } from './generate';
+import { userMessageText } from './prompt';
 
 const USAGE = { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50, cacheWriteTokens: 10 };
 
@@ -38,9 +39,11 @@ function input(
     apiKey: 'sk-ant-api03-generate-test-key',
     systemPrompt: 'SYSTEM',
     mode: 'add',
+    phase: 'records',
     text: 'Mira the dockhand joined the Harbor Watch.',
     targetTypes: null,
     pack: harborPack(),
+    conversation: [],
     newId: idMaker(),
     ...overrides,
   };
@@ -51,6 +54,12 @@ const GOOD = wire({
   links: [{ from: 'N1', to: 'E4', field: 'factions', label: '' }],
   questions: ['Is Mira a full member?'],
 });
+
+/** The whole user message of the nth call. */
+const sent = (provider: ReturnType<typeof fakeProvider>, n: number) => {
+  const user = provider.calls[n]?.user;
+  return user === undefined ? '' : userMessageText(user);
+};
 
 /** Links to a record that doesn't exist. */
 const BAD = wire({
@@ -81,9 +90,10 @@ describe('generateImport', () => {
     expect(provider.calls).toHaveLength(1);
     const [call] = provider.calls;
     expect(call?.system).toBe('SYSTEM');
-    expect(call?.user).toContain('<campaign>');
-    expect(call?.user).toContain('mode: add');
-    expect(call?.user).toContain('Mira the dockhand joined the Harbor Watch.');
+    expect(call?.user.prefix).toContain('<campaign>');
+    expect(call?.user.prefix).toContain('Mira the dockhand joined the Harbor Watch.');
+    expect(call?.user.step).toContain('mode: add');
+    expect(call?.user.step).toContain('phase: records');
     expect(call?.retry).toBeUndefined();
   });
 
@@ -108,7 +118,7 @@ describe('generateImport', () => {
     expect(retry?.previous).toEqual({ content: [{ type: 'text', text: 'turn 1' }] });
     expect(retry?.message).toContain('"E99" is neither an existing record');
     expect(retry?.message).toContain('Send the complete answer again');
-    expect(provider.calls[1]?.user).toBe(provider.calls[0]?.user);
+    expect(provider.calls[1]?.user).toEqual(provider.calls[0]?.user);
   });
 
   it('gives up after a second bad answer, with the problems as they are', async () => {
@@ -179,10 +189,37 @@ describe('generateImport', () => {
 
     const result = await generateImport(input(provider, { mode: 'fill', text: '', pack }));
 
-    expect(provider.calls[0]?.user).toContain('Record to fill in: E3.');
+    expect(sent(provider, 0)).toContain('Record to fill in: E3.');
     expect(provider.calls[1]?.retry?.message).toContain('fill mode, which creates no records');
     expect(result.ok && result.proposals).toMatchObject([
       { action: 'update', payload: { recordId: IDS.voss } },
     ]);
+  });
+
+  it('reads a questions step for its questions only', async () => {
+    const provider = fakeProvider([
+      wire({
+        creates: [wireCreate({ id: 'N1', type: 'npc', name: 'Mira' })],
+        questions: ['  Is Mira   the same as Captain Voss? ', ''],
+      }),
+    ]);
+
+    const result = await generateImport(
+      input(provider, {
+        phase: 'questions',
+        conversation: [{ questions: ['Which watch?'], answer: 'The Harbor Watch.' }],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      attempts: 1,
+      proposals: [],
+      questions: ['Is Mira the same as Captain Voss?'],
+    });
+    expect(provider.calls[0]?.user.step).toContain('phase: questions');
+    expect(provider.calls[0]?.user.step).toContain('The Harbor Watch.');
+    // The conversation never touches the cacheable prefix.
+    expect(provider.calls[0]?.user.prefix).not.toContain('The Harbor Watch.');
   });
 });

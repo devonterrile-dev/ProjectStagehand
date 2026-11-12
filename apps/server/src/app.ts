@@ -176,6 +176,11 @@ export const LOG_REDACT_PATHS = [
   '*.inputText',
   'originalPayload',
   '*.originalPayload',
+  // The GM's answers to the model's questions (D-30).
+  'req.body.answer',
+  'body.answer',
+  'conversation',
+  '*.conversation',
 ];
 
 /**

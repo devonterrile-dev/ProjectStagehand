@@ -29,7 +29,9 @@ import {
   type Campaign,
   type CampaignRecord,
   type Character,
+  type AnswerQuestionsRequest,
   type CommitImportResponse,
+  type GenerateRecordsRequest,
   type ImportDetail,
   type ImportEstimateResponse,
   type ImportSummary,
@@ -505,7 +507,33 @@ export async function commitImport(
   return commitImportResponseSchema.parse(await response.json());
 }
 
-/** Drops a ready or failed import without saving anything. */
+/** Sends the GM's answers to the waiting questions; the model may ask more (D-30). */
+export async function answerImportQuestions(
+  campaignId: string,
+  importId: string,
+  input: AnswerQuestionsRequest,
+): Promise<ImportSummary> {
+  const response = await send(importPath(campaignId, importId, '/answers'), 'POST', input);
+  return importSummarySchema.parse(await response.json());
+}
+
+/** Stops the questions and has the model write the records, with a last answer if given. */
+export async function generateImportRecords(
+  campaignId: string,
+  importId: string,
+  input: GenerateRecordsRequest,
+): Promise<ImportSummary> {
+  const response = await send(importPath(campaignId, importId, '/generate'), 'POST', input);
+  return importSummarySchema.parse(await response.json());
+}
+
+/** Runs a failed step of an import again, with the same notes and answers. */
+export async function retryImport(campaignId: string, importId: string): Promise<ImportSummary> {
+  const response = await send(importPath(campaignId, importId, '/retry'), 'POST');
+  return importSummarySchema.parse(await response.json());
+}
+
+/** Drops an import without saving anything (not while it's running or once it's saved). */
 export async function discardImport(campaignId: string, importId: string): Promise<ImportSummary> {
   const response = await send(importPath(campaignId, importId, '/discard'), 'POST');
   return importSummarySchema.parse(await response.json());

@@ -541,11 +541,15 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
 
   if (issues.length > 0) return { ok: false, issues };
 
-  const questions = output.questions
+  return { ok: true, proposals, questions: cleanQuestions(output.questions) };
+}
+
+/** The model's questions tidied: one line each, none empty, within the limits. */
+export function cleanQuestions(questions: readonly string[]): string[] {
+  return questions
     .map((question) =>
       question.trim().replace(/\s+/g, ' ').slice(0, AI_IMPORT_LIMITS.questionMaxChars),
     )
     .filter((question) => question !== '')
     .slice(0, AI_IMPORT_LIMITS.questionsMax);
-  return { ok: true, proposals, questions };
 }

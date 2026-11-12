@@ -22,6 +22,7 @@ import type {
   UpdateProposalPayload,
   UsageResponse,
 } from '@stagehand/shared';
+import { emptyTokenUsage } from '@stagehand/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -35,6 +36,7 @@ import {
 } from '../../test/auth-helpers';
 import { wire, wireCreate } from '../../test/import-fixtures';
 import { richText } from '../../test/record-fixtures';
+import { userMessageText } from '../ai-import/prompt';
 import { failInterruptedImports } from '../campaigns/ai-imports';
 import { saveProviderKey } from '../credentials/store';
 import type { DbHandle } from '../db/client';
@@ -73,26 +75,34 @@ describe('AI import API', () => {
   let gm: Person;
   let player: Person;
   let keyless: Person;
-  /** One answer per model call, in order. */
+  /** One answer per records call, in order. */
   let scripts: Script[] = [];
   const calls: ImportCallInput[] = [];
+  /**
+   * One answer per questions call (D-30), in order. With none queued, the model asks nothing
+   * and costs nothing, so the import goes straight on to its records call.
+   */
+  let questionScripts: Script[] = [];
+  const questionCalls: ImportCallInput[] = [];
   let nextCount: TokenCountResult = { status: 'ok', inputTokens: 5000 };
   const countCalls: Pick<ImportCallInput, 'apiKey' | 'system' | 'user'>[] = [];
   const logLines: string[] = [];
   const responseBodies: string[] = [];
 
   async function generate(input: ImportCallInput): Promise<ImportCallResult> {
-    calls.push(input);
-    const script = scripts.shift();
-    if (script === undefined) throw new Error('the fake Anthropic ran out of answers');
-    const answer = await script(input, (name) => refIn(input.user, name));
+    const asking = input.user.step.includes('phase: questions');
+    (asking ? questionCalls : calls).push(input);
+    const script = (asking ? questionScripts : scripts).shift();
+    if (script === undefined && !asking) throw new Error('the fake Anthropic ran out of answers');
+    const answer =
+      script === undefined ? wire() : await script(input, (name) => refIn(input.user.prefix, name));
     if (answer instanceof Error) throw answer;
     if ('status' in answer) return answer;
     return {
       status: 'ok',
       text: JSON.stringify(answer),
       model: 'claude-sonnet-5-5',
-      usage: USAGE,
+      usage: script === undefined ? emptyTokenUsage() : USAGE,
       turn: { content: [{ type: 'text', text: 'previous turn' }] },
     };
   }
@@ -131,6 +141,7 @@ describe('AI import API', () => {
 
   beforeEach(async () => {
     scripts = [];
+    questionScripts = [];
     // Each test starts with a fresh hourly quota.
     await handle.db
       .update(aiImports)
@@ -184,7 +195,11 @@ describe('AI import API', () => {
   async function runImport(c: Campaign, body: Record<string, unknown>): Promise<ImportDetail> {
     const started = await call('POST', importsUrl(c), gm, body);
     expect(started.statusCode, started.body).toBe(202);
-    const { id } = started.json<ImportSummary>();
+    return settle(c, started.json<ImportSummary>().id);
+  }
+
+  /** Waits until a step of the import is no longer running. */
+  async function settle(c: Campaign, id: string): Promise<ImportDetail> {
     for (let tries = 0; tries < 300; tries += 1) {
       const detail = await detailOf(c, id);
       if (detail.status !== 'running') return detail;
@@ -314,7 +329,9 @@ describe('AI import API', () => {
         mode: 'bootstrap',
         status: 'running',
         model: 'claude-sonnet-5-5',
-        promptVersion: 1,
+        promptVersion: 2,
+        phase: 'questions',
+        steps: 1,
         attempts: 0,
         error: null,
         textPreview: `A port town called Saltmarsh. ${NOTES_MARK}`,
@@ -345,9 +362,11 @@ describe('AI import API', () => {
       const [sent] = calls;
       expect(sent?.apiKey).toBe(GM_KEY);
       expect(sent?.system).toContain('`voiceAndMannerisms`');
-      expect(sent?.user).toContain('The campaign has no records yet.');
-      expect(sent?.user).toContain('mode: bootstrap');
-      expect(sent?.user).toContain(`A port town called Saltmarsh. ${NOTES_MARK}`);
+      expect(sent?.user.prefix).toContain('The campaign has no records yet.');
+      expect(sent?.user.step).toContain('mode: bootstrap');
+      expect(sent?.user.prefix).toContain(`A port town called Saltmarsh. ${NOTES_MARK}`);
+      // The questions step came first, with the same prefix.
+      expect(questionCalls.at(-1)?.user.prefix).toBe(sent?.user.prefix);
       expect(sent?.retry).toBeUndefined();
     });
 
@@ -656,7 +675,7 @@ describe('AI import API', () => {
       expect(detail.status).toBe('ready');
       expect(detail.proposalCounts).toEqual({ create: 2, update: 1, link: 3 });
 
-      const user = calls[0]?.user ?? '';
+      const user = calls[0] === undefined ? '' : userMessageText(calls[0].user);
       expect(user).toContain('mode: add');
       // Every record is in the index; the ones the notes name are shown in full.
       for (const name of ['Saltmarsh', 'The Drowned Rat', 'Tidecallers', 'Customs House']) {
@@ -1004,8 +1023,8 @@ describe('AI import API', () => {
       ]);
 
       expect(calls).toHaveLength(2);
-      expect(calls[0]?.user).toMatch(/Record to fill in: E\d+\./);
-      expect(calls[0]?.user).toContain('(The GM gave no notes for this request.)');
+      expect(calls[0]?.user.step).toMatch(/Record to fill in: E\d+\./);
+      expect(calls[0]?.user.prefix).toContain('(The GM gave no notes for this request.)');
       expect(calls[1]?.retry?.previous).toEqual({
         content: [{ type: 'text', text: 'previous turn' }],
       });
@@ -1127,6 +1146,208 @@ describe('AI import API', () => {
     });
   });
 
+  describe('questions before records (D-30)', () => {
+    const asks =
+      (...questions: string[]): Script =>
+      () =>
+        wire({ questions });
+    const mira: Script = () =>
+      wire({ creates: [wireCreate({ id: 'N1', type: 'npc', name: 'Mira' })] });
+
+    /** Starts the next step of an import and waits for it, like `runImport`. */
+    async function nextStep(
+      c: Campaign,
+      importId: string,
+      action: 'answers' | 'generate' | 'retry',
+      body?: Record<string, unknown>,
+    ): Promise<ImportDetail> {
+      const started = await call('POST', `${importsUrl(c)}/${importId}/${action}`, gm, body);
+      expect(started.statusCode, started.body).toBe(202);
+      expect(started.json<ImportSummary>().status).toBe('running');
+      return settle(c, importId);
+    }
+
+    it('asks first, then reads each answer before asking more or writing the records', async () => {
+      const world = await harborCampaign('Questions Campaign');
+      questionScripts = [
+        asks('Is Mira new to the campaign?', 'Which watch did she join?'),
+        asks('Is Mira paid by the Watch?'),
+      ];
+
+      let detail = await runImport(world.campaign, {
+        mode: 'add',
+        text: 'Mira joined the watch.',
+      });
+
+      expect(detail).toMatchObject({
+        status: 'questions',
+        phase: 'questions',
+        steps: 1,
+        questions: ['Is Mira new to the campaign?', 'Which watch did she join?'],
+        conversation: [],
+        proposals: [],
+        usage: { inputTokens: 3000 },
+      });
+      expect(questionCalls.at(-1)?.user.step).toContain('phase: questions');
+
+      detail = await nextStep(world.campaign, detail.id, 'answers', {
+        answer: '  Yes, new. The Harbor Watch.  ',
+      });
+
+      expect(detail).toMatchObject({
+        status: 'questions',
+        steps: 2,
+        questions: ['Is Mira paid by the Watch?'],
+        conversation: [
+          {
+            questions: ['Is Mira new to the campaign?', 'Which watch did she join?'],
+            answer: 'Yes, new. The Harbor Watch.',
+          },
+        ],
+        usage: { inputTokens: 6000 },
+      });
+      const [earlier, latest] = questionCalls.slice(-2);
+      expect(latest?.user.step).toContain('Yes, new. The Harbor Watch.');
+      // The start of the message is the same each round, so Anthropic can cache it.
+      expect(latest?.user.prefix).toBe(earlier?.user.prefix);
+
+      const callsBefore = calls.length;
+      scripts = [mira];
+      detail = await nextStep(world.campaign, detail.id, 'generate', {
+        answer: 'Yes, a little.',
+      });
+
+      expect(detail).toMatchObject({
+        status: 'ready',
+        phase: 'records',
+        steps: 3,
+        questions: [],
+        proposalCounts: { create: 1, update: 0, link: 0 },
+        usage: { inputTokens: 9000 },
+      });
+      expect(detail.conversation).toHaveLength(2);
+      expect(detail.conversation[1]).toEqual({
+        questions: ['Is Mira paid by the Watch?'],
+        answer: 'Yes, a little.',
+      });
+      expect(calls).toHaveLength(callsBefore + 1);
+      const records = calls.at(-1)?.user.step ?? '';
+      expect(records).toContain('phase: records');
+      expect(records).toContain('Yes, new. The Harbor Watch.');
+      expect(records).toContain('Yes, a little.');
+    });
+
+    it('writes the records without an answer, and closes an import with nothing to save', async () => {
+      const campaign = await newCampaign('Unanswered Campaign');
+      questionScripts = [asks('Is it a port?')];
+      const asked = await runImport(campaign, { mode: 'bootstrap', text: 'A town.' });
+      scripts = [() => wire()];
+
+      const detail = await nextStep(campaign, asked.id, 'generate', {});
+
+      expect(detail).toMatchObject({
+        status: 'ready',
+        proposals: [],
+        conversation: [{ questions: ['Is it a port?'], answer: null }],
+      });
+      expect(calls.at(-1)?.user.step).toContain('(The GM did not answer these.)');
+
+      // The model proposed nothing: closing saves nothing, and the import is done.
+      const closed = await commit(campaign, detail);
+      expect(closed).toMatchObject({
+        import: { status: 'committed' },
+        created: [],
+        updated: [],
+        linksAdded: 0,
+      });
+      expect(await recordNames(campaign)).toEqual([]);
+    });
+
+    it('refuses a step from the wrong state, past the cap, or while another import runs', async () => {
+      const campaign = await newCampaign('Step Refusals');
+      questionScripts = [asks('Which town?')];
+      const asked = await runImport(campaign, { mode: 'bootstrap', text: 'A town.' });
+      const url = (action: string) => `${importsUrl(campaign)}/${asked.id}/${action}`;
+
+      const blank = await call('POST', url('answers'), gm, { answer: '   ' });
+      expect(blank.statusCode).toBe(400);
+      const retry = await call('POST', url('retry'), gm);
+      expect(retry.statusCode).toBe(409);
+      expect(retry.json<{ message: string }>().message).toContain('waiting for your answers');
+      const review = await call('POST', url('commit'), gm);
+      expect(review.statusCode).toBe(409);
+      expect(review.json<{ message: string }>().message).toContain("Answer Claude's questions");
+
+      // Another import of the GM's is running.
+      const [other] = await handle.db
+        .insert(aiImports)
+        .values({
+          campaignId: campaign.id,
+          userId: gm.id,
+          mode: 'add',
+          inputText: 'elsewhere',
+          promptVersion: 2,
+          model: 'claude-sonnet-5-5',
+        })
+        .returning();
+      try {
+        const busy = await call('POST', url('answers'), gm, { answer: 'Saltmarsh.' });
+        expect(busy.statusCode).toBe(409);
+        expect(busy.json<{ message: string }>().message).toContain('still running');
+      } finally {
+        await handle.db.delete(aiImports).where(eq(aiImports.id, other?.id ?? ''));
+      }
+
+      // Every step it may take is used up.
+      await handle.db.update(aiImports).set({ steps: 10 }).where(eq(aiImports.id, asked.id));
+      const capped = await call('POST', url('answers'), gm, { answer: 'Saltmarsh.' });
+      expect(capped.statusCode).toBe(409);
+      expect(capped.json<{ message: string }>().message).toContain('all 10 of its steps');
+      expect((await detailOf(campaign, asked.id)).status).toBe('questions');
+
+      // Discarding still works while it waits.
+      const discarded = await call('POST', url('discard'), gm);
+      expect(discarded.json<ImportSummary>().status).toBe('discarded');
+      const late = await call('POST', url('generate'), gm, {});
+      expect(late.statusCode).toBe(409);
+      expect(late.json<{ message: string }>().message).toContain('was discarded');
+    });
+
+    it('tries a failed step again in its own phase, keeping the answers', async () => {
+      const campaign = await newCampaign('Retry Campaign');
+      questionScripts = [asks('Who leads the Watch?')];
+      const asked = await runImport(campaign, { mode: 'bootstrap', text: 'A watch.' });
+      scripts = [() => ({ status: 'unreachable' })];
+
+      const failed = await nextStep(campaign, asked.id, 'generate', { answer: 'Captain Voss.' });
+
+      expect(failed).toMatchObject({
+        status: 'failed',
+        phase: 'records',
+        error: { code: 'unreachable' },
+      });
+      const ready = await call('POST', `${importsUrl(campaign)}/${asked.id}/answers`, gm, {
+        answer: 'More.',
+      });
+      expect(ready.statusCode).toBe(409);
+
+      scripts = [mira];
+      const detail = await nextStep(campaign, asked.id, 'retry');
+
+      expect(detail).toMatchObject({
+        status: 'ready',
+        phase: 'records',
+        error: null,
+        proposalCounts: { create: 1 },
+        conversation: [{ questions: ['Who leads the Watch?'], answer: 'Captain Voss.' }],
+      });
+      expect(calls.at(-1)?.user.step).toContain('Captain Voss.');
+      const again = await call('POST', `${importsUrl(campaign)}/${asked.id}/retry`, gm);
+      expect(again.statusCode).toBe(409);
+      expect(again.json<{ message: string }>().message).toContain('ready to review');
+    });
+  });
+
   describe('guardrails', () => {
     let campaign: Campaign;
 
@@ -1187,7 +1408,7 @@ describe('AI import API', () => {
       });
 
       expect(detail).toMatchObject({ status: 'ready', attempts: 2, targetTypes: ['npc'] });
-      expect(calls.at(-2)?.user).toContain('Create only records of these types: npc (NPC).');
+      expect(calls.at(-2)?.user.step).toContain('Create only records of these types: npc (NPC).');
       expect(calls.at(-1)?.retry?.message).toContain('allows new records only of type npc');
       await call('POST', `${importsUrl(campaign)}/${detail.id}/discard`, gm);
     });
@@ -1245,7 +1466,8 @@ describe('AI import API', () => {
       const counted = countCalls.at(-1);
       expect(counted?.apiKey).toBe(GM_KEY);
       expect(counted?.system).toContain('`voiceAndMannerisms`');
-      expect(counted?.user).toContain('Captain Voss has gone missing.');
+      expect(counted?.user.prefix).toContain('Captain Voss has gone missing.');
+      expect(counted?.user.step).toContain('phase: records');
       expect(calls).toHaveLength(callsBefore);
       expect(await importRows(world.campaign)).toHaveLength(rowsBefore);
     });
@@ -1304,6 +1526,7 @@ describe('AI import API', () => {
         promptVersion: 1,
         model: 'claude-sonnet-5-5',
         createdAt: new Date(Date.now() - 60 * 60 * 1000),
+        updatedAt: new Date(Date.now() - 60 * 60 * 1000),
       });
       scripts = [() => wire()];
 
@@ -1379,6 +1602,9 @@ describe('AI import API', () => {
         ['POST', `${base}/accept-all`, undefined],
         ['POST', `${base}/commit`, undefined],
         ['POST', `${base}/discard`, undefined],
+        ['POST', `${base}/answers`, { answer: 'x' }],
+        ['POST', `${base}/generate`, {}],
+        ['POST', `${base}/retry`, undefined],
       ] as const) {
         const response = await call(method, url, player, body);
         expect(response.statusCode, `${method} ${url}`).toBe(403);
@@ -1397,6 +1623,9 @@ describe('AI import API', () => {
           ['POST', `${base}/accept-all`, undefined],
           ['POST', `${base}/commit`, undefined],
           ['POST', `${base}/discard`, undefined],
+          ['POST', `${base}/answers`, { answer: 'x' }],
+          ['POST', `${base}/generate`, {}],
+          ['POST', `${base}/retry`, undefined],
         ] as const) {
           const response = await call(method, url, gm, body);
           expect(response.statusCode, `${method} ${url}`).toBe(409);
