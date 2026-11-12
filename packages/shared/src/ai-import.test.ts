@@ -9,8 +9,13 @@ import {
   createProposalPayloadSchema,
   emptyTokenUsage,
   estimateCostUsd,
+  estimateImportCostUsd,
+  IMPORT_ERROR_CODES,
+  IMPORT_ERROR_MESSAGES,
+  importProposalSchema,
   importWireSchema,
   linkProposalPayloadSchema,
+  patchProposalRequestSchema,
   startImportRequestSchema,
   updateProposalPayloadSchema,
 } from './ai-import';
@@ -235,5 +240,94 @@ describe('token usage and cost', () => {
 
   it('gives no estimate for a model without a listed price', () => {
     expect(estimateCostUsd('some-future-model', emptyTokenUsage())).toBeNull();
+  });
+});
+
+describe('estimateImportCostUsd', () => {
+  it('prices the input plus a guessed answer, and a ceiling of two full answers', () => {
+    // 7,000 characters of notes ≈ 2,000 tokens, so about 5,500 tokens of answer.
+    const estimate = estimateImportCostUsd(AI_IMPORT_MODEL, 10_000, 7000);
+
+    expect(estimate?.likely).toBeCloseTo(0.02 + 0.055);
+    expect(estimate?.max).toBeCloseTo(2 * (0.02 + 0.32));
+  });
+
+  it('never guesses more output than the model may write', () => {
+    const estimate = estimateImportCostUsd(AI_IMPORT_MODEL, 0, 10_000_000);
+
+    expect(estimate?.likely).toBeCloseTo(0.32);
+  });
+
+  it('gives nothing for a model without a listed price', () => {
+    expect(estimateImportCostUsd('some-future-model', 1000, 1000)).toBeNull();
+  });
+});
+
+describe('import errors', () => {
+  it('has words for every code', () => {
+    expect(Object.keys(IMPORT_ERROR_MESSAGES).sort()).toEqual([...IMPORT_ERROR_CODES].sort());
+    for (const message of Object.values(IMPORT_ERROR_MESSAGES)) {
+      expect(message.length).toBeGreaterThan(20);
+    }
+  });
+});
+
+describe('patchProposalRequestSchema', () => {
+  it('takes a verdict, a payload, or both', () => {
+    for (const patch of [
+      { reviewState: 'accepted' },
+      { reviewState: 'rejected' },
+      { reviewState: 'pending' },
+      { payload: { anything: true } },
+      { reviewState: 'accepted', payload: null },
+    ]) {
+      expect(patchProposalRequestSchema.safeParse(patch).success, JSON.stringify(patch)).toBe(true);
+    }
+  });
+
+  it('refuses an empty patch, an unknown key and a verdict only the server sets', () => {
+    for (const patch of [{}, { reviewState: 'edited' }, { reviewState: 'accepted', position: 3 }]) {
+      expect(patchProposalRequestSchema.safeParse(patch).success, JSON.stringify(patch)).toBe(
+        false,
+      );
+    }
+  });
+});
+
+describe('importProposalSchema', () => {
+  const base = { id: ID_A, position: 0, reviewState: 'pending' };
+
+  it('reads each kind of review card', () => {
+    const link = {
+      fromId: ID_A,
+      fromType: 'faction',
+      toId: ID_B,
+      fieldKey: 'leaders',
+      label: null,
+    };
+    const cards = [
+      {
+        ...base,
+        action: 'update',
+        payload: { recordId: ID_B, type: 'npc', fields: { status: 'missing' } },
+        original: null,
+        before: null,
+      },
+      { ...base, action: 'link', payload: link, original: null, replaces: null },
+    ];
+    for (const card of cards) {
+      expect(importProposalSchema.safeParse(card).success, card.action).toBe(true);
+    }
+  });
+
+  it('checks a card against its own action', () => {
+    const mismatched = {
+      ...base,
+      action: 'link',
+      payload: { recordId: ID_B, type: 'npc', fields: { status: 'missing' } },
+      original: null,
+      replaces: null,
+    };
+    expect(importProposalSchema.safeParse(mismatched).success).toBe(false);
   });
 });

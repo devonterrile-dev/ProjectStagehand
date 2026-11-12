@@ -64,6 +64,13 @@
       "when": 1794433551160,
       "tag": "0008_provider_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794443155482,
+      "tag": "0009_ai_imports",
+      "breakpoints": true
     }
   ]
 }

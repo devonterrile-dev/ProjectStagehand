@@ -25,7 +25,8 @@ interface CampaignRoute {
  * exists that isn't listed here, so new routes can't skip the isolation checks.
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
  * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`,
- * `records.int.test.ts`, `characters.int.test.ts` and `stat-blocks.int.test.ts`.
+ * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts` and
+ * `ai-imports.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -105,6 +106,33 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/stat-blocks/:statBlockId', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/imports', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/imports',
+    gmOnly: true,
+    payload: { mode: 'add', text: 'Hijacked' },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/imports/estimate',
+    gmOnly: true,
+    payload: { mode: 'add', text: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/imports/:importId', gmOnly: true },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/imports/:importId/proposals/:proposalId',
+    gmOnly: true,
+    payload: { reviewState: 'accepted' },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/imports/:importId/accept-all',
+    gmOnly: true,
+  },
+  { method: 'POST', path: '/api/campaigns/:campaignId/imports/:importId/commit', gmOnly: true },
+  { method: 'POST', path: '/api/campaigns/:campaignId/imports/:importId/discard', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */
@@ -286,7 +314,9 @@ describe('Campaigns API', () => {
         .replace(':inviteId', '00000000-0000-4000-8000-000000000001')
         .replace(':recordId', '00000000-0000-4000-8000-000000000002')
         .replace(':characterId', '00000000-0000-4000-8000-000000000003')
-        .replace(':statBlockId', '00000000-0000-4000-8000-000000000004');
+        .replace(':statBlockId', '00000000-0000-4000-8000-000000000004')
+        .replace(':importId', '00000000-0000-4000-8000-000000000005')
+        .replace(':proposalId', '00000000-0000-4000-8000-000000000006');
     }
 
     it('lists every campaign route in the isolation table', () => {

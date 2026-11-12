@@ -114,6 +114,7 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH -H 'origin: https://evil.example' \
             -H 'content-type: application/json' -d '{"displayName":"x"}' http://127.0.0.1:8080/api/me)" = 403
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/me/credentials)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/me/usage)" = 401
           curl -fsS -X POST -H 'origin: http://localhost:8080' -H 'content-type: application/json' \
             -d '{"provider":"discord","callbackURL":"/"}' http://127.0.0.1:8080/api/auth/sign-in/social \
             | grep -q 'https://discord.com/api/oauth2/authorize?.*client_id=ci-dummy-client-id'

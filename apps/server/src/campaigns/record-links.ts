@@ -15,7 +15,9 @@
 import {
   emptyLinksFor,
   linkFieldSpec,
+  LINKS_PER_FIELD_MAX,
   linkTargetsLabel,
+  OTHER_LINKS_MAX,
   type BacklinksResponse,
   type InventoryItem,
   type OtherLink,
@@ -34,7 +36,7 @@ import type { CampaignScope } from './scope';
 const LINKED_NOT_FOUND = 'Linked record not found';
 
 /** The type of each id that is a record of this campaign; other ids are left out. */
-async function recordTypesIn(
+export async function recordTypesIn(
   tx: DbOrTx,
   scope: CampaignScope,
   ids: readonly string[],
@@ -146,6 +148,77 @@ export async function setOtherLinks(
       targetWhere: sql`${recordLinks.kind} = 'other'`,
       set: { label: sql`excluded.label` },
     });
+}
+
+/**
+ * Adds records to one link field without touching what it already links (F1.8: an accepted
+ * link proposal). A field that holds one record is replaced by the last id given; a field
+ * that holds many keeps its links and gains the new ones, up to its limit. Types are checked
+ * as in `setFieldLinks`. Returns how many links are new.
+ */
+export async function addFieldLinks(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  from: { id: string; type: RecordType },
+  fieldKey: string,
+  ids: readonly string[],
+): Promise<number> {
+  const spec = linkFieldSpec(from.type, fieldKey);
+  if (spec === undefined) throw httpError(400, `Unknown link field ${fieldKey}`);
+  const current = (
+    await tx
+      .select({ id: recordLinks.toRecordId })
+      .from(recordLinks)
+      .where(and(outgoing(scope, from.id, 'field'), eq(recordLinks.fieldKey, fieldKey)))
+  ).map((row) => row.id);
+
+  const last = ids.at(-1);
+  const next =
+    spec.cardinality === 'one'
+      ? last === undefined
+        ? current
+        : [last]
+      : [...new Set([...current, ...ids])].slice(0, LINKS_PER_FIELD_MAX);
+  const added = next.filter((id) => !current.includes(id)).length;
+  if (added > 0) await setFieldLinks(tx, scope, from, { [fieldKey]: next });
+  return added;
+}
+
+/**
+ * Adds one other link without touching the rest (F1.8). If the two records are already
+ * linked this way, a label is filled in where there was none; a full list is left as it is.
+ * Returns true when the link is new.
+ */
+export async function addOtherLink(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  fromId: string,
+  link: { recordId: string; label: string | null },
+): Promise<boolean> {
+  if (link.recordId === fromId) throw httpError(400, "A record can't link to itself");
+  const current = await tx
+    .select({ id: recordLinks.toRecordId, label: recordLinks.label })
+    .from(recordLinks)
+    .where(outgoing(scope, fromId, 'other'));
+  const existing = current.find((row) => row.id === link.recordId);
+  if (existing !== undefined) {
+    if (existing.label === null && link.label !== null) {
+      await tx
+        .update(recordLinks)
+        .set({ label: link.label })
+        .where(and(outgoing(scope, fromId, 'other'), eq(recordLinks.toRecordId, link.recordId)));
+    }
+    return false;
+  }
+  if (current.length >= OTHER_LINKS_MAX) return false;
+  await tx.insert(recordLinks).values({
+    campaignId: scope.campaignId,
+    fromRecordId: fromId,
+    toRecordId: link.recordId,
+    kind: 'other',
+    label: link.label,
+  });
+  return true;
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   linkLabelSchema,
   linksPatchSchemaFor,
   otherLinksSchema,
+  recordRefSchema,
 } from './record-links';
 import { recordNameSchema, tagSchema, tagsSchema } from './records';
 import { recordRichTextSchema } from './rich-text';
@@ -59,6 +60,13 @@ export type ProposalReviewState = z.infer<typeof proposalReviewStateSchema>;
 /** The one text model for now, pinned (D-10). Every import records the model that answered. */
 export const AI_IMPORT_MODEL = 'claude-sonnet-5-5';
 
+/**
+ * How hard the model thinks about an import (`output_config.effort`). Set explicitly, since
+ * the model's own default is higher and costs more; the eval suite (F1.9b) decides whether
+ * `high` earns its price.
+ */
+export const AI_IMPORT_EFFORT = 'medium';
+
 /** USD per million tokens. Check against Anthropic's pricing page before relying on them. */
 export interface ModelPrice {
   input: number;
@@ -73,8 +81,6 @@ export interface ModelPrice {
  */
 export const AI_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-  // What Anthropic's refusal fallback may answer with instead.
-  'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 };
 
 /** Guardrails for one import (§10, §14). Sizes are characters unless they say tokens. */
@@ -93,6 +99,8 @@ export const AI_IMPORT_LIMITS = {
   questionsMax: 20,
   /** Longest question kept. */
   questionMaxChars: 500,
+  /** How many past imports the campaign's list and the usage page show. */
+  listMax: 100,
 } as const;
 
 /** Token counts of one model call, as Anthropic reports them. */
@@ -390,3 +398,264 @@ export const startImportRequestSchema = z
     }
   });
 export type StartImportRequest = z.infer<typeof startImportRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// The API: an import and its proposals, as the review screen reads them.
+// ---------------------------------------------------------------------------
+
+/**
+ * Why an import produced nothing to review.
+ * - `invalid_output`: the model's answer broke the rules twice; `details` lists how.
+ * - `refused`: the model declined to answer.
+ * - `truncated`: the answer hit the output ceiling before it was complete.
+ * - `key_rejected` / `key_forbidden`: Anthropic no longer accepts the stored key.
+ * - `rate_limited` / `unreachable`: Anthropic couldn't be used right now.
+ * - `bad_request`: Anthropic refused the request itself; `details` holds its message.
+ * - `interrupted`: the server stopped while the import was running.
+ * - `internal`: a fault of ours.
+ */
+export const IMPORT_ERROR_CODES = [
+  'invalid_output',
+  'refused',
+  'truncated',
+  'key_rejected',
+  'key_forbidden',
+  'rate_limited',
+  'unreachable',
+  'bad_request',
+  'interrupted',
+  'internal',
+] as const;
+export const importErrorCodeSchema = z.enum(IMPORT_ERROR_CODES);
+export type ImportErrorCode = z.infer<typeof importErrorCodeSchema>;
+
+/** What the GM is told for each failure. Nothing was saved in any of these cases. */
+export const IMPORT_ERROR_MESSAGES: Record<ImportErrorCode, string> = {
+  invalid_output:
+    "Claude's answer didn't fit the record shapes, even after one correction. Try again, or split the notes into smaller imports.",
+  refused: 'Claude declined to work on these notes. Try rewording them, or import them in parts.',
+  truncated:
+    'The answer was cut off before it was complete: these notes describe more than one import can hold. Split them into smaller imports.',
+  key_rejected:
+    "Anthropic didn't accept your API key. Check it in Settings: it may have been deleted or replaced.",
+  key_forbidden:
+    "Anthropic accepted your API key but won't let it use the API. Check the key's workspace and permissions in the Anthropic Console.",
+  rate_limited: 'Anthropic is rate limiting your key right now. Try again in a minute.',
+  unreachable: "Couldn't reach Anthropic, or it answered with an error. Try again in a moment.",
+  bad_request:
+    'Anthropic refused the request. If your Anthropic account is out of credit, add some in the Anthropic Console and try again.',
+  interrupted: 'The server restarted while this import was running. Try again.',
+  internal: 'Something went wrong on our side. Try again.',
+};
+
+export const importErrorSchema = z.object({
+  code: importErrorCodeSchema,
+  message: z.string(),
+  /** Validation problems or Anthropic's own message: the raw error §10 promises the GM. */
+  details: z.array(z.string()),
+});
+export type ImportError = z.infer<typeof importErrorSchema>;
+
+const timestamp = z.iso.datetime({ offset: true });
+
+/** One import without its proposals: a row of the campaign's import list. */
+export const importSummarySchema = z.object({
+  id: z.uuid(),
+  campaignId: z.uuid(),
+  mode: importModeSchema,
+  status: importStatusSchema,
+  /** The type filter the GM set, if any. */
+  targetTypes: z.array(recordTypeSchema).nullable(),
+  /** `fill` mode: the record being completed. */
+  recordId: z.uuid().nullable(),
+  promptVersion: z.int(),
+  /** The model that answered (the pinned one until it has). */
+  model: z.string(),
+  /** Model calls made: 1, or 2 when the first answer was sent back with its problems. */
+  attempts: z.int(),
+  usage: tokenUsageSchema,
+  /** Null when the model has no listed price. */
+  estimatedCostUsd: z.number().nullable(),
+  error: importErrorSchema.nullable(),
+  /** The start of the GM's notes, to recognise the import by. */
+  textPreview: z.string(),
+  proposalCounts: z.object({ create: z.int(), update: z.int(), link: z.int() }),
+  createdAt: timestamp,
+  /** When the model call ended, either way. */
+  finishedAt: timestamp.nullable(),
+  committedAt: timestamp.nullable(),
+});
+export type ImportSummary = z.infer<typeof importSummarySchema>;
+
+/** `GET /api/campaigns/:campaignId/imports`. GM only. Newest first. */
+export const importListResponseSchema = z.object({ imports: z.array(importSummarySchema) });
+export type ImportListResponse = z.infer<typeof importListResponseSchema>;
+
+/** A record a proposal points at: one the campaign has, or one this import proposes. */
+export const proposalRefSchema = recordRefSchema.extend({ proposed: z.boolean() });
+export type ProposalRef = z.infer<typeof proposalRefSchema>;
+
+/** What an update's record holds now, read when the review loads so the diff is current. */
+export const updateBeforeSchema = z.object({
+  name: z.string(),
+  tags: z.array(z.string()),
+  /** Set when players can already see the record: its public changes show at once. */
+  revealedAt: timestamp.nullable(),
+  publicDescription: recordRichTextSchema,
+  gmNotes: recordRichTextSchema,
+  /** The record's stored fields. */
+  fields: z.record(z.string(), z.unknown()),
+});
+export type UpdateBefore = z.infer<typeof updateBeforeSchema>;
+
+const proposalBase = {
+  id: z.uuid(),
+  position: z.int(),
+  reviewState: proposalReviewStateSchema,
+};
+
+/**
+ * One proposal on the review screen. `original` is what the model proposed, present only
+ * once the GM has edited the payload.
+ */
+export const importProposalSchema = z.discriminatedUnion('action', [
+  z.object({
+    ...proposalBase,
+    action: z.literal('create'),
+    payload: createProposalPayloadSchema,
+    original: createProposalPayloadSchema.nullable(),
+    /** Existing records with a similar name (§10 step 5). */
+    possibleDuplicates: z.array(recordRefSchema),
+  }),
+  z.object({
+    ...proposalBase,
+    action: z.literal('update'),
+    payload: updateProposalPayloadSchema,
+    original: updateProposalPayloadSchema.nullable(),
+    /** Null when the record has been deleted since; the update is then skipped. */
+    before: updateBeforeSchema.nullable(),
+  }),
+  z.object({
+    ...proposalBase,
+    action: z.literal('link'),
+    payload: linkProposalPayloadSchema,
+    original: linkProposalPayloadSchema.nullable(),
+    /** For a field that holds one record: the record this link would replace. */
+    replaces: recordRefSchema.nullable(),
+  }),
+]);
+export type ImportProposal = z.infer<typeof importProposalSchema>;
+
+/** Every record the proposals point at, by id. An id that is missing was deleted. */
+export const proposalRefsSchema = z.record(z.string(), proposalRefSchema);
+export type ProposalRefs = z.infer<typeof proposalRefsSchema>;
+
+/** `GET /api/campaigns/:campaignId/imports/:importId`. GM only. */
+export const importDetailSchema = importSummarySchema.extend({
+  /** The GM's notes, so a failed import can be tried again. */
+  text: z.string(),
+  questions: z.array(z.string()),
+  proposals: z.array(importProposalSchema),
+  refs: proposalRefsSchema,
+});
+export type ImportDetail = z.infer<typeof importDetailSchema>;
+
+/**
+ * `POST /api/campaigns/:campaignId/imports/estimate`: what sending this request would cost,
+ * before sending it. `likely` assumes an answer about twice as long as the notes; `max` is
+ * the ceiling: two attempts, each running to the output limit.
+ */
+export const importEstimateResponseSchema = z.object({
+  model: z.string(),
+  inputTokens: z.int(),
+  /** How many existing records go along, at each level of detail. */
+  context: z.object({ index: z.int(), summary: z.int(), full: z.int() }),
+  estimatedCostUsd: z.object({ likely: z.number(), max: z.number() }).nullable(),
+});
+export type ImportEstimateResponse = z.infer<typeof importEstimateResponseSchema>;
+
+/** Roughly how many characters of English one token covers. Only used for cost guesses. */
+const CHARS_PER_TOKEN = 3.5;
+
+/** The `estimatedCostUsd` of an estimate. Null when the model has no listed price. */
+export function estimateImportCostUsd(
+  model: string,
+  inputTokens: number,
+  notesChars: number,
+): { likely: number; max: number } | null {
+  const likelyOutput = Math.min(
+    AI_IMPORT_LIMITS.maxOutputTokens,
+    Math.round((notesChars / CHARS_PER_TOKEN) * 2) + 1500,
+  );
+  const call = (outputTokens: number) =>
+    estimateCostUsd(model, { ...emptyTokenUsage(), inputTokens, outputTokens });
+  const likely = call(likelyOutput);
+  const worst = call(AI_IMPORT_LIMITS.maxOutputTokens);
+  return likely === null || worst === null ? null : { likely, max: worst * 2 };
+}
+
+/**
+ * `PATCH /api/campaigns/:campaignId/imports/:importId/proposals/:proposalId`. GM only, while
+ * the import is `ready`.
+ * - `reviewState`: accept, reject, or put back to pending. An accepted proposal whose payload
+ *   differs from the model's is stored as `edited`.
+ * - `payload`: the proposal's whole payload after the GM's edits, checked like the model's.
+ *   What a proposal is about can't change (its record, type and link ends), links can be
+ *   removed but not added, and an update can drop changes but not gain new ones.
+ */
+export const patchProposalRequestSchema = z
+  .strictObject({
+    reviewState: z.enum(['pending', 'accepted', 'rejected']).optional(),
+    payload: z.unknown().optional(),
+  })
+  .refine(
+    (patch) => patch.reviewState !== undefined || patch.payload !== undefined,
+    'Nothing to update',
+  );
+export type PatchProposalRequest = z.infer<typeof patchProposalRequestSchema>;
+
+export const patchProposalResponseSchema = z.object({
+  proposal: importProposalSchema,
+  refs: proposalRefsSchema,
+});
+export type PatchProposalResponse = z.infer<typeof patchProposalResponseSchema>;
+
+/**
+ * `POST /api/campaigns/:campaignId/imports/:importId/commit`: saves every accepted proposal
+ * in one transaction. Proposals still pending are left out, like rejected ones. `skipped`
+ * names accepted proposals that could not apply because a record they need is gone.
+ */
+export const commitImportResponseSchema = z.object({
+  import: importSummarySchema,
+  created: z.array(recordRefSchema),
+  updated: z.array(recordRefSchema),
+  linksAdded: z.int(),
+  skipped: z.array(z.object({ proposalId: z.uuid(), reason: z.string() })),
+});
+export type CommitImportResponse = z.infer<typeof commitImportResponseSchema>;
+
+/** `GET /api/me/usage`: the signed-in GM's imports across their campaigns (§10 guardrails). */
+export const usageResponseSchema = z.object({
+  /** Newest first, at most `AI_IMPORT_LIMITS.listMax`. */
+  imports: z.array(
+    z.object({
+      id: z.uuid(),
+      campaignId: z.uuid(),
+      campaignName: z.string(),
+      mode: importModeSchema,
+      status: importStatusSchema,
+      model: z.string(),
+      usage: tokenUsageSchema,
+      estimatedCostUsd: z.number().nullable(),
+      createdAt: timestamp,
+    }),
+  ),
+  /** Over every import, not only the ones listed. */
+  totals: z.object({
+    imports: z.int(),
+    usage: tokenUsageSchema,
+    /** Imports whose model has no listed price add nothing. */
+    estimatedCostUsd: z.number(),
+  }),
+});
+export type UsageResponse = z.infer<typeof usageResponseSchema>;

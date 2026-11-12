@@ -25,6 +25,7 @@ import {
   type RecordListItem,
   type RecordListQuery,
   type RecordMatch,
+  type RecordSource,
   type RecordType,
   type RichText,
   type UpdateRecordRequest,
@@ -47,7 +48,18 @@ import {
 import type { CampaignScope } from './scope';
 import { requireStatBlock } from './stat-blocks';
 
-type RecordRow = typeof records.$inferSelect;
+export type RecordRow = typeof records.$inferSelect;
+
+/**
+ * Where a new record comes from, when it isn't typed in by the GM: an accepted AI import
+ * proposal carries the id it was promised, so the import's other proposals can already point
+ * at it (F1.8, §10 step 6).
+ */
+export interface RecordOrigin {
+  id: string;
+  source: RecordSource;
+  aiImportId: string;
+}
 
 /** The API shape of a row, with its outgoing links read alongside. */
 async function toRecord(db: DbOrTx, scope: CampaignScope, row: RecordRow): Promise<CampaignRecord> {
@@ -247,29 +259,56 @@ export async function createRecord(
   input: CreateRecordRequest,
 ): Promise<CampaignRecord> {
   return db.transaction(async (tx) => {
-    const parentId = input.type === 'spot' ? input.parentId : null;
-    if (parentId !== null) await requireArea(tx, scope, parentId);
-
-    const [row] = await tx
-      .insert(records)
-      .values({
-        campaignId: scope.campaignId,
-        type: input.type,
-        name: input.name,
-        publicDescription: input.publicDescription ?? emptyRichText(),
-        gmNotes: input.gmNotes ?? emptyRichText(),
-        fields: input.fields ?? {},
-        tags: input.tags ?? [],
-        parentId,
-      })
-      .returning();
-    if (row === undefined) throw new Error('record insert returned no row');
-
-    if (input.links !== undefined) await setFieldLinks(tx, scope, row, input.links);
-    if (input.otherLinks !== undefined) await setOtherLinks(tx, scope, row.id, input.otherLinks);
-    await syncMentionsOf(tx, scope, row);
+    const row = await insertRecordRow(tx, scope, input);
+    await linkNewRecord(tx, scope, row, input);
     return toRecord(tx, scope, row);
   });
+}
+
+/**
+ * The first half of creating a record: the row itself; `links` and `otherLinks` are left for
+ * `linkNewRecord`, so an AI import can insert every record it creates before linking any of
+ * them to each other. Runs in the caller's transaction.
+ */
+export async function insertRecordRow(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  input: CreateRecordRequest,
+  origin?: RecordOrigin,
+): Promise<RecordRow> {
+  const parentId = input.type === 'spot' ? input.parentId : null;
+  if (parentId !== null) await requireArea(tx, scope, parentId);
+
+  const [row] = await tx
+    .insert(records)
+    .values({
+      ...(origin === undefined
+        ? {}
+        : { id: origin.id, source: origin.source, aiImportId: origin.aiImportId }),
+      campaignId: scope.campaignId,
+      type: input.type,
+      name: input.name,
+      publicDescription: input.publicDescription ?? emptyRichText(),
+      gmNotes: input.gmNotes ?? emptyRichText(),
+      fields: input.fields ?? {},
+      tags: input.tags ?? [],
+      parentId,
+    })
+    .returning();
+  if (row === undefined) throw new Error('record insert returned no row');
+  return row;
+}
+
+/** The second half: the new record's link fields, other links and mention links. */
+export async function linkNewRecord(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  row: RecordRow,
+  input: Pick<CreateRecordRequest, 'links' | 'otherLinks'>,
+): Promise<void> {
+  if (input.links !== undefined) await setFieldLinks(tx, scope, row, input.links);
+  if (input.otherLinks !== undefined) await setOtherLinks(tx, scope, row.id, input.otherLinks);
+  await syncMentionsOf(tx, scope, row);
 }
 
 /**
@@ -291,6 +330,19 @@ export async function updateRecord(
   patch: UpdateRecordRequest,
 ): Promise<CampaignRecord> {
   return db.transaction(async (tx) => {
+    const row = await updateRecordRow(tx, scope, recordId, patch);
+    return toRecord(tx, scope, row);
+  });
+}
+
+/** `updateRecord` inside the caller's transaction, returning the stored row. */
+export async function updateRecordRow(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  recordId: string,
+  patch: UpdateRecordRequest,
+): Promise<RecordRow> {
+  {
     const [current] = await tx
       .select()
       .from(records)
@@ -325,7 +377,7 @@ export async function updateRecord(
     }
     const linksChanged = patch.links !== undefined || patch.otherLinks !== undefined;
     if (Object.keys(values).length === 0) {
-      if (!linksChanged) return toRecord(tx, scope, current);
+      if (!linksChanged) return current;
       // A change to links alone still counts as an edit of the record.
       values.updatedAt = new Date();
     }
@@ -340,8 +392,8 @@ export async function updateRecord(
       patch.gmNotes !== undefined ||
       patch.fields !== undefined;
     if (textChanged) await syncMentionsOf(tx, scope, row);
-    return toRecord(tx, scope, row);
-  });
+    return row;
+  }
 }
 
 /**

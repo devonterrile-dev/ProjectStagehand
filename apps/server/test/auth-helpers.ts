@@ -6,6 +6,7 @@
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { expect, inject, vi } from 'vitest';
 
+import { loadImportSystemPrompt } from '../src/ai-import/prompt';
 import { buildApp, type BuildAppOptions } from '../src/app';
 import { createAuth } from '../src/auth/auth';
 import { createDb, type DbHandle } from '../src/db/client';
@@ -32,7 +33,7 @@ export interface FakeDiscordUser {
  * pool, so `app.close()` ends it.
  */
 export async function buildTestApp(
-  options: Pick<BuildAppOptions, 'logger'> & { anthropic?: AnthropicProvider } = {},
+  options: Pick<BuildAppOptions, 'logger'> & { anthropic?: Partial<AnthropicProvider> } = {},
 ): Promise<{ app: FastifyInstance; handle: DbHandle }> {
   const handle = createDb(inject('databaseUrl'), { max: 2 });
   const auth = createAuth({
@@ -48,8 +49,16 @@ export async function buildTestApp(
     logger: options.logger,
     credentials: {
       key: TEST_CREDENTIALS_KEY,
-      anthropic: options.anthropic ?? { checkKey: () => Promise.resolve('ok') },
+      // No test may reach Anthropic: every call is a fake, and the ones a test didn't
+      // provide answer as if Anthropic were down.
+      anthropic: {
+        checkKey: () => Promise.resolve('ok'),
+        generateImport: () => Promise.resolve({ status: 'unreachable' }),
+        countImportTokens: () => Promise.resolve({ status: 'unreachable' }),
+        ...options.anthropic,
+      },
     },
+    importPrompt: loadImportSystemPrompt(),
   });
   await app.ready();
   return { app, handle };

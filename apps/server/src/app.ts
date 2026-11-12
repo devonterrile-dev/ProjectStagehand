@@ -4,11 +4,14 @@ import fastifyStatic from '@fastify/static';
 import { healthResponseSchema, type HealthResponse } from '@stagehand/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { createImportRunner } from './ai-import/runner';
 import { AUTH_BASE_PATH, type Auth } from './auth/auth';
 import { registerAuthRoutes } from './auth/routes';
 import type { Database, DbHandle } from './db/client';
 import { registerCsrfProtection } from './http/csrf';
+import { registerErrorHandler } from './http/errors';
 import { serializeRequest } from './http/log';
+import { registerImportRoutes } from './routes/ai-imports';
 import { registerSecurityHeaders } from './http/security-headers';
 import { registerCampaignRoutes } from './routes/campaigns';
 import { registerCharacterRoutes } from './routes/characters';
@@ -36,10 +39,15 @@ export interface BuildAppOptions {
   webDistDir?: string | undefined;
   /** Database handle. The app takes ownership and ends the pool when it closes. */
   db?: DbHandle | undefined;
-  /** Sign-in, sessions and the user API. Requires `db`, `publicUrl` and `credentials`. */
+  /**
+   * Sign-in, sessions and the user API. Requires `db`, `publicUrl`, `credentials` and
+   * `importPrompt`.
+   */
   auth?: Auth | undefined;
   /** Master key and provider clients for GMs' stored API keys (F1.7). */
   credentials?: CredentialDeps | undefined;
+  /** The filled AI import prompt (`loadImportSystemPrompt`), read once at startup (F1.8). */
+  importPrompt?: string | undefined;
   /** The app's own origin (PUBLIC_URL), used for CSRF checks and HSTS. */
   publicUrl?: string | undefined;
   /**
@@ -71,13 +79,26 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     trustProxy: options.trustProxy === true ? TRUSTED_PROXIES : false,
   });
 
+  // Errors are answered and logged without their own text unless we wrote it (§14).
+  registerErrorHandler(app);
   registerSecurityHeaders(app, { publicUrl: options.publicUrl });
+
+  // AI imports run in the background of this process (D-27). Only the kind of error is
+  // logged: an error's message could quote a GM's notes.
+  const importRunner = createImportRunner((error) => {
+    app.log.error(
+      { errorName: error instanceof Error ? error.name : 'unknown' },
+      'ai import job failed',
+    );
+  });
 
   const handle = options.db;
   if (handle !== undefined) {
     app.decorate('db', handle.db);
-    // Runs on app.close(), which graceful shutdown already calls.
+    // Runs on app.close(), which graceful shutdown already calls. Imports in flight are
+    // cancelled first, while they can still record that they were.
     app.addHook('onClose', async () => {
+      await importRunner.stop();
       await handle.pool.end();
     });
   }
@@ -91,9 +112,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (
       handle === undefined ||
       options.publicUrl === undefined ||
-      options.credentials === undefined
+      options.credentials === undefined ||
+      options.importPrompt === undefined
     ) {
-      throw new Error('buildApp: `auth` requires `db`, `publicUrl` and `credentials`');
+      throw new Error(
+        'buildApp: `auth` requires `db`, `publicUrl`, `credentials` and `importPrompt`',
+      );
     }
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
     registerCsrfProtection(app, { publicUrl: options.publicUrl, exempt: [`${AUTH_BASE_PATH}/`] });
@@ -111,6 +135,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerCharacterRoutes(app, { auth: options.auth, db: handle.db });
     registerRecordRoutes(app, { auth: options.auth, db: handle.db });
     registerStatBlockRoutes(app, { auth: options.auth, db: handle.db });
+    registerImportRoutes(app, {
+      auth: options.auth,
+      db: handle.db,
+      credentials: options.credentials,
+      imports: { systemPrompt: options.importPrompt, runner: importRunner },
+    });
   }
 
   if (options.webDistDir !== undefined) {
@@ -137,6 +167,15 @@ export const LOG_REDACT_PATHS = [
   '*.apiKey',
   'encryptedKey',
   '*.encryptedKey',
+  // A GM's notes and the proposals made from them (F1.8): private campaign text.
+  'req.body.text',
+  'body.text',
+  'req.body.payload',
+  'body.payload',
+  'inputText',
+  '*.inputText',
+  'originalPayload',
+  '*.originalPayload',
 ];
 
 /**

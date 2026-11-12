@@ -160,6 +160,20 @@ function recordBlock(record: ContextRecord, detail: 'full' | 'summary', body: st
   return body === '' ? `${open}\n</record>` : `${open}\n${body}\n</record>`;
 }
 
+/**
+ * A record as the campaign block shows it after the index: its summary or its full content.
+ * Empty for a record that is in the index only. `context-pack.ts` sizes records with it.
+ */
+export function recordDetailBlock(record: ContextRecord, refOf: MentionRef): string {
+  if (record.full !== null) return fullRecordBlock(record, refOf);
+  return record.summary === null ? '' : recordBlock(record, 'summary', guard(record.summary));
+}
+
+/** One line of the index: ref, type, name, and a Spot's Area. */
+export function recordIndexLine(record: ContextRecord, refOf: MentionRef): string {
+  return indexLine(record, refOf);
+}
+
 /** The `<campaign>` part: the index of every record, then the summaries and full records. */
 export function buildCampaignBlock(pack: ContextPack): string {
   if (pack.records.length === 0) {
@@ -174,11 +188,11 @@ export function buildCampaignBlock(pack: ContextPack): string {
   // Full records last, so the ones the notes are about sit closest to the notes.
   for (const record of pack.records) {
     if (record.full === null && record.summary !== null) {
-      parts.push(recordBlock(record, 'summary', guard(record.summary)));
+      parts.push(recordDetailBlock(record, refOf));
     }
   }
   for (const record of pack.records) {
-    if (record.full !== null) parts.push(fullRecordBlock(record, refOf));
+    if (record.full !== null) parts.push(recordDetailBlock(record, refOf));
   }
   return `<campaign>\n${parts.join('\n')}\n</campaign>`;
 }
