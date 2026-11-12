@@ -1,3 +1,4 @@
+import { AiUsageCard } from '@/components/settings/AiUsageCard';
 import { AnthropicKeyCard } from '@/components/settings/AnthropicKeyCard';
 import { useProviderCredentials } from '@/lib/queries';
 
@@ -21,6 +22,7 @@ export function SettingsPage() {
           />
         )}
       </section>
+      <AiUsageCard />
     </div>
   );
 }

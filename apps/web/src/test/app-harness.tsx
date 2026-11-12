@@ -46,6 +46,8 @@ import { vi } from 'vitest';
 
 import { App } from '@/App';
 
+import { importsWorld, type ImportsWorldOptions } from './imports-world';
+
 export const MIRA: MeResponse = {
   id: '0b7e2f1c-3c1d-4b8a-9a50-6f2a0e1d9c11',
   displayName: 'Mira',
@@ -225,7 +227,7 @@ type CampaignSeed = Partial<Omit<CampaignData, 'characters'>> & {
   characters?: Partial<CharacterSheet>[];
 };
 
-export interface FakeWorld {
+export interface FakeWorld extends ImportsWorldOptions {
   /** Extra members, PCs, invites, records and stat blocks per campaign id. Each campaign also has `me` as a member. */
   campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
@@ -306,6 +308,14 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       },
       { status: 400 },
     );
+
+  const imports = importsWorld(world, {
+    hasKey: () => credentials.some((c) => c.provider === 'anthropic'),
+    newRecord: (overrides) => record(overrides),
+    refused,
+    notFound,
+  });
+  for (const c of store.values()) imports.setCampaignName(c);
 
   /** The records API, GM only, mirroring the server's rules and messages. */
   const respondRecords = (
@@ -683,6 +693,11 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       });
     }
 
+    if (url === '/api/me/usage' && method === 'GET') {
+      if (me === null) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      return Response.json(imports.usage());
+    }
+
     if (url.startsWith('/api/me/credentials')) {
       if (me === null) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       if (url === '/api/me/credentials' && method === 'GET') {
@@ -806,6 +821,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       if (sheet !== null) return sheet;
       const blocks = respondStatBlocks(found, d, rest, method, rawBody);
       if (blocks !== null) return blocks;
+      const imported = imports.respond(found, d.records, rest, method, rawBody);
+      if (imported !== null) return imported;
     }
 
     return new Response('not mocked', { status: 500 });

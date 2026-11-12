@@ -5,7 +5,7 @@ import {
   type RecordSummary,
   type RecordType,
 } from '@stagehand/shared';
-import { PlusIcon, SearchIcon } from 'lucide-react';
+import { PlusIcon, SearchIcon, SparklesIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
@@ -18,6 +18,7 @@ import { TagFilter } from '@/components/records/TagFilter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { importPath } from '@/lib/ai-import';
 import { useCampaign, useRecordSearch, useRecords } from '@/lib/queries';
 import {
   filtersToParams,
@@ -119,15 +120,23 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
             <h1 className="text-2xl">Records</h1>
           </CardTitle>
           {isGm && !isArchived && (
-            <Button
-              size="sm"
-              onClick={() => {
-                setCreating(true);
-              }}
-            >
-              <PlusIcon aria-hidden />
-              New record
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to={importPath(campaign.id)}>
+                  <SparklesIcon aria-hidden />
+                  AI import
+                </Link>
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setCreating(true);
+                }}
+              >
+                <PlusIcon aria-hidden />
+                New record
+              </Button>
+            </div>
           )}
         </CardHeader>
         <CardContent className="space-y-4">

@@ -4,6 +4,10 @@ import type {
   CreateCharacterRequest,
   CreateRecordRequest,
   CreateStatBlockRequest,
+  ImportDetail,
+  ImportSummary,
+  PatchProposalRequest,
+  StartImportRequest,
   InviteExpiry,
   MeResponse,
   ProviderCredential,
@@ -15,8 +19,10 @@ import type {
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  acceptAllProposals,
   acceptInvite,
   assignCharacter,
+  commitImport,
   createCampaign,
   createCharacter,
   createInvite,
@@ -26,11 +32,15 @@ import {
   deleteCharacter,
   deleteRecord,
   deleteStatBlock,
+  discardImport,
+  estimateImport,
   fetchBacklinks,
   fetchCampaign,
   fetchCampaigns,
   fetchCharacters,
   fetchCharacterSheet,
+  fetchImport,
+  fetchImports,
   fetchInvitePreview,
   fetchInvites,
   fetchMe,
@@ -41,7 +51,9 @@ import {
   fetchRecords,
   fetchStatBlock,
   fetchStatBlocks,
+  fetchUsage,
   patchCharacterSheet,
+  patchProposal,
   patchRecord,
   patchStatBlock,
   removeMember,
@@ -49,6 +61,7 @@ import {
   revokeInvite,
   saveAnthropicKey,
   setCampaignArchived,
+  startImport,
   updateMe,
   type RecordListFilter,
 } from './api';
@@ -153,7 +166,7 @@ export function useSetCampaignArchived() {
   });
 }
 
-type CampaignPart = 'members' | 'characters' | 'invites' | 'records' | 'stat-blocks';
+type CampaignPart = 'members' | 'characters' | 'invites' | 'records' | 'stat-blocks' | 'imports';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
 
@@ -512,4 +525,129 @@ export function useDeleteRecord(campaignId: string) {
       refetchLists();
     },
   });
+}
+
+const USAGE_KEY = ['usage'] as const;
+
+/** How often a running import is polled. Tests shorten it. */
+export const importPolling = { intervalMs: 2000 };
+
+/** Like `recordKey`: singular, so refetching the import list never refetches the open import. */
+const importKey = (campaignId: string, importId: string) =>
+  [...CAMPAIGNS_KEY, campaignId, 'import', importId] as const;
+
+/** The campaign's imports, newest first. GM only: pass `enabled: false` for players. */
+export function useImports(campaignId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'imports'),
+    queryFn: () => fetchImports(campaignId),
+    enabled,
+  });
+}
+
+/**
+ * One import with its proposals (`null` when not found). Polled while the model is still
+ * working, so the review screen fills in by itself, also after a reload. GM only.
+ */
+export function useImport(campaignId: string, importId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: importKey(campaignId, importId),
+    queryFn: () => fetchImport(campaignId, importId),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'running' ? importPolling.intervalMs : false,
+  });
+}
+
+/** The free cost estimate of an import that hasn't been sent. */
+export function useEstimateImport(campaignId: string) {
+  return useMutation({
+    mutationFn: (input: StartImportRequest) => estimateImport(campaignId, input),
+  });
+}
+
+/** Sends the notes to the model; resolves to the `running` import. */
+export function useStartImport(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchList = useRefetch(campaignId, 'imports');
+  return useMutation({
+    mutationFn: (input: StartImportRequest) => startImport(campaignId, input),
+    onSuccess: () => {
+      refetchList();
+      void queryClient.invalidateQueries({ queryKey: USAGE_KEY });
+    },
+  });
+}
+
+/** Writes a fresher summary of an import into its cached detail. */
+function useImportSummarySaved(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchList = useRefetch(campaignId, 'imports');
+  return (summary: ImportSummary) => {
+    queryClient.setQueryData<ImportDetail | null>(importKey(campaignId, summary.id), (current) =>
+      current == null ? current : { ...current, ...summary },
+    );
+    refetchList();
+  };
+}
+
+/** Accepts, rejects or edits one proposal; the answer replaces it in the cached import. */
+export function usePatchProposal(campaignId: string, importId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ proposalId, patch }: { proposalId: string; patch: PatchProposalRequest }) =>
+      patchProposal(campaignId, importId, proposalId, patch),
+    onSuccess: ({ proposal, refs }) => {
+      queryClient.setQueryData<ImportDetail | null>(importKey(campaignId, importId), (current) =>
+        current == null
+          ? current
+          : {
+              ...current,
+              proposals: current.proposals.map((p) => (p.id === proposal.id ? proposal : p)),
+              refs: { ...current.refs, ...refs },
+            },
+      );
+    },
+  });
+}
+
+export function useAcceptAllProposals(campaignId: string, importId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => acceptAllProposals(campaignId, importId),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(importKey(campaignId, importId), detail);
+    },
+  });
+}
+
+/**
+ * Saves the accepted proposals. New and changed records, their links and backlinks all
+ * change, so every cached record, list and backlinks list is refetched, as is usage.
+ */
+export function useCommitImport(campaignId: string, importId: string) {
+  const queryClient = useQueryClient();
+  const summarySaved = useImportSummarySaved(campaignId);
+  return useMutation({
+    mutationFn: () => commitImport(campaignId, importId),
+    onSuccess: (result) => {
+      summarySaved(result.import);
+      for (const part of ['records', 'record', 'backlinks', 'import'] as const) {
+        void queryClient.invalidateQueries({ queryKey: [...CAMPAIGNS_KEY, campaignId, part] });
+      }
+      void queryClient.invalidateQueries({ queryKey: USAGE_KEY });
+    },
+  });
+}
+
+export function useDiscardImport(campaignId: string, importId: string) {
+  return useMutation({
+    mutationFn: () => discardImport(campaignId, importId),
+    onSuccess: useImportSummarySaved(campaignId),
+  });
+}
+
+/** The signed-in GM's imports and token usage, for Settings. */
+export function useUsage() {
+  return useQuery({ queryKey: USAGE_KEY, queryFn: fetchUsage });
 }

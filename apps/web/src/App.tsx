@@ -5,6 +5,8 @@ import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
 import { HomePage } from '@/pages/HomePage';
+import { ImportPage } from '@/pages/ImportPage';
+import { ImportReviewPage } from '@/pages/ImportReviewPage';
 import { JoinPage } from '@/pages/JoinPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { RecordPage } from '@/pages/RecordPage';
@@ -79,6 +81,22 @@ export function App() {
           element={
             <RequireAuth>
               <StatBlockPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/import"
+          element={
+            <RequireAuth>
+              <ImportPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/imports/:importId"
+          element={
+            <RequireAuth>
+              <ImportReviewPage />
             </RequireAuth>
           }
         />

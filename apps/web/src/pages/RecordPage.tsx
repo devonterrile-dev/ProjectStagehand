@@ -1,4 +1,5 @@
 import { RECORD_TYPE_LABELS } from '@stagehand/shared';
+import { SparklesIcon } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { BacklinksPanel } from '@/components/records/BacklinksPanel';
@@ -6,7 +7,9 @@ import { PlayersNote } from '@/components/records/PlayersNote';
 import { RecordForm } from '@/components/records/RecordForm';
 import { RecordNavigationProvider } from '@/components/records/RecordNavigationProvider';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { importPath } from '@/lib/ai-import';
 import { useCampaign, useRecord, useRecords } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
 import { recordsPath } from '@/lib/records';
@@ -69,7 +72,17 @@ export function RecordPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         {backLink}
-        <Badge variant="secondary">{RECORD_TYPE_LABELS[record.type]}</Badge>
+        <div className="flex items-center gap-2">
+          {campaign.archivedAt === null && (
+            <Button asChild size="sm" variant="outline">
+              <Link to={importPath(campaign.id, { mode: 'fill', record: record.id })}>
+                <SparklesIcon aria-hidden />
+                Fill in with AI
+              </Link>
+            </Button>
+          )}
+          <Badge variant="secondary">{RECORD_TYPE_LABELS[record.type]}</Badge>
+        </div>
       </div>
 
       {campaign.archivedAt !== null && (

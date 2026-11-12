@@ -3,6 +3,13 @@ import {
   backlinksResponseSchema,
   campaignListResponseSchema,
   campaignSchema,
+  commitImportResponseSchema,
+  importDetailSchema,
+  importEstimateResponseSchema,
+  importListResponseSchema,
+  importSummarySchema,
+  patchProposalResponseSchema,
+  usageResponseSchema,
   characterListResponseSchema,
   characterSchema,
   characterSheetSchema,
@@ -22,6 +29,14 @@ import {
   type Campaign,
   type CampaignRecord,
   type Character,
+  type CommitImportResponse,
+  type ImportDetail,
+  type ImportEstimateResponse,
+  type ImportSummary,
+  type PatchProposalRequest,
+  type PatchProposalResponse,
+  type StartImportRequest,
+  type UsageResponse,
   type CharacterSheet,
   type CharacterSheetPatch,
   type CreateCharacterRequest,
@@ -420,4 +435,83 @@ export async function patchStatBlock(
 /** Deletes a stat block for good; NPCs that used it are unlinked. GM only. */
 export async function deleteStatBlock(campaignId: string, statBlockId: string): Promise<void> {
   await send(statBlocksPath(campaignId, statBlockId), 'DELETE');
+}
+
+const importsPath = (campaignId: string, rest = '') => campaignPath(campaignId, `/imports${rest}`);
+const importPath = (campaignId: string, importId: string, rest = '') =>
+  importsPath(campaignId, `/${encodeURIComponent(importId)}${rest}`);
+
+/** What sending this import would cost, from a free token count (D-27). GM only. */
+export async function estimateImport(
+  campaignId: string,
+  input: StartImportRequest,
+): Promise<ImportEstimateResponse> {
+  const response = await send(importsPath(campaignId, '/estimate'), 'POST', input);
+  return importEstimateResponseSchema.parse(await response.json());
+}
+
+/** Starts an import; it runs in the background and answers `running` at once. GM only. */
+export async function startImport(
+  campaignId: string,
+  input: StartImportRequest,
+): Promise<ImportSummary> {
+  const response = await send(importsPath(campaignId), 'POST', input);
+  return importSummarySchema.parse(await response.json());
+}
+
+/** The campaign's imports, newest first. GM only. */
+export async function fetchImports(campaignId: string): Promise<ImportSummary[]> {
+  return importListResponseSchema.parse(await getJson(importsPath(campaignId))).imports;
+}
+
+/** One import with its proposals, or null when it isn't in this campaign. GM only. */
+export async function fetchImport(
+  campaignId: string,
+  importId: string,
+): Promise<ImportDetail | null> {
+  return getOrNull(importPath(campaignId, importId), (body) => importDetailSchema.parse(body));
+}
+
+/** Accepts, rejects or edits one proposal (send the whole payload on an edit). */
+export async function patchProposal(
+  campaignId: string,
+  importId: string,
+  proposalId: string,
+  patch: PatchProposalRequest,
+): Promise<PatchProposalResponse> {
+  const response = await send(
+    importPath(campaignId, importId, `/proposals/${encodeURIComponent(proposalId)}`),
+    'PATCH',
+    patch,
+  );
+  return patchProposalResponseSchema.parse(await response.json());
+}
+
+/** Accepts every pending proposal; rejected ones stay rejected. */
+export async function acceptAllProposals(
+  campaignId: string,
+  importId: string,
+): Promise<ImportDetail> {
+  const response = await send(importPath(campaignId, importId, '/accept-all'), 'POST');
+  return importDetailSchema.parse(await response.json());
+}
+
+/** Saves every accepted proposal in one transaction; pending ones are left out. */
+export async function commitImport(
+  campaignId: string,
+  importId: string,
+): Promise<CommitImportResponse> {
+  const response = await send(importPath(campaignId, importId, '/commit'), 'POST');
+  return commitImportResponseSchema.parse(await response.json());
+}
+
+/** Drops a ready or failed import without saving anything. */
+export async function discardImport(campaignId: string, importId: string): Promise<ImportSummary> {
+  const response = await send(importPath(campaignId, importId, '/discard'), 'POST');
+  return importSummarySchema.parse(await response.json());
+}
+
+/** The signed-in GM's imports and token usage across their campaigns. */
+export async function fetchUsage(): Promise<UsageResponse> {
+  return usageResponseSchema.parse(await getJson('/api/me/usage'));
 }

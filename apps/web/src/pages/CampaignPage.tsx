@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useCampaign, useRenameCampaign, useSetCampaignArchived } from '@/lib/queries';
+import { importPath } from '@/lib/ai-import';
 import { recordsPath, statBlocksPath } from '@/lib/records';
 
 /** `/campaigns/:campaignId`. Rendered inside RequireAuth, so the user is signed in. */
@@ -139,6 +140,24 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
           </CardContent>
         )}
       </Card>
+
+      {isGm && !isArchived && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <CardTitle>
+                <h2 className="text-xl">AI import</h2>
+              </CardTitle>
+              <CardDescription>
+                Turn a brain-dump into records, changes and links, and review them before saving.
+              </CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link to={importPath(campaign.id)}>Open AI import</Link>
+            </Button>
+          </CardHeader>
+        </Card>
+      )}
 
       {isGm && (
         <Card>
