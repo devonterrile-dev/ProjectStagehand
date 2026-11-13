@@ -1,0 +1,22 @@
+{
+  "name": "@stagehand/style-bible",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "v*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@stagehand/prompts": "workspace:*",
+    "@stagehand/shared": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

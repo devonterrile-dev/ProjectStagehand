@@ -335,3 +335,17 @@ export {
   type RichTextMark,
   type RichTextMention,
 } from './rich-text';
+export {
+  ASSET_KINDS,
+  assetKindSchema,
+  CUTOUT_ASSET_KINDS,
+  IMAGE_ASPECT_RATIOS,
+  IMAGE_MODEL,
+  IMAGE_QUALITIES,
+  imageAspectRatioSchema,
+  imageQualitySchema,
+  isCutoutKind,
+  type AssetKind,
+  type ImageAspectRatio,
+  type ImageQuality,
+} from './visual-assets';

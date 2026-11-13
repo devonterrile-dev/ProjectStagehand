@@ -34,6 +34,14 @@ export function promptPath(task: PromptTask, version: number, dir = DEFAULT_PROM
 
 const LEADING_COMMENT = /^\s*<!--[\s\S]*?-->\s*/;
 
+/**
+ * A prompt file's text as sent: line endings normalised, the leading `<!-- … -->` note for
+ * people removed, trimmed. Also used by the image style bible (`@stagehand/style-bible`).
+ */
+export function stripLeadingNote(raw: string): string {
+  return raw.replace(/\r\n/g, '\n').replace(LEADING_COMMENT, '').trim();
+}
+
 /** The text of one prompt version, without its leading note. Throws PromptError if missing. */
 export function loadPrompt(task: PromptTask, version: number, dir = DEFAULT_PROMPTS_DIR): string {
   const path = promptPath(task, version, dir);
@@ -43,7 +51,7 @@ export function loadPrompt(task: PromptTask, version: number, dir = DEFAULT_PROM
   } catch {
     throw new PromptError(`Prompt file not found: ${path}`);
   }
-  const text = raw.replace(/\r\n/g, '\n').replace(LEADING_COMMENT, '').trim();
+  const text = stripLeadingNote(raw);
   if (text === '') throw new PromptError(`Prompt file is empty: ${path}`);
   return text;
 }

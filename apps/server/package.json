@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "eval": "tsx --env-file-if-exists=.env eval/import/cli.ts",
+    "style:sample": "tsx --env-file-if-exists=.env eval/images/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env src/migrate-cli.ts",
     "db:check": "drizzle-kit check",
@@ -35,6 +36,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@stagehand/style-bible": "workspace:*",
     "@types/pg": "^8.23.1",
     "auth": "^1.7.18",
     "drizzle-kit": "~0.31.11",

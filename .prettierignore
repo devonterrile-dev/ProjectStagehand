@@ -3,6 +3,7 @@ Project Stagehand — Technical Governance Document.md
 
 # Prompts are sent to the model exactly as written, and a released version is never edited.
 packages/prompts/*/v*.md
+packages/style-bible/v*/**/*.md
 
 pnpm-lock.yaml
 dist/

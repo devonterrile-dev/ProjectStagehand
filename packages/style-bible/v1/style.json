@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "keyColor": { "name": "magenta", "hex": "#FF00FF" },
+  "kinds": {
+    "character": { "aspectRatio": "2:3", "quality": "medium" },
+    "monster": { "aspectRatio": "2:3", "quality": "medium" },
+    "prop": { "aspectRatio": "1:1", "quality": "medium" },
+    "backdrop": { "aspectRatio": "16:9", "quality": "medium" }
+  },
+  "anchors": []
+}

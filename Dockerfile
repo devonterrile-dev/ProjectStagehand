@@ -20,6 +20,7 @@ COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/prompts/package.json packages/prompts/
 COPY packages/shared/package.json packages/shared/
+COPY packages/style-bible/package.json packages/style-bible/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir /pnpm/store
 

@@ -195,6 +195,7 @@ apps/
 packages/
   shared/     Zod schemas, types, shared logic     (@stagehand/shared)
   prompts/    Versioned AI prompts, read from disk (@stagehand/prompts)
+  style-bible/ Versioned image style: base, templates, palette, anchors (@stagehand/style-bible)
 infra/        Docker Compose (production + dev DB), env templates
   scripts/    Backup, shutdown and restore commands (@stagehand/infra)
 Dockerfile    App image (server + web client)
@@ -216,6 +217,8 @@ Run from the repo root:
 | `pnpm test`             | Vitest across all workspaces                            |
 | `pnpm test:watch`       | Vitest in watch mode                                    |
 | `pnpm test:integration` | Integration tests against Postgres (needs `pnpm db:up`) |
+| `pnpm eval`             | AI import eval, paid; start with `--dry-run` (F1.9b)    |
+| `pnpm style:sample`     | Image test set, paid; start with `--dry-run` (F2.1)     |
 
 | Script             | What it does                                        |
 | ------------------ | --------------------------------------------------- |
@@ -452,3 +455,15 @@ The AI import eval (governance §10, D-32). It checks the import pipeline agains
 - **First results** (prompt v3, 2026-11-12, $1.33 for 44 case runs): high effort passed 29 of 30 steps and medium 25 of 30. Both kept every secret, invented no mechanics or characters, and made no duplicates; medium filed the GM's trunk as only a point of interest, and both showed fill mode throwing away a description the notes asked for. So the import now runs at high effort, and fill mode may rewrite a field the notes ask about (D-34). A step costs about $0.03 at high effort and takes about 17 seconds.
 - **Prompt v4** (D-35): any record in the index can be renamed or tagged (other fields still need it in full); a later step counts the model's own questions with the GM's answers when choosing which records go in full; the questions round asks every filing choice and the records step decides instead of asking.
 - **Results** go to the git-ignored `apps/server/eval/results/<time>/`: `results.jsonl` (a row per step), `traces/` (every proposal) and `summary.md` (scores per effort and check, cost, failures and the questions asked).
+
+## Working assumptions (F2.1a)
+
+The image style bible and the tool that tries it out (governance §11, D-38). Nothing in the app reads it yet; F2.3's "Generate visual" will.
+
+- **The style bible** is `packages/style-bible/v<N>/`: `base.md` (the look, sent first in every request), `templates/<kind>.md` (character, monster, prop, backdrop), `style.json` (the key color, an aspect ratio and quality per kind, the anchor images) and `palette.json`. `loadStyleBible` checks all of it: every template has exactly its slots, the palette keeps its distance from the key color, and every anchor file exists. Like the AI prompts, a released version is never edited; v1 is released when F2.1b commits its anchors.
+- **No franchise names**: the prompts describe the look in plain words. The loader refuses a base or template that names one, because image models refuse or imitate them.
+- **No transparency**: gpt-image-2 through OpenRouter only returns opaque images, so puppets and props are drawn on flat magenta (`#FF00FF`). F2.4 will remove it by flood fill from the edges, so magenta inside a cutout survives. Backdrops are opaque by design.
+- **The OpenRouter call** (`apps/server/src/providers/openrouter.ts`) is plain `fetch` to `POST /api/v1/images`: one PNG, opaque, the kind's aspect ratio and quality, anchors as base64 data URLs (at most 16). It answers a status for every failure (rejected key, no credit, rate limited, refused with OpenRouter's reason, failed, unreachable) and never repeats the key.
+- **The test set** (`apps/server/eval/images/test-set.ts`) is 10 fixed, made-up subjects: 3 characters, 2 monsters, 3 props and 2 backdrops. The same set is drawn before any style bible or image model change and compared side by side.
+- **Running it**: `pnpm style:sample --dry-run` prints every prompt and a quote, free. `pnpm style:sample` draws the set once with the style bible's anchors. `--reps`, `--only <ids>`, `--anchors <folder>` (try candidate anchors), `--no-anchors`, `--model <slug>`, `--style-version` and `--concurrency` change that. It needs `OPENROUTER_API_KEY` in the git-ignored `apps/server/.env`; the key is never printed. The quote guesses $0.08 an image at medium until a run has measured real costs, then uses those.
+- **Results** go to the git-ignored `apps/server/eval/results/images/<time>/`: the images, `run.json` (prompt, status, cost and time per image) and `index.html`, a contact sheet to open in a browser, with a light and a dark table.

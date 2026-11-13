@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "eval": "pnpm --filter @stagehand/server eval",
+    "style:sample": "pnpm --filter @stagehand/server style:sample",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "prepare": "husky",
     "db:up": "docker compose -f infra/docker-compose.dev.yml up -d --wait",

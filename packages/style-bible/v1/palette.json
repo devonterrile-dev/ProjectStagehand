@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "status": "draft",
+  "colors": [
+    { "name": "Ink", "group": "outline", "hex": "#1E1A24" },
+    { "name": "Paper", "group": "neutral", "hex": "#FFF8EC" },
+    { "name": "Light grey", "group": "neutral", "hex": "#C9C5CE" },
+    { "name": "Mid grey", "group": "neutral", "hex": "#8A8494" },
+    { "name": "Charcoal", "group": "neutral", "hex": "#4A4452" },
+    { "name": "Pale skin", "group": "skin", "hex": "#FFD9B8" },
+    { "name": "Peach skin", "group": "skin", "hex": "#F2B48C" },
+    { "name": "Tan skin", "group": "skin", "hex": "#D08A5C" },
+    { "name": "Brown skin", "group": "skin", "hex": "#9C5A3A" },
+    { "name": "Deep skin", "group": "skin", "hex": "#5E3423" },
+    { "name": "Red", "group": "bright", "hex": "#E8343A" },
+    { "name": "Orange", "group": "bright", "hex": "#FF8A1F" },
+    { "name": "Yellow", "group": "bright", "hex": "#FFD23F" },
+    { "name": "Lime", "group": "bright", "hex": "#9BD13C" },
+    { "name": "Green", "group": "bright", "hex": "#3FA34D" },
+    { "name": "Teal", "group": "bright", "hex": "#1FB5A8" },
+    { "name": "Blue", "group": "bright", "hex": "#2B5FD9" },
+    { "name": "Purple", "group": "bright", "hex": "#7A4BC9" },
+    { "name": "Pink", "group": "bright", "hex": "#FF7EB6" },
+    { "name": "Pale sky", "group": "sky", "hex": "#BDE6FF" },
+    { "name": "Sky", "group": "sky", "hex": "#4FB3F2" },
+    { "name": "Night", "group": "sky", "hex": "#23305E" },
+    { "name": "Leaf", "group": "earth", "hex": "#2A6B3A" },
+    { "name": "Olive", "group": "earth", "hex": "#8C8C3A" },
+    { "name": "Wood", "group": "earth", "hex": "#8B5A2B" },
+    { "name": "Sand", "group": "earth", "hex": "#E8C987" }
+  ]
+}
