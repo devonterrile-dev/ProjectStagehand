@@ -66,6 +66,12 @@ export type Palette = z.infer<typeof paletteSchema>;
 
 const ANCHOR_FILE = /^[a-z0-9][a-z0-9-]*\.(png|webp|jpe?g)$/;
 
+/**
+ * Most anchors one kind may have. Each request carries only its own kind's anchors (D-39), and
+ * every anchor adds about a cent to every image it is sent with.
+ */
+export const ANCHORS_PER_KIND_MAX = 4;
+
 const kindSettingsSchema = z.strictObject({
   aspectRatio: imageAspectRatioSchema,
   quality: imageQualitySchema,
@@ -83,17 +89,45 @@ export const styleSchema = z.strictObject({
   } satisfies Record<AssetKind, typeof kindSettingsSchema>),
   anchors: z
     .array(
-      z.strictObject({
-        /** A file in the version's `anchors/` folder. */
-        file: z.string().regex(ANCHOR_FILE, 'An anchor is a lowercase .png, .webp or .jpg name'),
-        kind: assetKindSchema,
-        /** What it shows, for people. Not sent to the model. */
-        subject: z.string().trim().min(1),
-      }),
+      z
+        .strictObject({
+          /** A file in the version's `anchors/` folder, named `<kind>-<what>.<ext>`. */
+          file: z.string().regex(ANCHOR_FILE, 'An anchor is a lowercase .png, .webp or .jpg name'),
+          kind: assetKindSchema,
+          /** What it shows, for people. Not sent to the model. */
+          subject: z.string().trim().min(1),
+        })
+        .refine((anchor) => anchorKindOf(anchor.file) === anchor.kind, {
+          error: 'An anchor file name starts with its kind, e.g. prop-well.webp',
+          path: ['file'],
+        }),
     )
-    .max(16, 'The image model takes at most 16 reference images'),
+    .refine(
+      (anchors) =>
+        ASSET_KINDS.every(
+          (kind) => anchors.filter((anchor) => anchor.kind === kind).length <= ANCHORS_PER_KIND_MAX,
+        ),
+      `At most ${String(ANCHORS_PER_KIND_MAX)} anchors per kind`,
+    ),
 });
 export type Style = z.infer<typeof styleSchema>;
+
+/** The kind an anchor file is for, from its name (`monster-troll.webp` → monster), or null. */
+export function anchorKindOf(file: string): AssetKind | null {
+  return ASSET_KINDS.find((kind) => file.startsWith(`${kind}-`)) ?? null;
+}
+
+const ANCHOR_MEDIA_TYPES: Record<string, string> = {
+  png: 'image/png',
+  webp: 'image/webp',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+};
+
+/** The media type of an anchor image from its extension, or null for anything else. */
+export function anchorMediaType(file: string): string | null {
+  return ANCHOR_MEDIA_TYPES[file.split('.').pop()?.toLowerCase() ?? ''] ?? null;
+}
 
 export interface Anchor {
   file: string;
@@ -279,4 +313,9 @@ export function buildImagePrompt(
     .replace(/[ \t]+$/gm, '')
     .trim();
   return `${bible.base}\n\n${filled}`;
+}
+
+/** The anchors sent with a request for one kind: that kind's own, never another's (D-39). */
+export function anchorsFor(bible: StyleBible, kind: AssetKind): Anchor[] {
+  return bible.anchors.filter((anchor) => anchor.kind === kind);
 }

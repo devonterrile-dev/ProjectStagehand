@@ -14,6 +14,7 @@ import {
   quoteUsd,
   runSamples,
   sampleJobs,
+  type RunInfo,
   type RunRecord,
 } from './run';
 import { TEST_SET } from './test-set';
@@ -24,11 +25,11 @@ afterAll(() => {
   rmSync(temp, { recursive: true, force: true });
 });
 
-const INFO = {
+const INFO: RunInfo = {
   startedAt: '2026-11-13T12:00:00.000Z',
   model: 'openai/gpt-image-2',
   styleBibleVersion: bible.version,
-  references: ['hero.png'],
+  references: { prop: ['prop-well.webp'], monster: ['monster-troll.webp'] },
   reps: 2,
 };
 
@@ -93,7 +94,8 @@ describe('runSamples', () => {
     const subjects = TEST_SET.filter((subject) =>
       ['monster-cave-spider', 'prop-well', 'backdrop-forest-path'].includes(subject.id),
     );
-    const reference = { data: Buffer.from('anchor'), mediaType: 'image/png' };
+    const propAnchor = { data: Buffer.from('prop anchor'), mediaType: 'image/webp' };
+    const monsterAnchor = { data: Buffer.from('monster anchor'), mediaType: 'image/webp' };
     const seen: string[] = [];
     let clock = 0;
 
@@ -102,7 +104,7 @@ describe('runSamples', () => {
       apiKey: 'sk-or-test',
       bible,
       jobs: sampleJobs(bible, subjects, 2),
-      references: [reference],
+      references: { prop: [propAnchor], monster: [monsterAnchor] },
       info: INFO,
       outDir,
       concurrency: 2,
@@ -114,8 +116,13 @@ describe('runSamples', () => {
     for (const call of calls) {
       expect(call.apiKey).toBe('sk-or-test');
       expect(call.model).toBe(INFO.model);
-      expect(call.references).toEqual([reference]);
     }
+    // Each kind gets only its own anchors (D-39); a kind without anchors gets none.
+    const referencesOf = (name: string) =>
+      calls.find((call) => call.prompt.includes(`Name: ${name}`))?.references;
+    expect(referencesOf('Village Well')).toEqual([propAnchor]);
+    expect(referencesOf('Cave Spider')).toEqual([monsterAnchor]);
+    expect(referencesOf('Forest Path')).toEqual([]);
     const backdrop = calls.find((call) => call.prompt.includes('Name: Forest Path'));
     expect(backdrop).toMatchObject({ aspectRatio: '16:9', quality: 'medium' });
     expect(calls.find((call) => call.prompt.includes('Name: Village Well'))).toMatchObject({
@@ -150,11 +157,47 @@ describe('runSamples', () => {
     expect(existsSync(join(outDir, 'monster-cave-spider-r1.png'))).toBe(false);
     const saved = JSON.parse(readFileSync(join(outDir, 'run.json'), 'utf8')) as RunRecord;
     expect(saved.results).toHaveLength(6);
-    expect(saved.references).toEqual(['hero.png']);
+    expect(saved.references).toEqual(INFO.references);
     const html = readFileSync(join(outDir, 'index.html'), 'utf8');
     expect(html).toContain('<img src="prop-well-r2.png"');
     expect(html).toContain('safety &lt;system&gt;');
     expect(html).not.toContain('sk-or-test');
+  });
+});
+
+describe('runSamples retries', () => {
+  it('tries a rate-limited call once more, and only once', async () => {
+    const outDir = mkdtempSync(join(temp, 'retry-'));
+    const answers = ['rate_limited', 'ok', 'rate_limited', 'rate_limited'] as const;
+    let calls = 0;
+    const provider: OpenRouterProvider = {
+      generateImage: () => {
+        const status = answers[calls++] ?? 'failed';
+        return Promise.resolve(
+          status === 'ok'
+            ? { status, image: Buffer.from('png'), mediaType: 'image/png', costUsd: 0.04 }
+            : { status },
+        );
+      },
+    };
+    const subjects = TEST_SET.filter((subject) =>
+      ['prop-well', 'item-lantern'].includes(subject.id),
+    );
+
+    const record = await runSamples({
+      provider,
+      apiKey: 'sk-or-test',
+      bible,
+      jobs: sampleJobs(bible, subjects, 1),
+      references: {},
+      info: INFO,
+      outDir,
+      concurrency: 1,
+      rateLimitPauseMs: 1,
+    });
+
+    expect(calls).toBe(4);
+    expect(record.results.map((result) => result.status)).toEqual(['ok', 'rate_limited']);
   });
 });
 
@@ -181,7 +224,7 @@ describe('contactSheetHtml', () => {
     });
     expect(html).toContain('A &lt;b&gt;bold&lt;/b&gt; &quot;thing&quot;');
     expect(html).toContain('Draw &lt;script&gt;');
-    expect(html).toContain('references: hero.png');
+    expect(html).toContain('references: monster: monster-troll.webp; prop: prop-well.webp');
     expect(html).toContain('total $0.100');
     expect(html).not.toContain('<h2>backdrop</h2>');
   });

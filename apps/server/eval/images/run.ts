@@ -44,10 +44,14 @@ export interface RunInfo {
   startedAt: string;
   model: string;
   styleBibleVersion: number;
-  /** Names of the reference images sent with every request. */
-  references: string[];
+  /** Names of the reference images sent with each kind's requests (D-39). */
+  references: ReferenceNames;
   reps: number;
 }
+
+/** Reference images by asset kind: a request carries only its own kind's (D-39). */
+export type ReferencesByKind = Partial<Record<AssetKind, readonly ReferenceImage[]>>;
+export type ReferenceNames = Partial<Record<AssetKind, string[]>>;
 
 export interface RunRecord extends RunInfo {
   results: SampleResult[];
@@ -111,13 +115,19 @@ export interface RunSamplesInput {
   apiKey: string;
   bible: StyleBible;
   jobs: readonly SampleJob[];
-  references: readonly ReferenceImage[];
+  references: ReferencesByKind;
   info: RunInfo;
   outDir: string;
   concurrency: number;
   /** Called as each image finishes, for progress output. */
   onResult?: (result: SampleResult) => void;
   now?: () => number;
+  /** How long to wait before the one retry of a rate-limited call. */
+  rateLimitPauseMs?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function extensionOf(mediaType: string): string {
@@ -139,14 +149,20 @@ export async function runSamples(input: RunSamplesInput): Promise<RunRecord> {
       const { subject } = job;
       const settings = input.bible.style.kinds[subject.kind];
       const started = now();
-      const call = await input.provider.generateImage({
+      const request = {
         apiKey: input.apiKey,
         model: input.info.model,
         prompt: job.prompt,
-        references: input.references,
+        references: input.references[subject.kind] ?? [],
         aspectRatio: settings.aspectRatio,
         quality: settings.quality,
-      });
+      };
+      let call = await input.provider.generateImage(request);
+      if (call.status === 'rate_limited') {
+        // One more try after a pause: a rate-limited call isn't billed.
+        await sleep(input.rateLimitPauseMs ?? 10_000);
+        call = await input.provider.generateImage(request);
+      }
       let file: string | null = null;
       if (call.status === 'ok') {
         file = `${subject.id}-r${String(job.rep)}.${extensionOf(call.mediaType)}`;
@@ -226,8 +242,11 @@ export function contactSheetHtml(record: RunRecord): string {
       return `<h2>${kind}</h2>\n<div class="grid">\n${tiles}\n</div>`;
     })
     .join('\n');
-  const references =
-    record.references.length === 0 ? 'none' : escapeHtml(record.references.join(', '));
+  const named = kinds.flatMap((kind) => {
+    const names = record.references[kind] ?? [];
+    return names.length === 0 ? [] : [`${kind}: ${names.join(', ')}`];
+  });
+  const references = named.length === 0 ? 'none' : escapeHtml(named.join('; '));
   return `<!doctype html>
 <html lang="en">
 <head>

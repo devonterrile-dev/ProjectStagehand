@@ -8,7 +8,7 @@
  *   pnpm style:sample                            the whole set once, with the style bible's anchors
  *   pnpm style:sample --reps 2                   each subject twice
  *   pnpm style:sample --only prop-well,npc-sailor
- *   pnpm style:sample --anchors <folder>         try candidate anchors (every image in the folder)
+ *   pnpm style:sample --anchors <folder>         try candidate anchors, named <kind>-<what>.<ext>
  *   pnpm style:sample --no-anchors               send no reference images
  *   pnpm style:sample --model <slug>             another OpenRouter image model (§11 model swap)
  *   pnpm style:sample --style-version <N>        another style bible version
@@ -17,12 +17,18 @@
  * `index.html`, a contact sheet to open in a browser. The key is never printed.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { IMAGE_MODEL } from '@stagehand/shared';
-import { loadStyleBible, STYLE_BIBLE_VERSION } from '@stagehand/style-bible';
+import { IMAGE_MODEL, type AssetKind } from '@stagehand/shared';
+import {
+  ANCHORS_PER_KIND_MAX,
+  anchorKindOf,
+  anchorMediaType,
+  loadStyleBible,
+  STYLE_BIBLE_VERSION,
+} from '@stagehand/style-bible';
 
 import { createOpenRouterProvider, type ReferenceImage } from '../../src/providers/openrouter';
 
@@ -31,18 +37,14 @@ import {
   quoteUsd,
   runSamples,
   sampleJobs,
+  type ReferenceNames,
+  type ReferencesByKind,
   type RunRecord,
   type SampleResult,
 } from './run';
 import { TEST_SET } from './test-set';
 
 const RESULTS_DIR = fileURLToPath(new URL('../results/images/', import.meta.url));
-const MEDIA_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-};
 
 const { values } = parseArgs({
   options: {
@@ -88,28 +90,45 @@ if (values.anchors !== undefined && values['no-anchors']) {
   fail('Pass --anchors or --no-anchors, not both');
 }
 
-/** The reference images: a candidate folder, none, or the style bible's own anchors. */
-function loadReferences(): { names: string[]; images: ReferenceImage[] } {
-  if (values['no-anchors']) return { names: [], images: [] };
-  const files =
+/**
+ * The reference images by kind (D-39): a candidate folder, none, or the style bible's own
+ * anchors. A candidate file's kind comes from its name (`monster-troll.webp`).
+ */
+function loadReferences(): { names: ReferenceNames; images: ReferencesByKind } {
+  if (values['no-anchors']) return { names: {}, images: {} };
+  const files: { kind: AssetKind; path: string }[] =
     values.anchors === undefined
-      ? bible.anchors.map((anchor) => anchor.path)
+      ? bible.anchors.map((anchor) => ({ kind: anchor.kind, path: anchor.path }))
       : (() => {
-          const dir = resolve(values.anchors);
+          // Relative to where the command was typed: pnpm runs this from apps/server.
+          const dir = resolve(process.env['INIT_CWD'] ?? process.cwd(), values.anchors);
           if (!existsSync(dir)) fail(`No such folder: ${dir}`);
           return readdirSync(dir)
-            .filter((file) => extname(file).toLowerCase() in MEDIA_TYPES)
+            .filter((file) => anchorMediaType(file) !== null)
             .sort()
-            .map((file) => join(dir, file));
+            .map((file) => {
+              const kind = anchorKindOf(file);
+              if (kind === null) {
+                fail(`${file}: name a candidate anchor <kind>-<what>, e.g. prop-well.webp`);
+              }
+              return { kind, path: join(dir, file) };
+            });
         })();
-  if (files.length > 16) fail(`At most 16 reference images; found ${String(files.length)}`);
-  return {
-    names: files.map((file) => file.split(/[\\/]/).pop() ?? file),
-    images: files.map((file) => ({
-      data: readFileSync(file),
-      mediaType: MEDIA_TYPES[extname(file).toLowerCase()] ?? 'image/png',
-    })),
-  };
+  const names: ReferenceNames = {};
+  const images: Partial<Record<AssetKind, ReferenceImage[]>> = {};
+  for (const { kind, path } of files) {
+    (names[kind] ??= []).push(basename(path));
+    (images[kind] ??= []).push({
+      data: readFileSync(path),
+      mediaType: anchorMediaType(path) ?? 'image/png',
+    });
+  }
+  for (const [kind, list] of Object.entries(images)) {
+    if (list.length > ANCHORS_PER_KIND_MAX) {
+      fail(`At most ${String(ANCHORS_PER_KIND_MAX)} ${kind} anchors; found ${String(list.length)}`);
+    }
+  }
+  return { names, images };
 }
 
 /** Costs measured by the most recent run, so the quote improves after the first one. */
@@ -133,6 +152,11 @@ function lastMeasured(): ReturnType<typeof measuredCosts> {
   return {};
 }
 
+function describeReferences(names: ReferenceNames): string {
+  const parts = Object.entries(names).map(([kind, list]) => `${kind}: ${list.join(', ')}`);
+  return parts.length === 0 ? 'none' : parts.join('; ');
+}
+
 const references = loadReferences();
 const jobs = sampleJobs(bible, subjects, reps);
 const measured = lastMeasured();
@@ -141,9 +165,9 @@ const basis =
   Object.keys(measured).length > 0 ? 'costs measured by the last run' : 'a guess per image';
 
 console.log(
-  `Style bible v${String(bible.version)} · ${values.model} · ${String(jobs.length)} image(s) · references: ${
-    references.names.length === 0 ? 'none' : references.names.join(', ')
-  }`,
+  `Style bible v${String(bible.version)} · ${values.model} · ${String(jobs.length)} image(s) · references: ${describeReferences(
+    references.names,
+  )}`,
 );
 console.log(`Quote: about $${quote.toFixed(2)} (${basis})`);
 

@@ -11,9 +11,9 @@ folder to v2 and bump STYLE_BIBLE_VERSION.
 Art style for every image in this set:
 
 - A flat cartoon illustration for a tabletop puppet theater, as if painted on cardboard.
-- Bold, even, near-black outlines around every shape, thicker on the outside of the silhouette.
+- Bold, even, near-black outlines around every shape.
 - Flat fills of solid color. At most one hard-edged shade tone per color, with no gradients, airbrushing, glow, texture or noise.
-- Simple, chunky shapes with light, playful exaggeration: big heads and hands, sturdy bodies, clear angles. It looks like a 1990s Saturday-morning cartoon.
+- Simple, chunky shapes with light, playful exaggeration and the charm of a 1990s Saturday-morning cartoon.
 - A limited, bright palette: saturated primary and secondary colors, warm skin tones and a few muted neutrals. Nothing murky or desaturated.
 - A strong, readable silhouette with few small details, so it reads clearly when small on a stage.
 - Lit evenly from the front, with no cast shadows.

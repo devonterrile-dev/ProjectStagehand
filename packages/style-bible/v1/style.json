@@ -7,5 +7,46 @@
     "prop": { "aspectRatio": "1:1", "quality": "medium" },
     "backdrop": { "aspectRatio": "16:9", "quality": "medium" }
   },
-  "anchors": []
+  "anchors": [
+    {
+      "file": "character-ranger.webp",
+      "kind": "character",
+      "subject": "A young hooded ranger with a bow, chibi (test set pc-ranger, round 2)"
+    },
+    {
+      "file": "character-shopkeeper.webp",
+      "kind": "character",
+      "subject": "A gnome shopkeeper in a striped apron, chibi (test set npc-shopkeeper, round 2)"
+    },
+    {
+      "file": "monster-bog-troll.webp",
+      "kind": "monster",
+      "subject": "A mossy swamp troll with a log club (test set monster-bog-troll, round 2)"
+    },
+    {
+      "file": "monster-cave-spider.webp",
+      "kind": "monster",
+      "subject": "A purple and orange striped giant spider (test set monster-cave-spider, round 2)"
+    },
+    {
+      "file": "prop-lantern.webp",
+      "kind": "prop",
+      "subject": "A brass lantern with green glass, an Item (test set item-lantern, round 1)"
+    },
+    {
+      "file": "prop-well.webp",
+      "kind": "prop",
+      "subject": "A stone well with a little roof, a Prop (test set prop-well, round 1)"
+    },
+    {
+      "file": "backdrop-village-square.webp",
+      "kind": "backdrop",
+      "subject": "A sunny cobbled village square with a clock tower (test set, round 1)"
+    },
+    {
+      "file": "backdrop-forest-path.webp",
+      "kind": "backdrop",
+      "subject": "A dirt path into a forest of twisted trees (test set, round 1)"
+    }
+  ]
 }

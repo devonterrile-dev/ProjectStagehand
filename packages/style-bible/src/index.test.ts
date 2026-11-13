@@ -6,6 +6,10 @@ import { ASSET_KINDS } from '@stagehand/shared';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  anchorKindOf,
+  anchorMediaType,
+  anchorsFor,
+  ANCHORS_PER_KIND_MAX,
   buildImagePrompt,
   colorDistance,
   DEFAULT_STYLE_BIBLE_DIR,
@@ -111,6 +115,32 @@ describe('the shipped style bible', () => {
   });
 });
 
+describe('anchors', () => {
+  const bible = loadStyleBible();
+
+  it('ships two anchors for every kind, each on disk', () => {
+    for (const kind of ASSET_KINDS) {
+      const anchors = anchorsFor(bible, kind);
+      expect(anchors).toHaveLength(2);
+      for (const anchor of anchors) {
+        expect(anchor.kind).toBe(kind);
+        expect(anchor.file.startsWith(`${kind}-`)).toBe(true);
+      }
+    }
+  });
+
+  it('reads the kind and media type from a file name', () => {
+    expect(anchorKindOf('monster-troll.webp')).toBe('monster');
+    expect(anchorKindOf('backdrop-forest.png')).toBe('backdrop');
+    expect(anchorKindOf('troll.webp')).toBeNull();
+    expect(anchorKindOf('npc-troll.webp')).toBeNull();
+    expect(anchorMediaType('prop-well.WEBP')).toBe('image/webp');
+    expect(anchorMediaType('prop-well.jpg')).toBe('image/jpeg');
+    expect(anchorMediaType('prop-well.png')).toBe('image/png');
+    expect(anchorMediaType('notes.txt')).toBeNull();
+  });
+});
+
 describe('subjectLines', () => {
   it('keeps filled fields in order, one line each, and drops empty ones', () => {
     expect(
@@ -182,20 +212,36 @@ describe('loadStyleBible refuses a broken version', () => {
 
   it('an anchor whose image is missing, and finds one that is there', () => {
     editStyle(dir, (style) => {
-      style.anchors = [{ file: 'hero.png', kind: 'character', subject: 'An adventurer' }];
+      style.anchors = [{ file: 'character-hero.png', kind: 'character', subject: 'An adventurer' }];
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/Anchor image not found: .*hero\.png/);
+    expect(() => loadStyleBible(1, dir)).toThrow(/Anchor image not found: .*character-hero\.png/);
     mkdirSync(join(styleBibleDir(1, dir), 'anchors'), { recursive: true });
-    writeFileSync(join(styleBibleDir(1, dir), 'anchors', 'hero.png'), 'png bytes');
+    writeFileSync(join(styleBibleDir(1, dir), 'anchors', 'character-hero.png'), 'png bytes');
     const bible = loadStyleBible(1, dir);
     expect(bible.anchors).toEqual([
       {
-        file: 'hero.png',
+        file: 'character-hero.png',
         kind: 'character',
         subject: 'An adventurer',
-        path: join(styleBibleDir(1, dir), 'anchors', 'hero.png'),
+        path: join(styleBibleDir(1, dir), 'anchors', 'character-hero.png'),
       },
     ]);
+  });
+
+  it('an anchor named for another kind, or too many for one kind', () => {
+    editStyle(dir, (style) => {
+      style.anchors = [{ file: 'prop-well.webp', kind: 'monster', subject: 'x' }];
+    });
+    expect(() => loadStyleBible(1, dir)).toThrow(/anchors\.0\.file: An anchor file name starts/);
+
+    editStyle(dir, (style) => {
+      style.anchors = Array.from({ length: ANCHORS_PER_KIND_MAX + 1 }, (_unused, index) => ({
+        file: `prop-${String(index)}.webp`,
+        kind: 'prop',
+        subject: 'x',
+      }));
+    });
+    expect(() => loadStyleBible(1, dir)).toThrow(/At most 4 anchors per kind/);
   });
 
   it('an anchor file name that could leave the folder', () => {

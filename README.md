@@ -467,3 +467,15 @@ The image style bible and the tool that tries it out (governance §11, D-38). No
 - **The test set** (`apps/server/eval/images/test-set.ts`) is 10 fixed, made-up subjects: 3 characters, 2 monsters, 3 props and 2 backdrops. The same set is drawn before any style bible or image model change and compared side by side.
 - **Running it**: `pnpm style:sample --dry-run` prints every prompt and a quote, free. `pnpm style:sample` draws the set once with the style bible's anchors. `--reps`, `--only <ids>`, `--anchors <folder>` (try candidate anchors), `--no-anchors`, `--model <slug>`, `--style-version` and `--concurrency` change that. It needs `OPENROUTER_API_KEY` in the git-ignored `apps/server/.env`; the key is never printed. The quote guesses $0.08 an image at medium until a run has measured real costs, then uses those.
 - **Results** go to the git-ignored `apps/server/eval/results/images/<time>/`: the images, `run.json` (prompt, status, cost and time per image) and `index.html`, a contact sheet to open in a browser, with a light and a dark table.
+
+## Working assumptions (F2.1b)
+
+Style bible v1 released: anchors, the chibi puppet style and the final palette (governance §11, D-39).
+
+- **Anchors by kind**: `packages/style-bible/v1/anchors/` holds 8 images, two per kind (character, monster, prop, backdrop), picked by the designer from two sample rounds. A request carries only its own kind's two (`anchorsFor`), since every reference image adds about a cent to the image. Files are WebP, at most 1024 px on the longest side, and named `<kind>-<what>`; the loader refuses a name that doesn't match its kind, or more than 4 for one kind. Candidate anchors for `pnpm style:sample --anchors <folder>` follow the same naming, and the folder is read from where the command was typed.
+- **Puppet style**: the character and monster templates carry a cute chibi, flat-vector block (big head, stubby limbs, perfectly even outlines, flat fills with one hard shade, simple geometric details, solid oval eyes with no pupils). The base style no longer asks for thicker outer outlines or body proportions, so it doesn't fight that block.
+- **Palette**: 39 colors. 32 come from k-means clustering (Lab, magenta and its fringe excluded) over an equal sample of each anchor; 7 come from the draft for colors the anchors lack: pink, purple, blue, teal, pale sky, bright yellow and light grey. F2.4 maps every image to it.
+- **Measured costs** (gpt-image-2, medium, 2 anchors): about $0.055 a puppet, $0.071 a prop and $0.044 a backdrop, each in about 25 seconds. Puppets and props come back 1024 × 1536 and 1024 × 1024, backdrops 1536 × 864, smaller than §11's 2048 × 1152: F2.4 decides between upscaling and asking for a larger size.
+- **Retries**: a rate-limited image is tried once more after 10 seconds (it isn't billed).
+- **The test set and the anchors share subjects**, so an anchored subject comes back close to its anchor. The subjects that aren't anchors (the sailor, the notice board) are the ones that show whether the style carries over.
+- `sharp` is a server dev dependency for now (anchor resizing and the palette work); F2.4 makes it a runtime dependency.
