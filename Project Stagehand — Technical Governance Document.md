@@ -7,10 +7,11 @@ Nov 7, 2026 · @Devon T
 This document is the single source of truth for what Stagehand is, which features it has, and which technologies build them. When code and this document disagree, one of them is wrong and gets fixed the same day.
 
 - **Scope:** features, data model, rules engine, AI and image pipelines, the stage, live sessions, security, infrastructure, budget and risks.
-- **Status:** approved baseline, v1.0. All decisions below were agreed on 2026-11-07 unless marked otherwise.
+- **Status:** approved baseline, v1.0. All decisions below were agreed on 2026-11-07 unless marked otherwise. The Phase 3 stage was redesigned on 2026-11-13 as a tabletop puppet theater (D-36, D-37).
 - **Changing it:** any change to a decision adds a row to the Decision log (section 18) with the date, the change and why. Superseded decisions stay in the log, marked superseded.
 - **Open items:** anything not yet decided lives in Open questions (section 19). Building on an open item is fine if the build notes the assumption it used.
-- **Terminology:** *GM* = game master (campaign owner). *Player* = a person in the campaign. *PC* = player character. *Record* = any campaign entry (NPC, location, faction…). *Scene* = a saved stage arrangement. *Session* = one live play night.
+- **Terminology:** *GM* = game master (campaign owner). *Player* = a person in the campaign. *PC* = player character. *Record* = any campaign entry (NPC, location, faction…). *Session* = one live play night.
+- **Stage terms (section 12):** *Table* = the tabletop every player sits at. *Theater* = the puppet theater box on the far side of the table. *Scene* = a saved arrangement of the theater: a backdrop, props, and optionally NPC puppets waiting below. *Prop* = a cardboard cutout of something to see, placed in the theater; players click it to inspect it. *Puppet* = a PC, NPC or monster cutout on a stick, raised into the scene from below. *Depth tick* = one of 10 fixed distances from the front of the theater (0) to the back (9). *Inspect stage* = the small theater on the table that shows one prop close up. *Control desk* = the GM's panel for running the stage.
 
 ## 2. Project overview
 
@@ -21,7 +22,7 @@ It sits between two existing kinds of tool. 2D map tools (Roll20, Foundry) are q
 ### Objectives
 
 1. **GM speed.** A GM can brain-dump ideas and get organized, linked, consistently formatted records back through AI, with review before anything is saved.
-2. **A stage for the story.** Players see where they are and who they're talking to, on a cartoony paper-theater stage, with enough freedom to emote and explore without wandering off.
+2. **A stage for the story.** Players see where they are and who they're talking to, on a stick-puppet theater at the far end of a tabletop, with enough freedom to emote and look closer at things without wandering off.
 
 ### Design principles
 
@@ -29,9 +30,10 @@ It sits between two existing kinds of tool. 2D map tools (Roll20, Foundry) are q
 - **Same shape every time.** Every record of a type has the same fields in the same order, so the GM always knows where to look mid-session.
 - **Private by default.** Nothing reaches a player until the GM reveals it.
 - **Human sign-off.** No AI output, text or image, is saved without GM approval.
+- **Stay at the table.** A player's controls live in the world: their sheet is a page on the table, props are inspected on a small stage, and emotes open from their own puppet. Buttons floating over the view are kept to a minimum.
 - **Players install nothing.** Players join from a browser or a Discord Activity. Only the GM hosts.
 - **Swappable parts.** AI models, image models, storage and speaking detection each sit behind an interface so one can be replaced without a rewrite.
-- **Cartoony with 90s charm.** Paper Mario cardboard cutouts with Dexter's Lab flat colors and bold dark outlines.
+- **Cartoony with 90s charm.** Paper Mario cardboard cutouts with Dexter's Lab flat colors and bold dark outlines, performed as a stick-puppet show.
 
 ## 3. Constraints
 
@@ -80,15 +82,16 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F1.7 Settings: GM stores an Anthropic API key (encrypted)
 - [x] F1.8 AI import: brain-dump to proposed records, with a review screen (section 10)
 - [x] F1.9 Prompt files, schemas and eval suite for AI import
+- [ ] F1.10 Prop records: a new Prop record type replaces a Spot's points of interest (D-37). A migration turns each existing point of interest into a hidden Prop linked from its Spot; Spots gain a "props here" link field; AI import moves to prompt v5 with its eval cases updated. Ships before F2.3, so props can get visuals like any other record.
 
 **Exit:** your current campaign is entered, mostly through AI import, and every record is approved.
 
 ### Phase 2: Visual assets (months 3–5)
 
-- [ ] F2.1 Style bible v1, asset templates per type, anchor reference images (section 11)
+- [ ] F2.1 Style bible v1, anchor reference images, and asset templates for puppets (PCs, NPCs, monsters), props (Prop and Item records) and back-wall backdrops (section 11)
 - [ ] F2.2 Settings: GM stores an OpenRouter API key (encrypted)
-- [ ] F2.3 "Generate visual" button on records; background job queue
-- [ ] F2.4 Post-processing: transparency, cardboard border, palette, sizing
+- [ ] F2.3 "Generate visual" button on records, Props included; background job queue
+- [ ] F2.4 Post-processing: transparency, cardboard border, palette, sizing. Puppet sticks and prop stands are stage geometry, never part of the image (section 11)
 - [ ] F2.5 Review: approve, regenerate with notes, reject
 - [ ] F2.6 Manual upload as a fallback, through the same post-processing
 - [ ] F2.7 Asset library per campaign
@@ -97,21 +100,21 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 
 ### Phase 3: Stage MVP and first playtest (months 5–8)
 
-- [ ] F3.1 3D theater stage with backdrop, ground, cutouts and clickable prompts (section 12)
-- [ ] F3.2 Scene builder: drag records onto the stage, save and load scenes
-- [ ] F3.3 Static location scene type
-- [ ] F3.4 Live sessions: start, join (6-player cap), presence, reconnect (section 13)
-- [ ] F3.5 Reveal flow, player journal, click-a-prop popups, shared player notes
-- [ ] F3.6 Players spend Hope from their own sheet; GM calls rolls; Hope and Fear tracking; roll log (section 9)
-- [ ] F3.7 Cutout animations and a player emote menu
-- [ ] F3.8 GM "take over" an NPC
+- [ ] F3.1 Tabletop theater: the table, the theater box (back wall, side walls, roof, front curtain, open void below), the backdrop on the back wall, the locked player camera, and a performance test scene (section 12)
+- [ ] F3.2 Scene builder: backdrop from a Spot, props placed left/right, up/down and on a depth tick, optional NPC puppets waiting below, save and load scenes (static location scenes)
+- [ ] F3.3 Live sessions: start, join (6-player cap), presence, reconnect, the stage in sync for everyone (section 13)
+- [ ] F3.4 GM control desk: change scenes behind the curtain, raise, lower and move puppets, show and hide props, play emotes, reveal records
+- [ ] F3.5 Player table: the sheet as a page on the table, the inspect stage for props, reveal flow, player journal, shared player notes
+- [ ] F3.6 Players spend Hope from the sheet page; GM calls rolls; Hope and Fear tracking; roll log (section 9)
+- [ ] F3.7 Puppet motion: idle sway, talking (rise and brighten), raise and lower, preset emotes, and an on-stage emote menu on a player's own puppet
+- [ ] F3.8 GM "take over" an NPC puppet
 - [ ] F3.9 Speaking detection: browser mic and Discord Activity
 
 **Exit:** one full session played with your group on Stagehand.
 
 ### Phase 4: Richer scenes and polish (months 8–11)
 
-- [ ] F4.1 Transition scenes: looping backdrop, walking wobble
+- [ ] F4.1 Transition scenes: looping backdrop, puppets bobbing on their sticks as if walking
 - [ ] F4.2 Battle scenes: combat options picked from the sheet, HP and Stress tracking, GM stat block panel
 - [ ] F4.3 Session recap tools (session notes plus the session's roll and reveal log)
 - [ ] F4.4 Onboarding for other GMs: setup guide, key setup help, invite flow polish
@@ -187,7 +190,7 @@ Every person has one account and signs in with Discord. Their role is set per ca
 | View own PC sheet | Yes (all sheets) | Own sheet only |
 | Edit own PC sheet | Yes | Not in Phase 1: view only (D-23). Hope spending arrives with live play (F3.6), combat option picks with battle scenes (F4.2); all other edits by the GM |
 | Start a session, load scenes, call rolls, spend Fear | Yes | No |
-| Emote, click prompts, roll when called | Yes (through NPCs) | Yes |
+| Emote a puppet, inspect props, roll when called | Yes (any puppet) | Yes (own puppet only for emotes) |
 | Run AI import, generate images | Yes, with own keys | No |
 
 ### Campaign isolation
@@ -233,7 +236,7 @@ Why this split: one table makes links, search, reveal, player notes and visuals 
 | --- | --- | --- |
 | id | UUID | Primary key |
 | campaign\_id | UUID | Required; isolation key |
-| type | enum | npc, area, spot, faction, lore, story\_beat, item, session\_notes |
+| type | enum | npc, area, spot, prop, faction, lore, story\_beat, item, session\_notes (prop arrives with F1.10) |
 | name | text | Public |
 | public\_description | rich text | Public; what players see when revealed |
 | fields | JSON | Private, type-specific; validated by the type's Zod schema |
@@ -256,11 +259,12 @@ Fields appear in this order on every record of the type, so the GM always knows 
 | --- | --- | --- |
 | NPC | Anyone the party might talk to | Appearance (for visuals); personality; voice and mannerisms; wants and motivations; what they know; secrets; role in the story; status (alive, dead, missing, unknown); home spot (link); factions (links) |
 | Area | A general place: city, town, beach, forest | Kind of place; overview; atmosphere (sights, sounds, smells); notable features; factions present (links); hooks; secrets |
-| Spot | Where the party actually stands: the market, the crashed boat, an NPC's house. Always belongs to one Area | Description for the GM to read out; points of interest (become clickable prompts); NPCs usually here (links); items here (links); hidden details; backdrop notes (for visuals) |
+| Spot | Where the party actually stands: the market, the crashed boat, an NPC's house. Always belongs to one Area | Description for the GM to read out; props here (Prop links; until F1.10 ships, a list of points of interest, each a name and a detail); NPCs usually here (links); items here (links); hidden details; backdrop notes (for visuals) |
+| Prop | Something to see at a Spot: the well, the statue, the notice board. Shown on stage as a cardboard cutout that players click to inspect; its public description is the text the inspect stage shows (F1.10, D-37) | Appearance (for visuals); hidden details (what a closer look or a roll could turn up); Spot (link, one) |
 | Faction | Any organized group | Goals; leaders (NPC links); members (NPC links); resources; allies and enemies (faction links); public reputation; secrets |
 | Lore | History, legends, religion, magic, anything world-level | Category; summary; full details; who knows it (links); what's true vs. what people believe |
 | Story beat | A planned or possible moment in the story | Arc name; order; summary; trigger or conditions; NPCs, places and items involved (links); possible outcomes; status (planned, active, done, skipped) |
-| Item | Objects of interest, from loot to MacGuffins | Kind; appearance (for visuals); what it does in play; value; current holder or location (link); history |
+| Item | Objects of interest, from loot to MacGuffins; anything the party can pick up or carry. Can be placed on stage as a prop too | Kind; appearance (for visuals); what it does in play; value; current holder or location (link); history |
 | Session notes | One per play session | Session number and date; GM recap; key events; NPCs met (links); open threads; prep for next time |
 
 ### Character sheet (PCs)
@@ -308,10 +312,10 @@ A stat block is a template: it holds HP and Stress maximums only. In a battle, e
 | record\_links | From record, to record, kind (field, other, mention), field key for the §8 link fields, relationship label for other links (e.g. "rival of"); backlinks come from the same rows (D-24) |
 | player\_notes | Record, author, body, timestamps |
 | assets | Campaign, kind (character, monster, prop, backdrop), file paths (original, processed), status (pending, approved, rejected), prompt used, model, style bible version, GM revision notes, cost |
-| scenes | Campaign, name, type (static, transition, battle), backdrop asset, linked Spot, saved layout |
-| scene\_objects | Scene, kind (token, prop, prompt), linked record or PC, position, rotation, scale, layer, visible flag |
-| sessions | Campaign, number, started\_at, ended\_at, active scene, current Fear |
-| session\_events | Append-only log: rolls, Hope and Fear changes, reveals, scene changes, with actor and time |
+| scenes | Campaign, name, type (static, transition, battle), backdrop asset, linked Spot |
+| scene\_objects | Scene, kind (prop, puppet), linked record (a Prop or Item for a prop; an NPC for a puppet) or PC, left/right and up/down position inside the theater opening, depth tick (0 = front to 9 = back), scale, flipped, shown flag (props) or raised flag (puppets). A saved scene holds props and, optionally, NPC puppets that start lowered; PCs are added live (D-36) |
+| play\_sessions | Campaign, number, started\_at, ended\_at, active scene, curtain open or closed, current Fear. Not `sessions`: Better Auth owns that table name |
+| session\_events | Play session, append-only log: rolls, Hope and Fear changes, reveals, scene changes, with actor and time |
 | ai\_imports | Campaign, GM, mode, type filter, record being filled in, GM input text, prompt version, model, status (running, questions, ready, failed, committed, discarded), phase (questions or records), the earlier rounds of questions and the GM's answers, model steps taken, error code and details, the model's questions, attempts, token usage over every step (input, output, cache read, cache write), started, finished and committed times (D-27, D-30) |
 | ai\_proposals | Import, campaign, position, proposed action (create, update, link), payload as it stands after the GM's edits, payload as the model made it, review state (pending, accepted, edited, rejected) |
 | provider\_credentials | User, provider (anthropic, openrouter), encrypted key, last four characters, created\_at, updated\_at; one row per user and provider (D-26) |
@@ -394,6 +398,8 @@ The GM types a free-form brain-dump; Claude Sonnet 5.5 returns proposed records,
 - `links[]`: from id, to id, the link field it fills or a relationship label; ids are existing or temporary
 - `questions[]`: what the model needs the GM to decide; the whole answer of a questions round (D-30), and what the records call still left open (shown above the cards)
 
+This section describes the import as built through prompt v4. F1.10 (D-37) replaces points of interest with Prop records: the import then proposes Props as creates linked from their Spot, and this section is updated with prompt v5.
+
 The AI never deletes records and never touches character sheets, stat block numbers, or anything revealed to players without showing it as a diff first.
 
 ### Keeping the model swappable
@@ -416,9 +422,9 @@ Each visual is one image, generated on request from a record, pushed through a f
 ### Art direction
 
 - **Look:** Paper Mario cardboard cutouts × Dexter's Lab. Flat colors, bold dark outlines, simple shapes, a limited bright palette, light 90s cartoon exaggeration.
-- **Characters and monsters:** full body, standing, facing the viewer, neutral pose, centered, no background. One image per character for now. Emotion comes from how the cutout moves (section 12).
-- **Props and items:** a single object, centered, no background.
-- **Backdrops:** wide 16:9 painted flat, like theater scenery, no characters in it, low detail at the edges.
+- **Characters and monsters (puppets):** full body, standing, facing the viewer, neutral pose, centered, no background, with a clean bottom edge: the stage fixes the puppet's stick at the bottom center. One image per character for now. Emotion comes from how the puppet moves (section 12).
+- **Props (Prop and Item records):** a single object, centered, no background, drawn to stand up as a cardboard standee in the theater and to read clearly on the inspect stage.
+- **Backdrops:** wide 16:9 painted flat, like theater scenery, no characters in it. It fills the theater's back wall only; the side walls and roof are part of the fixed theater. The walls, roof and the front edge of the stage frame it, so keep important detail away from the edges.
 - **Never:** photorealism, heavy gradients, text in the image, multiple characters in one image.
 
 ### Style bible (versioned files)
@@ -426,7 +432,7 @@ Each visual is one image, generated on request from a record, pushed through a f
 Stored in `packages/style-bible/v<N>/`:
 
 - `base.md` — the base style prompt applied to every request
-- `templates/` — one prompt template per asset kind (character, monster, prop, backdrop), with slots filled from the record (name, appearance, kind)
+- `templates/` — one prompt template per asset kind (character, monster, prop, backdrop), with slots filled from the record (name, appearance, kind). The prop template serves Prop and Item records
 - `anchors/` — 4–6 approved reference images that define the look, sent with every request
 - `palette.json` — the fixed color palette used in post-processing
 
@@ -437,7 +443,7 @@ Every asset records the style bible version that made it. Changing the style bib
 1. GM clicks **Generate visual** on a record (or in bulk on several records). One click; the prompt is built automatically from the template + the record's appearance and public description.
 2. A job is queued (pg-boss). The record shows "generating".
 3. The worker calls OpenRouter (`openai/gpt-image-2`) with the prompt and anchor images, requesting a transparent background for cutouts.
-4. **Post-processing (sharp):** remove any leftover background, trim, add the uniform cardboard border and slight edge shadow, map colors to the palette, resize to standard sizes (cutouts: longest side 1024 px; backdrops: 2048 × 1152), save as WebP plus the untouched original.
+4. **Post-processing (sharp):** remove any leftover background, trim, add the uniform cardboard border and slight edge shadow, map colors to the palette, resize to standard sizes (cutouts: longest side 1024 px; backdrops: 2048 × 1152), save as WebP plus the untouched original. Puppet sticks and prop stands are never drawn into the image: the stage adds them as geometry, anchored at the bottom center of the trimmed cutout.
 5. Asset appears as **pending** with the prompt used.
 6. GM reviews: **Approve** (becomes the record's visual), **Regenerate with notes** (notes are added to the prompt, e.g. "bigger hat, angrier eyebrows"), or **Reject**.
 7. **Upload instead:** the GM can upload their own image at any point. It goes through the same post-processing so it matches.
@@ -456,70 +462,117 @@ Every asset records the style bible version that made it. Changing the style bib
 
 ## 12. The stage
 
-The stage is one fixed, low-poly 3D theater rendered in the browser with React Three Fiber. Everything placed on it is a flat cardboard cutout: characters, monsters, props, clickable prompts, and a painted backdrop hung at the back. Scenes are saved arrangements of these pieces.
+The stage is a stick-puppet theater at the far end of a tabletop, rendered in the browser with React Three Fiber (D-36). Every player sits at the same table with the same locked view of the theater. The Spot's art hangs on the theater's back wall, props stand inside it as cardboard cutouts, and PCs and NPCs are puppets on sticks raised into the scene from below. A player's own controls sit on the table in front of them: their sheet is a page they look down at, and props are inspected on a small second theater.
 
-### Stage layers (back to front)
+### The table and the theater
 
-| Layer | What it is | Behavior |
+| Piece | What it is | Behavior |
 | --- | --- | --- |
-| Proscenium and curtains | Fixed theater frame, built once | Curtains close and open on scene changes |
-| Backdrop | The Spot's backdrop image on a hanging canvas | Swappable; scrolls in a loop in transition scenes |
-| Ground | Stage floor, optionally tinted per scene | Fixed geometry |
-| Cutouts | PCs, NPCs, monsters, props as textured planes with a thin cardboard edge | Positioned by the GM; animated procedurally |
-| Prompts | Signs or cutouts on stands or hanging from ropes, tied to a record or a Spot's point of interest | Clickable; open the public popup |
+| Table | The tabletop the players sit at, low-poly, built once | Fixed; holds the theater, the inspect stage and each player's sheet |
+| Theater box | A puppet theater on the far side of the table: a back wall, two side walls and a roof, open at the front and at the bottom | Fixed geometry; walls and roof can be tinted per scene |
+| Backdrop | The Spot's backdrop image, 16:9, filling the back wall | Swapped when a scene loads; scrolls in a loop in transition scenes (Phase 4) |
+| Front curtain | A curtain across the front of the theater, facing the table | Closes and opens on scene changes; the GM can also close and open it by hand |
+| The void | Black, open space below the scene | Puppets wait here, out of sight, and are raised up through it |
+| Props | Cardboard cutouts of Prop and Item records on small stands, placed inside the box | Placed by the GM; clickable by players to inspect |
+| Puppets | PC, NPC and monster cutouts on sticks | Raised and lowered by the GM; animated procedurally |
+| Inspect stage | A small theater with its own closed curtain, on the table beside the main one | Opens on one prop for the player who clicked it |
+| Sheet page | The player's character sheet, drawn as a sheet of paper on the table in front of them | Read and pressed directly; see "The sheet page" below |
 
-### Camera and player freedom
+### Placing things in the scene
 
-- Default view: front-of-house, the whole stage in frame.
-- Players can look around within limits (a clamped orbit and zoom) and snap to focus on any prompt. They cannot leave the stage.
-- Players can trigger emotes on their own token and click any prompt. Moving tokens is GM-only for the MVP (open question 19.6).
+- **Across and up:** a prop or puppet is placed anywhere left to right and top to bottom inside the theater's opening.
+- **Depth:** it then sits on one of 10 depth ticks, from 0 at the front to 9 at the back. Ticks keep layering predictable and make "step forward" a one-click move.
+- **Props** stand on a small stand or hang from the roof; either way the stand is stage geometry, not part of the image (section 11).
+- **Puppets** use the same ticks. They are raised from the void to a set height and lowered back into it; a lowered puppet is in the scene but out of sight.
+- Scale and a left-right flip can be set per object. Rotation is left to emotes.
 
-### Cutout animation (no sprite sheets)
+### Views and camera
 
-All motion is procedural transforms on the cutout, so any new character animates the moment it is approved:
+The theater is the same for everyone and always in sync. Where a player is looking is their own business and stays in their browser.
 
-- **Idle:** slight sway
-- **Talking:** bounce while the speaker's voice is detected (section 13)
-- **Emotes** (player menu): hop, spin, shake (angry), shrink (scared), lean in (curious), tip over (faint), wave
-- **Walking:** side-to-side wobble, used in transition scenes
-- **Enter and exit:** slide in from the wings or drop in on a rope
+| View | What the player sees | How they get there |
+| --- | --- | --- |
+| Stage | The whole theater, front on, from their seat at the table. The default | Start of the session; closing any other view |
+| Sheet | The camera tilts down to the sheet page on the table | Look down (a key, a scroll down, or clicking the page's edge) |
+| Inspect | The camera turns to the inspect stage | Clicking a prop |
+
+- The camera moves smoothly between views and is otherwise locked: no orbit, no zoom, no leaving the table.
+- While a player is on the sheet or the inspect stage, the theater keeps playing; they can turn back at any time.
+- The GM sees the same theater, with the control desk beside it. Building a scene outside a session uses an editing camera that can orbit the box.
+
+### Inspecting a prop
+
+1. A player clicks a prop on the stage.
+2. Their camera turns from the theater to the inspect stage on the table, whose curtain is closed.
+3. The curtain opens on that prop, larger, with a text box below it holding the prop's public description: what the player can see.
+4. Closing it (a click away, Escape, or the close mark on the text box) closes the curtain and turns the camera back to the stage.
+
+The inspect stage is the player's own; other players don't see it open (open question 19.10). It only ever shows public text (open question 19.11).
+
+### The sheet page
+
+- The player's PC sheet is a page on the table in front of them. It is drawn as HTML placed on a plane in the scene (drei `Html` with `transform`), so the text stays sharp and the F1.4 sheet components are reused.
+- Options are pressed right on the page where they apply: spend Hope before a called roll (F3.6), and later pick combat options (F4.2).
+- The player journal sits beside it as a notebook on the table (open question 19.13).
+
+### Puppet motion (no sprite sheets)
+
+All motion is procedural transforms on the puppet and its stick, so any new character animates the moment its visual is approved:
+
+- **Idle:** slight sway on the stick
+- **Talking:** while a voice is detected (section 13), the puppet rises a little and brightens; it settles and dims when the voice stops
+- **Raise and lower:** up from the void into the scene, and back down
+- **Emotes** (preset, picked from a list): look around (turns a little left, then right), hop, nod, shake (angry), shiver (scared), lean in (curious), bow, spin, droop (faint), wave
+- **Walking:** bobbing on the stick, used in transition scenes (Phase 4)
+
+**Player emotes.** Clicking their own puppet opens a small emote menu on the stage, next to the puppet. Players can't emote anyone else's puppet and can't move their own (open question 19.6).
 
 ### Scene builder (GM)
 
-1. Start from an empty stage, or from a Spot (pre-fills its backdrop and the NPCs and items linked to it).
-2. Drag records with approved visuals from a side tray onto the stage. PCs come from the campaign roster.
-3. Move, scale, flip and layer cutouts; mark any object hidden (placed but not shown yet).
-4. Add prompts and attach each to a record or point of interest.
+1. Start from an empty theater, or from a Spot, which sets its backdrop and suggests its Props, NPCs and Items.
+2. Drag records with approved visuals from a side tray into the theater: Props and Items become props, NPCs become puppets.
+3. Place each one across, up and on a depth tick; scale and flip as needed; mark a prop hidden (placed but not shown yet).
+4. NPC puppets saved in a scene start lowered, waiting in the void. PCs are not saved in scenes; the GM raises them live.
 5. Save as a named scene. Scenes can be built ahead of time or on the fly during a session.
+
+### GM control desk (live)
+
+The control desk is a 2D panel beside the theater, for the GM only. It holds everything the GM needs during play:
+
+- **Scenes:** the campaign's scenes; loading one closes the curtain, swaps the scene and opens it again. A manual curtain open and close.
+- **Puppets:** every PC and NPC puppet in or near the scene. Select one, then raise or lower it, move it across, up or to another depth tick, flip it, or play an emote.
+- **Props:** show or hide placed props; add one from the tray.
+- **Reveal:** reveal or un-reveal records (section 7).
+- Any puppet or prop can also be selected by clicking it in the theater.
 
 ### Live editing and NPC takeover
 
-- During a session, the GM edits the live scene with the same tools; changes appear to everyone immediately.
-- Showing a hidden object, or loading a scene, reveals its records to players automatically (section 7).
-- **Take over an NPC:** the GM selects an NPC cutout; while active, the GM's voice animates that NPC instead of the GM's own presence, and the NPC's name shows as the speaker. Switch NPCs with one click; release to return to normal.
+- During a session, every change the GM makes appears for everyone immediately.
+- Showing a hidden prop, raising a puppet, or loading a scene reveals those records to players automatically (section 7).
+- **Take over an NPC:** the GM selects an NPC puppet; while active, the GM's voice makes that puppet rise and brighten instead of the GM's own presence, and the NPC's name shows as the speaker. Switch NPCs with one click; release to return to normal.
 
 ### Scene types
 
 | Type | Phase | What's special |
 | --- | --- | --- |
-| Static location | 3 (MVP) | Investigation and NPC conversation; prompts are the focus |
-| Transition | 4 | Backdrop scrolls in a loop, tokens wobble as if walking; for talking while traveling |
-| Battle | 4 | Players open their combat options from their sheet; monsters show HP/Stress to the GM; Fear spending is prominent |
+| Static location | 3 (MVP) | Investigation and NPC conversation; props to inspect are the focus |
+| Transition | 4 | Backdrop scrolls in a loop, puppets bob on their sticks as if walking; for talking while traveling |
+| Battle | 4 | Players pick combat options on their sheet page; monsters show HP/Stress to the GM; Fear spending is prominent |
 
 ### Performance budget
 
 - Target: 60 fps on a mid-range laptop with integrated graphics, in Chrome, Firefox, Edge and the Discord client.
-- At most 30 objects on stage; cutout textures 1024 px, backdrop 2048 × 1152, compressed.
-- No real-time shadows; baked lighting on the stage model; one directional light.
+- At most 30 objects in the theater; cutout textures 1024 px, backdrop 2048 × 1152, compressed. The table, the inspect stage and the sheet page count towards the budget.
+- No real-time shadows; baked lighting on the table and theater; one directional light. The talking brighten is a material change, not an extra light.
 - Measured with a test scene in Phase 3 before the first playtest.
 
 ## 13. Live sessions and speaking detection
 
-A live session is a Socket.IO room per campaign, with the server holding the authoritative state: current scene, Fear, Hope, who's connected and who's speaking. Voice stays in Discord; Stagehand only learns *who* is talking, never what they say.
+A live session is a Socket.IO room per campaign, with the server holding the authoritative state: current scene, curtain, every prop and puppet in the theater, Fear, Hope, who's connected and who's speaking. What each player is looking at (stage, sheet page or inspect stage) is never sent; it stays in their browser. Voice stays in Discord; Stagehand only learns *who* is talking, never what they say.
 
 ### Session lifecycle
 
-1. GM clicks **Start session**. Fear resets to 3; a session row and session number are created.
+1. GM clicks **Start session**. Fear resets to 3; a `play_sessions` row and session number are created.
 2. Players open the campaign (browser or Discord Activity) and join. The room admits the GM plus at most 6 players; a 7th player sees "session full".
 3. Each client receives a full state snapshot on join and on every reconnect, then live events.
 4. GM clicks **End session**. The event log is closed and attached to that session's notes record.
@@ -528,19 +581,21 @@ A live session is a Socket.IO room per campaign, with the server holding the aut
 
 | Event | Sent by | Effect |
 | --- | --- | --- |
-| scene:load | GM | Curtains close, new scene loads for all, its shown records are revealed |
-| scene:object.add / move / remove / show / hide | GM | Live scene edit |
+| scene:load | GM | Curtain closes, the new scene loads for all, the curtain opens; its shown props are revealed |
+| scene:curtain.open / close | GM | Opens or closes the front curtain for all |
+| scene:object.add / move / remove / show / hide | GM | Live edit of a prop or puppet: position, depth tick, scale, flip |
+| puppet:raise / lower | GM | Raises a puppet from the void into the scene or lowers it back; raising reveals its record |
 | record:reveal / unreveal | GM | Journal updated for all players |
 | note:add / edit / delete | Anyone | Player notes on a revealed record |
-| emote | Player, or GM via NPC | Plays the emote on that token for everyone |
-| npc:takeover / release | GM | Speaking animation goes to the chosen NPC |
-| speaking:start / stop | Client | Talking bounce on that person's token |
+| emote | Player (own puppet), or GM (any puppet) | Plays a preset emote, by id, on that puppet for everyone |
+| npc:takeover / release | GM | The talking rise and brighten goes to the chosen NPC puppet |
+| speaking:start / stop | Client | That person's puppet rises a little and brightens, then settles |
 | roll:call | GM | Prompt appears for the chosen player |
 | roll:result | Server | Dice, total, Hope/Fear change broadcast |
 | fear:spend / adjust, hope:adjust | GM | Counters update with animation |
 | sheet:update | Server | A player's sheet changed (Hope, HP, Stress) |
 
-Every event is validated on the server (who sent it, and are they allowed). Clients never trust each other.
+Every event is validated on the server (who sent it, and are they allowed). Clients never trust each other. Inspecting a prop, looking at the sheet page and closing either send no event; the public description an inspect shows is already in the scene snapshot, built from the public allow-list (section 7).
 
 ### Speaking detection
 
@@ -660,6 +715,8 @@ The biggest risks are scope creep and art consistency; both are handled by phase
 | Discord Activity constraints (proxy, frame limits) | Medium | Medium | Prototype in week 1 of Phase 3; browser-mic mode works without Discord | Socket.IO or WebGL fails inside the Activity frame |
 | Browser-mic false triggers from speakers | Medium | Low | Sensitivity slider, mute toggle, recommend headphones; Activity mode avoids it | Playtest feedback |
 | 3D stage too slow on players' machines | Low | High | Performance budget (section 12), measured before the playtest | Test scene under 45 fps on a mid-range laptop |
+| Sheet page hard to read or use in 3D | Medium | Medium | Sheet drawn as HTML on a plane (sharp text, F1.4 components reused); the Sheet view fills the screen | Playtesters lean in or ask the GM to read their sheet |
+| Locked camera feels cramped in small windows or the Discord frame | Medium | Medium | The Stage view fits the theater opening to the window's shape; test in the Activity frame during the Phase 3 prototype | Props or puppets cut off at the window edge |
 | AI import quality is uneven | Medium | Medium | Strict schemas, retries, review screen, eval suite | GM edits more than half of proposals |
 | Claude Sonnet 5.5 or gpt-image-2 retired | Medium | Medium | Pinned versions, provider interfaces, eval suite and image test set | Provider deprecation notice |
 | OpenRouter drops gpt-image-2 or changes pricing | Low | Medium | Image model is one config value; test set re-run on a new model | Pricing or model-list change |
@@ -674,8 +731,10 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 
 | ID | Date | Decision | Why | Rejected options |
 | --- | --- | --- | --- | --- |
+| D-37 | 2026-11-13 | Props are records: a new `prop` record type (name, public description, appearance, hidden details, Spot link) replaces a Spot's points of interest, and Spots gain a "props here" link field. A Prop's public description is the text the inspect stage shows. Built as F1.10 before Phase 2 visuals: a migration turns each existing point of interest into a hidden Prop linked from its Spot (its detail becomes the Prop's hidden details), AI import moves to prompt v5 and its eval cases follow. Items can also be placed as props; a thing the party can carry stays an Item (D-33), a thing that stays put is a Prop (§8, §10, §11 change) | A prop on the new stage needs its own art, its own player-facing text and its own reveal; records already have all three, and Phase 2's "Generate visual" works on records. Making the change before Phase 2 means no asset ever has to be attached to anything but a record | Points of interest upgraded in place (id, public text and a visual inside the Spot's private fields, which mixes public and private data and needs assets tied to a Spot and a list position); props only as Item records (a well or a statue isn't an item) |
+| D-36 | 2026-11-13 | The stage is a stick-puppet theater at the far end of a tabletop (§12 rewritten, §1, §2, §4, §7, §8, §11, §13 change). The theater is a box with a back wall, two side walls, a roof, a front curtain and an open black void below. The Spot's backdrop fills the back wall only (16:9, 2048 × 1152); walls and roof are fixed. Props are cardboard cutouts placed across and up inside the opening and on one of 10 depth ticks. PCs and NPCs are puppets on sticks raised from the void. Players get locked views (stage, sheet page on the table, inspect stage) with smooth moves between them; only the theater is synced, each player's view stays in their browser. Clicking a prop turns that player's camera to a small inspect stage whose curtain opens on the prop, with its public description below. A talking puppet rises a little and brightens. Emotes are presets (e.g. look around); players open them from a small on-stage menu on their own puppet, the GM plays them on any puppet from a control desk. A saved scene holds the backdrop, props, and optionally NPC puppets that start lowered; PCs are added live. The live session table is `play_sessions`. Refines D-08; supersedes the orbit camera, clickable prompt signs, entering from the wings and the player emote menu in the 2026-11-07 §12 | The designer's settled vision for Phase 3, written down before Phase 2 because it sets what Phase 2 produces: back-wall backdrops, props for Prop and Item records, and puppets with a clean bottom edge and no stick drawn in. Locked views keep every player looking at the story, and putting the sheet and the inspect stage on the table keeps controls in the world. Depth ticks make placing quick and layering predictable | A clamped orbit camera; a backdrop wrapping onto the side walls; free depth placement; emotes from a button bar or from the sheet page; GM-only emotes; saving PCs in scenes |
 | D-35 | 2026-11-12 | Any record in the index can be renamed or tagged, not only those shown in full; in a later step the model's questions count, with the GM's answers, towards which records go in full; and prompt v4 has the questions round ask every filing choice (what becomes a record, where it belongs, renames) so the records step decides instead of asking (§10 context pack change) | In the first real import on v3 the GM agreed to a rename the model had suggested, but the record was only in the index, so the rename was refused; the GM's answer didn't name the record, the model's question did. A rename or a new tag overwrites nothing, so it needs no full view. The same import went to the records with no further questions and then left a filing question open above the cards | Making the GM name the record in the answer; showing every record in full |
-| D-34 | 2026-11-12 | From the first eval run: the import runs at `high` effort instead of `medium` (D-27), and fill mode may rewrite a field that already has content when the GM's notes ask for it, shown in review as a diff (§10 modes change) | High effort passed 29 of 30 steps against 25 for medium, and on the GM's real notes it made the trunk an Item every time where medium never did, for about 40% more per call (about /usr/bin/bash.03 a step) and about 17 seconds instead of 10. Fill mode was throwing away a description the GM asked for because creating the record had already written a short one; the GM still accepts or rejects the change | Staying at medium; fill mode touching empty fields only |
+| D-34 | 2026-11-12 | From the first eval run: the import runs at `high` effort instead of `medium` (D-27), and fill mode may rewrite a field that already has content when the GM's notes ask for it, shown in review as a diff (§10 modes change) | High effort passed 29 of 30 steps against 25 for medium, and on the GM's real notes it made the trunk an Item every time where medium never did, for about 40% more per call (about $0.03 a step) and about 17 seconds instead of 10. Fill mode was throwing away a description the GM asked for because creating the record had already written a short one; the GM still accepts or rejects the change | Staying at medium; fill mode touching empty fields only |
 | D-33 | 2026-11-12 | The import prompt (v3) gives anything the notes call an item, or that the party can pick up, open or carry and that matters to the story, its own Item record, even when it is also a point of interest of a Spot (§10) | In the eval pilot, a trunk the GM listed under "Key Items" became only a point of interest on its beach, so there was no record to fill in or reveal later, while a pendant in the same notes became an Item | Leaving items as points of interest only; making every point of interest an Item |
 | D-32 | 2026-11-12 | The import eval is slim: 12 made-up steps instead of 15–20, code checks only (no model judge), one sign-off on the cases, and it compares medium and high effort, each run twice. The GM's own notes run from a git-ignored folder (§10 eval suite change) | The import already works well in hand testing, so the eval is insurance for the changes that will come: a model retirement, a new prompt, an effort setting. Code checks catch the failures that matter there (duplicates, leaked secrets, invented mechanics, broken answers) and give the same grade every time. Twelve cases can't resolve small score differences, which is accepted for now | The full 15–20 case suite with a graded pilot; no eval until the first model change; a model judging quality; testing low effort |
 | D-31 | 2026-11-12 | The import prompt (v2) has the model come up with a name, an appearance or a description when the GM's notes or answers ask for one, and only then; otherwise it still records only what the notes say (§10) | Asking for "a name for the bartender" is the GM deciding, and the model refusing made the GM write it by hand. Limiting it to what was asked keeps the rule against invented plot and secrets. v2 ships before the eval suite exists (F1.9b), against the "run the eval before a prompt change" rule; the eval measures v2 when it lands | Never inventing anything (v1); letting the model fill gaps freely |
@@ -701,7 +760,7 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 | D-11 | 2026-11-07 | Image generation through OpenRouter, starting with `openai/gpt-image-2` | One key for many image models; no OpenAI ID verification | OpenAI direct (ID required), Replicate (some OpenAI models need your own OpenAI key), Google Nano Banana (quality judged lacking), FLUX Kontext alone (single model) |
 | D-10 | 2026-11-07 | Text AI: Claude Sonnet 5.5, GM's own Anthropic key; one model for the MVP behind a swappable layer | Strong structured output; swappable via SDK, schemas, eval suite | Self-hosted open models per GM (needs a strong GPU), OpenAI, Gemini |
 | D-09 | 2026-11-07 | Two keys per GM (Anthropic + OpenRouter); each GM pays own usage | Keeps project costs near zero | Project-paid AI |
-| D-08 | 2026-11-07 | 2.5D paper theater: 3D stage, flat cutouts, procedural animation, one image per character | Cheapest, most reliable path that keeps the stage feel; fits the art direction | Rigged 3D characters, pure 2D, sprite sheets |
+| D-08 | 2026-11-07 | 2.5D paper theater: 3D stage, flat cutouts, procedural animation, one image per character. Refined by D-36 (tabletop stick-puppet theater) | Cheapest, most reliable path that keeps the stage feel; fits the art direction | Rigged 3D characters, pure 2D, sprite sheets |
 | D-07 | 2026-11-07 | Art direction: Paper Mario cutouts × Dexter's Lab colors and outlines | Designer's choice | — |
 | D-06 | 2026-11-07 | Hosting: Docker Compose on the home PC behind Cloudflare Tunnel | Free, no open ports, portable | Port forwarding, paid cloud now |
 | D-05 | 2026-11-07 | Auth: Sign in with Discord (Better Auth) | Needed for Discord identity anyway | Email/password only |
@@ -721,10 +780,14 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.3 | With a hidden difficulty, what do players see? | Dice, total and Hope/Fear change; success or failure only when the GM narrates or clicks Reveal result | Phase 3 |
 | 19.4 | Teamwork: who pays the 3 Hope, and does the unused roll give Hope or Fear? | The player asking for help pays; only the chosen roll gives Hope or Fear | Phase 3 |
 | 19.5 | Do any rolls other than action rolls (e.g. reaction rolls) give Hope or Fear? | No, action rolls only | Phase 3 |
-| 19.6 | Can players move their own token on stage? | No in the MVP; the GM places tokens. Revisit after the first playtest. | Phase 3 |
+| 19.6 | Can players move their own puppet on stage? | No in the MVP; the GM places, raises and lowers puppets, and players only emote their own (D-36). Revisit after the first playtest. | Phase 3 |
 | 19.7 | What can players edit on their own sheet? | Answered for Phase 1 by D-23: nothing; players view their own sheet only. Later: spend Hope (F3.6) and pick combat options (F4.2); everything else edited by the GM. | Phase 1 |
 | 19.8 | How is leveling up handled? | GM edits the sheet by hand; no level-up wizard in the 12-month plan | Phase 4 |
 | 19.9 | Are monster HP and Stress tracked before battle scenes exist? | No; tracking arrives with battle scenes in Phase 4 | Phase 4 |
+| 19.10 | Do other players see when someone is inspecting a prop? | No; the inspect stage is private to the player who opened it | Phase 3 |
+| 19.11 | Can inspecting a prop show more than its public description (hidden details, a roll to notice more)? | No; it shows the public description only. The GM shares more by editing that description or by calling a roll | Phase 3 |
+| 19.12 | Where do dice appear when a roll is made? | Rolled on the table in front of the theater, seen by everyone | Phase 3 |
+| 19.13 | Where does the player journal live in the table view? | A notebook on the table beside the sheet page | Phase 3 |
 
 ## Sources
 
