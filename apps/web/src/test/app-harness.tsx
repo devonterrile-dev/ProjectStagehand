@@ -17,7 +17,8 @@ import {
   playerCharacterSheetSchema,
   richTextToPlainText,
   rulesetFor,
-  saveAnthropicKeyRequestSchema,
+  providerSchema,
+  saveProviderKeyRequestSchemas,
   searchTerms,
   snippetAround,
   updateRecordRequestSchemaFor,
@@ -32,6 +33,7 @@ import {
   type InvitePreview,
   type Member,
   type MeResponse,
+  type Provider,
   type ProviderCredential,
   type RecordListItem,
   type RecordRef,
@@ -233,8 +235,9 @@ export interface FakeWorld extends ImportsWorldOptions {
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
   invites?: Record<string, InvitePreview>;
   /**
-   * `me`'s stored AI keys. Saving a key that contains `rejected` gets Anthropic's refusal
-   * (400), and one containing `offline` the "couldn't reach Anthropic" error (502).
+   * `me`'s stored AI keys (Anthropic and OpenRouter). Saving a key that contains `rejected`
+   * gets the provider's refusal (400), and one containing `offline` the "couldn't reach"
+   * error (502).
    */
   credentials?: ProviderCredential[];
 }
@@ -244,6 +247,19 @@ export const KEY_REJECTED_MESSAGE =
   "Anthropic didn't accept this key. Check that you copied all of it, and that it hasn't been deleted. Nothing was saved.";
 export const KEY_UNREACHABLE_MESSAGE =
   "Couldn't reach Anthropic to check the key. Try again in a moment. Nothing was saved.";
+/** The same, for an OpenRouter key (F2.2). */
+export const OPENROUTER_KEY_REJECTED_MESSAGE =
+  "OpenRouter didn't accept this key. Check that you copied all of it, and that it hasn't been deleted or disabled. Nothing was saved.";
+export const OPENROUTER_KEY_UNREACHABLE_MESSAGE =
+  "Couldn't reach OpenRouter to check the key. Try again in a moment. Nothing was saved.";
+
+const KEY_REFUSALS: Record<Provider, { rejected: string; offline: string }> = {
+  anthropic: { rejected: KEY_REJECTED_MESSAGE, offline: KEY_UNREACHABLE_MESSAGE },
+  openrouter: {
+    rejected: OPENROUTER_KEY_REJECTED_MESSAGE,
+    offline: OPENROUTER_KEY_UNREACHABLE_MESSAGE,
+  },
+};
 
 /**
  * Fakes the Stagehand API: `me` is the signed-in user (null = signed out), `campaigns` the
@@ -703,21 +719,23 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       if (url === '/api/me/credentials' && method === 'GET') {
         return Response.json({ credentials });
       }
-      if (url === '/api/me/credentials/anthropic' && method === 'PUT') {
-        const parsed = saveAnthropicKeyRequestSchema.safeParse(rawBody);
+      const provider = providerSchema.safeParse(url.slice('/api/me/credentials/'.length));
+      if (provider.success && method === 'PUT') {
+        const parsed = saveProviderKeyRequestSchemas[provider.data].safeParse(rawBody);
         if (!parsed.success) return invalid(parsed.error.issues);
-        if (parsed.data.apiKey.includes('rejected')) return refused(400, KEY_REJECTED_MESSAGE);
-        if (parsed.data.apiKey.includes('offline')) return refused(502, KEY_UNREACHABLE_MESSAGE);
+        const refusals = KEY_REFUSALS[provider.data];
+        if (parsed.data.apiKey.includes('rejected')) return refused(400, refusals.rejected);
+        if (parsed.data.apiKey.includes('offline')) return refused(502, refusals.offline);
         const saved: ProviderCredential = {
-          provider: 'anthropic',
+          provider: provider.data,
           lastFour: parsed.data.apiKey.slice(-4),
           createdAt: '2026-11-11T12:00:00.000Z',
         };
-        credentials = [...credentials.filter((c) => c.provider !== 'anthropic'), saved];
+        credentials = [...credentials.filter((c) => c.provider !== provider.data), saved];
         return Response.json(saved);
       }
-      if (url === '/api/me/credentials/anthropic' && method === 'DELETE') {
-        credentials = credentials.filter((c) => c.provider !== 'anthropic');
+      if (provider.success && method === 'DELETE') {
+        credentials = credentials.filter((c) => c.provider !== provider.data);
         return new Response(null, { status: 204 });
       }
       return notFound('Not Found');

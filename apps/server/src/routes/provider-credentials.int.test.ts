@@ -1,7 +1,8 @@
 /**
- * GMs' stored API keys (F1.7, governance §14, D-26), against a real Postgres. Covers saving,
- * replacing and removing a key, the Anthropic check (faked), isolation between users, and
- * the two §14 checks: no response ever carries a key, and no log line does either.
+ * GMs' stored API keys (F1.7, F2.2; governance §14, D-26, D-40), against a real Postgres.
+ * Covers saving, replacing and removing a key, the Anthropic and OpenRouter checks (faked),
+ * isolation between users and between providers, and the two §14 checks: no response ever
+ * carries a key, and no log line does either.
  */
 import { Writable } from 'node:stream';
 
@@ -21,7 +22,7 @@ import { credentialAad, CredentialUnreadableError, decryptCredential } from '../
 import { getProviderKey } from '../credentials/store';
 import type { DbHandle } from '../db/client';
 import { providerCredentials, users } from '../db/schema';
-import type { KeyCheckResult } from '../providers/anthropic';
+import type { KeyCheckResult } from '../providers/key-check';
 
 type Method = 'GET' | 'PUT' | 'DELETE';
 
@@ -34,10 +35,14 @@ const KEY_A = 'sk-ant-api03-AliceAliceAliceAlice0123456789_-alc1';
 const KEY_A2 = 'sk-ant-api03-AliceSecondKeySecondKey987654321-alc2';
 const KEY_B = 'sk-ant-api03-BobBobBobBobBobBobBob0123456789__bob1';
 const BAD_KEY = 'sk-ant-api03-ThisOneIsRefusedByAnthropic000000-bad1';
-const ALL_KEYS = [KEY_A, KEY_A2, KEY_B, BAD_KEY];
+const OR_A = `sk-or-v1-${'a11ce0123456789a'.repeat(4)}`;
+const OR_B = `sk-or-v1-${'b0b0b0123456789b'.repeat(4)}`;
+const OR_BAD = `sk-or-v1-${'bad0bad123456789'.repeat(4)}`;
+const ALL_KEYS = [KEY_A, KEY_A2, KEY_B, BAD_KEY, OR_A, OR_B, OR_BAD];
 
 const URL_LIST = '/api/me/credentials';
 const URL_ANTHROPIC = '/api/me/credentials/anthropic';
+const URL_OPENROUTER = '/api/me/credentials/openrouter';
 
 describe('Provider credentials', () => {
   let app: FastifyInstance;
@@ -47,6 +52,9 @@ describe('Provider credentials', () => {
   /** What the fake Anthropic answers next. */
   let nextCheck: KeyCheckResult = 'ok';
   const checkedKeys: string[] = [];
+  /** What the fake OpenRouter answers next. */
+  let nextOpenRouterCheck: KeyCheckResult = 'ok';
+  const openRouterChecked: string[] = [];
   const logLines: string[] = [];
   const responseBodies: string[] = [];
 
@@ -63,6 +71,12 @@ describe('Provider credentials', () => {
         checkKey: (apiKey) => {
           checkedKeys.push(apiKey);
           return Promise.resolve(nextCheck);
+        },
+      },
+      openrouter: {
+        checkKey: (apiKey) => {
+          openRouterChecked.push(apiKey);
+          return Promise.resolve(nextOpenRouterCheck);
         },
       },
     }));
@@ -259,11 +273,100 @@ describe('Provider credentials', () => {
     expect(await rowsOf(alice)).toHaveLength(1);
   });
 
-  it('has no OpenRouter routes yet (F2.2)', async () => {
-    expect(
-      (await call('PUT', '/api/me/credentials/openrouter', bob, { apiKey: KEY_B })).statusCode,
-    ).toBe(404);
-    expect((await call('DELETE', '/api/me/credentials/openrouter', bob)).statusCode).toBe(404);
+  async function saveOpenRouter(who: Person, apiKey: string, result: KeyCheckResult = 'ok') {
+    nextOpenRouterCheck = result;
+    try {
+      return await call('PUT', URL_OPENROUTER, who, { apiKey });
+    } finally {
+      nextOpenRouterCheck = 'ok';
+    }
+  }
+
+  describe('OpenRouter (F2.2)', () => {
+    it('checks a key with OpenRouter and stores it beside the Anthropic key', async () => {
+      const anthropicChecksBefore = checkedKeys.length;
+      const response = await saveOpenRouter(alice, `  ${OR_A} `);
+
+      expect(response.statusCode).toBe(200);
+      const saved = response.json<ProviderCredential>();
+      expect(saved).toMatchObject({ provider: 'openrouter', lastFour: OR_A.slice(-4) });
+      expect(openRouterChecked.at(-1)).toBe(OR_A);
+      // Anthropic is never asked about an OpenRouter key.
+      expect(checkedKeys).toHaveLength(anthropicChecksBefore);
+
+      const list = await call('GET', URL_LIST, alice);
+      expect(list.json<ProviderCredentialsResponse>().credentials.map((c) => c.provider)).toEqual([
+        'anthropic',
+        'openrouter',
+      ]);
+      expect(await getProviderKey(handle.db, TEST_CREDENTIALS_KEY, alice.id, 'openrouter')).toBe(
+        OR_A,
+      );
+      // Stored encrypted, bound to its own provider: the Anthropic AAD can't open it.
+      const [row] = (await rowsOf(alice)).filter((r) => r.provider === 'openrouter');
+      expect(row?.encryptedKey).not.toContain(OR_A);
+      expect(() =>
+        decryptCredential(
+          TEST_CREDENTIALS_KEY,
+          row?.encryptedKey ?? '',
+          credentialAad(alice.id, 'anthropic'),
+        ),
+      ).toThrow(CredentialUnreadableError);
+    });
+
+    it.each([
+      ['rejected', 400, "OpenRouter didn't accept this key"],
+      ['forbidden', 400, 'management key'],
+      ['rate_limited', 503, 'rate limiting'],
+      ['unreachable', 502, "Couldn't reach OpenRouter"],
+    ] as const)(
+      'refuses a key the check answers %s, saving nothing',
+      async (result, status, text) => {
+        const response = await saveOpenRouter(bob, OR_BAD, result);
+
+        expect(response.statusCode).toBe(status);
+        expect(response.json<{ message: string }>().message).toContain(text);
+        expect(response.json<{ message: string }>().message).toContain('Nothing was saved.');
+        expect(await rowsOf(bob)).toEqual([]);
+      },
+    );
+
+    it('refuses a key in the wrong format before asking OpenRouter', async () => {
+      const checksBefore = openRouterChecked.length;
+      const response = await call('PUT', URL_OPENROUTER, bob, { apiKey: KEY_B });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toContain('should start with sk-or-');
+      expect(openRouterChecked).toHaveLength(checksBefore);
+      expect(await rowsOf(bob)).toEqual([]);
+    });
+
+    it("keeps each user's OpenRouter key apart", async () => {
+      expect((await saveOpenRouter(bob, OR_B)).statusCode).toBe(200);
+      expect(await getProviderKey(handle.db, TEST_CREDENTIALS_KEY, bob.id, 'openrouter')).toBe(
+        OR_B,
+      );
+      expect(await getProviderKey(handle.db, TEST_CREDENTIALS_KEY, alice.id, 'openrouter')).toBe(
+        OR_A,
+      );
+    });
+
+    it('removes only the OpenRouter key', async () => {
+      expect((await call('DELETE', URL_OPENROUTER, alice)).statusCode).toBe(204);
+      expect((await rowsOf(alice)).map((row) => row.provider)).toEqual(['anthropic']);
+      expect(await getProviderKey(handle.db, TEST_CREDENTIALS_KEY, bob.id, 'openrouter')).toBe(
+        OR_B,
+      );
+      expect((await call('DELETE', URL_OPENROUTER, bob)).statusCode).toBe(204);
+      expect(await rowsOf(bob)).toEqual([]);
+    });
+
+    it('answers 404 for a provider Stagehand does not store', async () => {
+      expect(
+        (await call('PUT', '/api/me/credentials/openai', bob, { apiKey: OR_B })).statusCode,
+      ).toBe(404);
+      expect((await call('DELETE', '/api/me/credentials/openai', bob)).statusCode).toBe(404);
+    });
   });
 
   it("deletes a user's keys with the user", async () => {

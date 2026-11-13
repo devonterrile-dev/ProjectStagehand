@@ -11,6 +11,7 @@ import { buildApp, type BuildAppOptions } from '../src/app';
 import { createAuth } from '../src/auth/auth';
 import { createDb, type DbHandle } from '../src/db/client';
 import type { AnthropicProvider } from '../src/providers/anthropic';
+import type { CredentialDeps } from '../src/routes/provider-credentials';
 
 export const PUBLIC_URL = 'http://localhost:5173';
 export const DISCORD_CLIENT_ID = 'test-client-id';
@@ -33,7 +34,10 @@ export interface FakeDiscordUser {
  * pool, so `app.close()` ends it.
  */
 export async function buildTestApp(
-  options: Pick<BuildAppOptions, 'logger'> & { anthropic?: Partial<AnthropicProvider> } = {},
+  options: Pick<BuildAppOptions, 'logger'> & {
+    anthropic?: Partial<AnthropicProvider>;
+    openrouter?: Partial<CredentialDeps['openrouter']>;
+  } = {},
 ): Promise<{ app: FastifyInstance; handle: DbHandle }> {
   const handle = createDb(inject('databaseUrl'), { max: 2 });
   const auth = createAuth({
@@ -56,6 +60,11 @@ export async function buildTestApp(
         generateImport: () => Promise.resolve({ status: 'unreachable' }),
         countImportTokens: () => Promise.resolve({ status: 'unreachable' }),
         ...options.anthropic,
+      },
+      // No test may reach OpenRouter either.
+      openrouter: {
+        checkKey: () => Promise.resolve('ok'),
+        ...options.openrouter,
       },
     },
     importPrompt: loadImportSystemPrompt(),

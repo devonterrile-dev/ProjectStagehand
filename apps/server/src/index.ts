@@ -9,6 +9,7 @@ import { createAuth } from './auth/auth';
 import { ConfigError, loadConfig } from './config';
 import { createDb } from './db/client';
 import { createAnthropicProvider } from './providers/anthropic';
+import { createOpenRouterProvider } from './providers/openrouter';
 
 function start(): void {
   let config;
@@ -63,7 +64,11 @@ function start(): void {
     credentials:
       config.credentialsKey === undefined
         ? undefined
-        : { key: config.credentialsKey, anthropic: createAnthropicProvider() },
+        : {
+            key: config.credentialsKey,
+            anthropic: createAnthropicProvider(),
+            openrouter: createOpenRouterProvider(),
+          },
     importPrompt,
   });
 

@@ -479,3 +479,13 @@ Style bible v1 released: anchors, the chibi puppet style and the final palette (
 - **Retries**: a rate-limited image is tried once more after 10 seconds (it isn't billed).
 - **The test set and the anchors share subjects**, so an anchored subject comes back close to its anchor. The subjects that aren't anchors (the sailor, the notice board) are the ones that show whether the style carries over.
 - `sharp` is a server dev dependency for now (anchor resizing and the palette work); F2.4 makes it a runtime dependency.
+
+## Working assumptions (F2.2)
+
+The GM's OpenRouter key, for generating visuals (governance §14, D-40). It works exactly like the Anthropic key from F1.7.
+
+- **Checked before it's stored**: `GET https://openrouter.ai/api/v1/key` with the key (key metadata only, so no image is made and no credit is used; no retries, 10-second timeout). A key OpenRouter rejects (401), a management key (it can only manage other keys, not generate), a rate limit (429) or no answer stores nothing, each with its own message.
+- **Format** (`openRouterApiKeySchema`): `sk-or-` and at least 20 more letters, digits, `-` or `_`; checked in the browser and again on the server, with messages that never repeat the key.
+- **Routes**: `PUT` and `DELETE /api/me/credentials/:provider` serve both `anthropic` and `openrouter`; any other provider is 404. `GET /api/me/credentials` lists both.
+- **Settings** shows one card per provider (`ProviderKeyCard`), the same card with each provider's words: what the key is for, where its data goes, and a link to the provider's key page. Each card is a named region.
+- No migration: `provider_credentials` has allowed `openrouter` since F1.7. Nothing uses the stored OpenRouter key yet; F2.3's Generate visual will read it with `getProviderKey`.

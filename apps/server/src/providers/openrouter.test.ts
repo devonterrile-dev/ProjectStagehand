@@ -189,3 +189,79 @@ describe('createOpenRouterProvider().generateImage', () => {
     await expect(pending).resolves.toEqual({ status: 'aborted' });
   });
 });
+
+describe('createOpenRouterProvider().checkKey', () => {
+  const keyInfo = (isManagementKey?: boolean) => ({
+    data: {
+      label: 'sk-or-v1-abc...xyz',
+      usage: 0,
+      limit: null,
+      is_free_tier: false,
+      ...(isManagementKey === undefined ? {} : { is_management_key: isManagementKey }),
+    },
+  });
+
+  it('asks for the key info with the key and answers ok', async () => {
+    const fetch = respondWith(200, keyInfo(false));
+
+    await expect(createOpenRouterProvider({ fetch }).checkKey(KEY)).resolves.toBe('ok');
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe('https://openrouter.ai/api/v1/key');
+    expect(init?.method).toBe('GET');
+    expect(init?.body).toBeUndefined();
+    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${KEY}`);
+  });
+
+  it('accepts a key whose info leaves out the management flag', async () => {
+    const fetch = respondWith(200, keyInfo());
+    await expect(createOpenRouterProvider({ fetch }).checkKey(KEY)).resolves.toBe('ok');
+  });
+
+  it('refuses a management key: it cannot generate images', async () => {
+    const fetch = respondWith(200, keyInfo(true));
+    await expect(createOpenRouterProvider({ fetch }).checkKey(KEY)).resolves.toBe('forbidden');
+  });
+
+  it.each([
+    [401, 'rejected'],
+    [403, 'forbidden'],
+    [429, 'rate_limited'],
+    [500, 'unreachable'],
+    [502, 'unreachable'],
+  ] as const)('maps HTTP %i to %s, in one attempt', async (status, expected) => {
+    const fetch = respondWith(status, { error: { message: 'from the fake', code: status } });
+
+    await expect(createOpenRouterProvider({ fetch }).checkKey(KEY)).resolves.toBe(expected);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers unreachable on an answer it cannot read', async () => {
+    await expect(
+      createOpenRouterProvider({ fetch: respondWith(200, 'oops') }).checkKey(KEY),
+    ).resolves.toBe('unreachable');
+    await expect(
+      createOpenRouterProvider({ fetch: respondWith(200, { nope: true }) }).checkKey(KEY),
+    ).resolves.toBe('unreachable');
+  });
+
+  it('answers unreachable when the network fails or OpenRouter is too slow', async () => {
+    const down = vi.fn<Fetch>(() => Promise.reject(new TypeError('fetch failed')));
+    await expect(createOpenRouterProvider({ fetch: down }).checkKey(KEY)).resolves.toBe(
+      'unreachable',
+    );
+
+    const slow = vi.fn<Fetch>(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('timed out', 'TimeoutError'));
+          });
+        }),
+    );
+    await expect(
+      createOpenRouterProvider({ fetch: slow, checkTimeoutMs: 10 }).checkKey(KEY),
+    ).resolves.toBe('unreachable');
+  });
+});

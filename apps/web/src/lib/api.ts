@@ -50,6 +50,7 @@ import {
   type MeResponse,
   type Member,
   type PlayerCharacterSheet,
+  type Provider,
   type ProviderCredential,
   type RecordListItem,
   type RecordType,
@@ -114,11 +115,14 @@ export async function fetchProviderCredentials(): Promise<ProviderCredential[]> 
 }
 
 /**
- * Sends a new Anthropic key (the only time a key leaves the browser). The server checks it
- * with Anthropic first and refuses keys Anthropic doesn't accept.
+ * Sends a new key for a provider (the only time a key leaves the browser). The server checks
+ * it with the provider first and refuses keys the provider doesn't accept.
  */
-export async function saveAnthropicKey(apiKey: string): Promise<ProviderCredential> {
-  const response = await request('/api/me/credentials/anthropic', {
+export async function saveProviderKey(
+  provider: Provider,
+  apiKey: string,
+): Promise<ProviderCredential> {
+  const response = await request(`/api/me/credentials/${provider}`, {
     method: 'PUT',
     body: JSON.stringify({ apiKey }),
   });
@@ -126,8 +130,8 @@ export async function saveAnthropicKey(apiKey: string): Promise<ProviderCredenti
   return providerCredentialSchema.parse(await response.json());
 }
 
-export async function deleteAnthropicKey(): Promise<void> {
-  const response = await request('/api/me/credentials/anthropic', { method: 'DELETE' });
+export async function deleteProviderKey(provider: Provider): Promise<void> {
+  const response = await request(`/api/me/credentials/${provider}`, { method: 'DELETE' });
   if (!response.ok) throw await errorFrom(response);
 }
 

@@ -1,7 +1,9 @@
 /**
- * OpenRouter image generation, behind an interface (governance §15) so callers can be tested
- * with a fake. F2.1 uses it from the style bible sample CLI; F2.2 adds the key check and F2.3
- * the generation job (D-38).
+ * OpenRouter, behind an interface (governance §15) so callers can be tested with a fake.
+ *
+ * - `checkKey` (F2.2, D-40): `GET /api/v1/key` with the GM's key. Key metadata only, so it
+ *   generates nothing and costs nothing. A management key is refused: it can't generate.
+ * - `generateImage` (F2.1, D-38): used by the style bible sample CLI now, by F2.3's job later.
  *
  * `POST /api/v1/images` takes the prompt, the reference (anchor) images as base64 data URLs,
  * an aspect ratio and a quality, and answers with base64 images and the call's cost in USD.
@@ -12,6 +14,8 @@
  */
 import type { ImageAspectRatio, ImageQuality } from '@stagehand/shared';
 import { z } from 'zod';
+
+import type { KeyCheckResult } from './key-check';
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
@@ -63,6 +67,7 @@ export type ImageCallResult =
   | ImageFailure;
 
 export interface OpenRouterProvider {
+  checkKey(apiKey: string): Promise<KeyCheckResult>;
   generateImage(input: ImageCallInput): Promise<ImageCallResult>;
 }
 
@@ -74,7 +79,13 @@ export interface OpenRouterProviderOptions {
   baseUrl?: string;
   /** An image can take a minute or two. */
   timeoutMs?: number;
+  /** For the key check, which should answer in a second. */
+  checkTimeoutMs?: number;
 }
+
+const keyInfoSchema = z.object({
+  data: z.object({ is_management_key: z.boolean().optional() }),
+});
 
 const imageResponseSchema = z.object({
   data: z.array(z.object({ b64_json: z.string().min(1), media_type: z.string().optional() })),
@@ -147,8 +158,34 @@ export function createOpenRouterProvider(
   const fetchImpl: Fetch = options.fetch ?? globalThis.fetch;
   const baseUrl = options.baseUrl ?? OPENROUTER_BASE_URL;
   const timeoutMs = options.timeoutMs ?? 5 * 60_000;
+  const checkTimeoutMs = options.checkTimeoutMs ?? 10_000;
 
   return {
+    async checkKey(apiKey) {
+      let response: Response;
+      try {
+        response = await fetchImpl(`${baseUrl}/key`, {
+          method: 'GET',
+          headers: { authorization: `Bearer ${apiKey}`, 'x-title': 'Stagehand' },
+          signal: AbortSignal.timeout(checkTimeoutMs),
+        });
+      } catch {
+        return 'unreachable';
+      }
+      if (response.status === 401) return 'rejected';
+      if (response.status === 403) return 'forbidden';
+      if (response.status === 429) return 'rate_limited';
+      if (!response.ok) return 'unreachable';
+      try {
+        const parsed = keyInfoSchema.safeParse(await response.json());
+        if (!parsed.success) return 'unreachable';
+        // A management key only manages other keys; it can't generate images.
+        return parsed.data.data.is_management_key === true ? 'forbidden' : 'ok';
+      } catch {
+        return 'unreachable';
+      }
+    },
+
     async generateImage(input) {
       if (input.references.length > 16) {
         return { status: 'bad_request', message: 'At most 16 reference images' };

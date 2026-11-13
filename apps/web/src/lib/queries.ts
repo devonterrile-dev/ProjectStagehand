@@ -10,6 +10,7 @@ import type {
   StartImportRequest,
   InviteExpiry,
   MeResponse,
+  Provider,
   ProviderCredential,
   RecordType,
   UpdateMeRequest,
@@ -29,7 +30,7 @@ import {
   createInvite,
   createRecord,
   createStatBlock,
-  deleteAnthropicKey,
+  deleteProviderKey,
   deleteCharacter,
   deleteRecord,
   deleteStatBlock,
@@ -61,7 +62,7 @@ import {
   removeMember,
   renameCampaign,
   revokeInvite,
-  saveAnthropicKey,
+  saveProviderKey,
   setCampaignArchived,
   retryImport,
   startImport,
@@ -95,10 +96,10 @@ export function useProviderCredentials() {
   return useQuery({ queryKey: CREDENTIALS_KEY, queryFn: fetchProviderCredentials });
 }
 
-export function useSaveAnthropicKey() {
+export function useSaveProviderKey(provider: Provider) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (apiKey: string) => saveAnthropicKey(apiKey),
+    mutationFn: (apiKey: string) => saveProviderKey(provider, apiKey),
     onSuccess: (saved: ProviderCredential) => {
       queryClient.setQueryData<ProviderCredential[]>(CREDENTIALS_KEY, (current = []) => [
         ...current.filter((credential) => credential.provider !== saved.provider),
@@ -108,13 +109,13 @@ export function useSaveAnthropicKey() {
   });
 }
 
-export function useDeleteAnthropicKey() {
+export function useDeleteProviderKey(provider: Provider) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: deleteAnthropicKey,
+    mutationFn: () => deleteProviderKey(provider),
     onSuccess: () => {
       queryClient.setQueryData<ProviderCredential[]>(CREDENTIALS_KEY, (current = []) =>
-        current.filter((credential) => credential.provider !== 'anthropic'),
+        current.filter((credential) => credential.provider !== provider),
       );
     },
   });

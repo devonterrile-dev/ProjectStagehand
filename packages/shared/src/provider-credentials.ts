@@ -37,6 +37,39 @@ export const saveAnthropicKeyRequestSchema = z.strictObject({
 });
 export type SaveAnthropicKeyRequest = z.infer<typeof saveAnthropicKeyRequestSchema>;
 
+/**
+ * An OpenRouter API key as pasted (F2.2, D-40): trimmed, `sk-or-` followed by letters, digits,
+ * `-` and `_` (today's keys are `sk-or-v1-` and 64 hex digits). Whether it's a management key
+ * only OpenRouter can say, so the server's check catches those. No message repeats the input.
+ */
+export const openRouterApiKeySchema = z
+  .string({ error: 'Paste your OpenRouter API key' })
+  .trim()
+  .min(1, { error: 'Paste your OpenRouter API key', abort: true })
+  .max(PROVIDER_KEY_MAX, { error: 'That is too long to be an OpenRouter API key', abort: true })
+  .regex(
+    /^sk-or-[A-Za-z0-9_-]{20,}$/,
+    "That doesn't look like an OpenRouter API key. It should start with sk-or-",
+  );
+
+/** `PUT /api/me/credentials/openrouter`. */
+export const saveOpenRouterKeyRequestSchema = z.strictObject({
+  apiKey: openRouterApiKeySchema,
+});
+export type SaveOpenRouterKeyRequest = z.infer<typeof saveOpenRouterKeyRequestSchema>;
+
+/** Each provider's key format, for the form and for `PUT /api/me/credentials/:provider`. */
+export const providerKeySchemas = {
+  anthropic: anthropicApiKeySchema,
+  openrouter: openRouterApiKeySchema,
+} as const satisfies Record<Provider, z.ZodType<string>>;
+
+/** `PUT /api/me/credentials/:provider`, by provider. */
+export const saveProviderKeyRequestSchemas = {
+  anthropic: saveAnthropicKeyRequestSchema,
+  openrouter: saveOpenRouterKeyRequestSchema,
+} as const satisfies Record<Provider, z.ZodType<{ apiKey: string }>>;
+
 /** What the browser may know about a stored key. Parsing strips every other field. */
 export const providerCredentialSchema = z.object({
   provider: providerSchema,

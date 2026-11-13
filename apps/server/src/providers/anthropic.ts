@@ -26,14 +26,9 @@ import {
   type TokenUsage,
 } from '@stagehand/shared';
 
-/**
- * - `ok`: Anthropic accepted the key.
- * - `rejected`: Anthropic says the key is invalid (401).
- * - `forbidden`: the key is valid but may not use the API (403).
- * - `rate_limited`: Anthropic is rate limiting the key right now (429).
- * - `unreachable`: no answer, a timeout, or an Anthropic-side error.
- */
-export type KeyCheckResult = 'ok' | 'rejected' | 'forbidden' | 'rate_limited' | 'unreachable';
+import type { KeyCheckResult } from './key-check';
+
+export type { KeyCheckResult } from './key-check';
 
 /** A call that never got an answer from the model. */
 export type ProviderFailure =

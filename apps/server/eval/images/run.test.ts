@@ -77,7 +77,7 @@ describe('runSamples', () => {
   it('draws every job with its kind settings and writes images, run.json and the contact sheet', async () => {
     const outDir = mkdtempSync(join(temp, 'run-'));
     const calls: ImageCallInput[] = [];
-    const provider: OpenRouterProvider = {
+    const provider: Pick<OpenRouterProvider, 'generateImage'> = {
       generateImage: vi.fn((input: ImageCallInput) => {
         calls.push(input);
         if (input.prompt.includes('Name: Cave Spider')) {
@@ -170,7 +170,7 @@ describe('runSamples retries', () => {
     const outDir = mkdtempSync(join(temp, 'retry-'));
     const answers = ['rate_limited', 'ok', 'rate_limited', 'rate_limited'] as const;
     let calls = 0;
-    const provider: OpenRouterProvider = {
+    const provider: Pick<OpenRouterProvider, 'generateImage'> = {
       generateImage: () => {
         const status = answers[calls++] ?? 'failed';
         return Promise.resolve(

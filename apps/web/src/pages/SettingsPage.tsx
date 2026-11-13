@@ -1,8 +1,11 @@
 import { AiUsageCard } from '@/components/settings/AiUsageCard';
-import { AnthropicKeyCard } from '@/components/settings/AnthropicKeyCard';
+import { ProviderKeyCard } from '@/components/settings/ProviderKeyCard';
 import { useProviderCredentials } from '@/lib/queries';
 
-/** Account-level settings (F1.7): for now, the GM's own AI provider keys. */
+/**
+ * Account-level settings: the GM's own AI provider keys, Anthropic for AI import (F1.7) and
+ * OpenRouter for visuals (F2.2), and what AI import has cost.
+ */
 export function SettingsPage() {
   const credentials = useProviderCredentials();
 
@@ -17,9 +20,16 @@ export function SettingsPage() {
           </p>
         )}
         {credentials.isSuccess && (
-          <AnthropicKeyCard
-            credential={credentials.data.find((credential) => credential.provider === 'anthropic')}
-          />
+          <>
+            <ProviderKeyCard
+              provider="anthropic"
+              credential={credentials.data.find((c) => c.provider === 'anthropic')}
+            />
+            <ProviderKeyCard
+              provider="openrouter"
+              credential={credentials.data.find((c) => c.provider === 'openrouter')}
+            />
+          </>
         )}
       </section>
       <AiUsageCard />

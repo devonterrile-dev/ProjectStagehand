@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   anthropicApiKeySchema,
+  openRouterApiKeySchema,
   providerCredentialSchema,
   providerCredentialsResponseSchema,
+  providerKeySchemas,
   saveAnthropicKeyRequestSchema,
+  saveProviderKeyRequestSchemas,
 } from './provider-credentials';
 
 const KEY = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-wxyz';
@@ -86,5 +89,37 @@ describe('providerCredentialSchema', () => {
     const base = { provider: 'anthropic', createdAt: '2026-11-11T10:00:00.000Z' };
     expect(providerCredentialSchema.safeParse({ ...base, lastFour: 'abc' }).success).toBe(false);
     expect(providerCredentialSchema.safeParse({ ...base, lastFour: 'abcde' }).success).toBe(false);
+  });
+});
+
+describe('openRouterApiKeySchema', () => {
+  const OR_KEY = `sk-or-v1-${'0123456789abcdef'.repeat(4)}`;
+
+  it('accepts a pasted key, trimmed', () => {
+    expect(openRouterApiKeySchema.parse(`  ${OR_KEY}\n`)).toBe(OR_KEY);
+  });
+
+  it.each([
+    ['', 'Paste your OpenRouter API key'],
+    ['sk-ant-api03-0123456789abcdefghij', "doesn't look like an OpenRouter API key"],
+    ['sk-or-short', "doesn't look like an OpenRouter API key"],
+    [`sk-or-v1-${'a'.repeat(300)}`, 'too long'],
+  ])('refuses %j without repeating it', (input, message) => {
+    const result = openRouterApiKeySchema.safeParse(input);
+    expect(result.success).toBe(false);
+    const text = result.error?.issues.map((issue) => issue.message).join(' ') ?? '';
+    expect(text).toContain(message);
+    if (input !== '') expect(text).not.toContain(input);
+  });
+
+  it('is the schema used for each provider', () => {
+    expect(providerKeySchemas.openrouter.safeParse(OR_KEY).success).toBe(true);
+    expect(providerKeySchemas.anthropic.safeParse(OR_KEY).success).toBe(false);
+    expect(saveProviderKeyRequestSchemas.openrouter.safeParse({ apiKey: OR_KEY }).success).toBe(
+      true,
+    );
+    expect(
+      saveProviderKeyRequestSchemas.openrouter.safeParse({ apiKey: OR_KEY, extra: 1 }).success,
+    ).toBe(false);
   });
 });

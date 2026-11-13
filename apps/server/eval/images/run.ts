@@ -111,7 +111,7 @@ export function measuredCosts(
 }
 
 export interface RunSamplesInput {
-  provider: OpenRouterProvider;
+  provider: Pick<OpenRouterProvider, 'generateImage'>;
   apiKey: string;
   bible: StyleBible;
   jobs: readonly SampleJob[];

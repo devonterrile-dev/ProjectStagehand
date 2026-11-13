@@ -146,17 +146,22 @@ export {
 } from './me';
 export {
   anthropicApiKeySchema,
+  openRouterApiKeySchema,
   PROVIDER_KEY_LAST_FOUR,
   PROVIDER_KEY_MAX,
   providerCredentialSchema,
   providerCredentialsResponseSchema,
+  providerKeySchemas,
   providerSchema,
   PROVIDERS,
   saveAnthropicKeyRequestSchema,
+  saveOpenRouterKeyRequestSchema,
+  saveProviderKeyRequestSchemas,
   type Provider,
   type ProviderCredential,
   type ProviderCredentialsResponse,
   type SaveAnthropicKeyRequest,
+  type SaveOpenRouterKeyRequest,
 } from './provider-credentials';
 export {
   applyFieldsPatch,
