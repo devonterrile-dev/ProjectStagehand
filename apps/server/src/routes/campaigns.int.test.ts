@@ -176,6 +176,28 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     gmOnly: true,
     payload: { assetId: '00000000-0000-4000-8000-000000000007' },
   },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/records/:recordId/visuals/:assetId/revise',
+    gmOnly: true,
+    payload: { notes: 'Hijacked' },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/campaigns/:campaignId/records/:recordId/visuals/:assetId',
+    gmOnly: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/visuals/:assetId/revise',
+    gmOnly: true,
+    payload: { notes: 'Hijacked' },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/campaigns/:campaignId/characters/:characterId/visuals/:assetId',
+    gmOnly: true,
+  },
   { method: 'GET', path: '/api/campaigns/:campaignId/assets/:assetId/image', gmOnly: true },
 ];
 

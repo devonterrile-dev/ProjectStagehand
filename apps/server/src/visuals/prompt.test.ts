@@ -2,7 +2,7 @@ import { emptyRichText, type RichText } from '@stagehand/shared';
 import { loadStyleBible } from '@stagehand/style-bible';
 import { describe, expect, it } from 'vitest';
 
-import { SUBJECT_LINE_MAX, subjectLinesFor, visualPrompt } from './prompt';
+import { revisionPrompt, SUBJECT_LINE_MAX, subjectLinesFor, visualPrompt } from './prompt';
 
 const BIBLE = loadStyleBible();
 
@@ -107,5 +107,20 @@ describe('visualPrompt', () => {
     });
     expect(prompt).not.toContain('#FF00FF');
     expect(prompt).toContain('Backdrop notes: Wide dock');
+  });
+});
+
+describe('revisionPrompt', () => {
+  it("is the record's prompt, then the revision block ending in the notes", () => {
+    const source = {
+      subject: 'prop' as const,
+      name: 'Bell',
+      publicDescription: doc('Rings at dawn'),
+      fields: { appearance: 'Bronze' },
+    };
+    const prompt = revisionPrompt(BIBLE, 'prop', source, ' bigger clapper ');
+    expect(prompt.startsWith(visualPrompt(BIBLE, 'prop', source))).toBe(true);
+    expect(prompt).toContain('reference image');
+    expect(prompt.endsWith('bigger clapper')).toBe(true);
   });
 });

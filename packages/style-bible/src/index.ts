@@ -143,10 +143,15 @@ export interface StyleBible {
   dir: string;
   base: string;
   templates: Record<AssetKind, string>;
+  /** The Regenerate with notes block (F2.5): one slot, `notes`. */
+  revision: string;
   style: Style;
   palette: Palette;
   anchors: Anchor[];
 }
+
+/** The one slot of `revision.md`. */
+export const REVISION_SLOTS = ['notes'];
 
 /** The `{{slots}}` each template must have, no more and no fewer. */
 export function expectedSlots(kind: AssetKind): string[] {
@@ -253,6 +258,15 @@ export function loadStyleBible(
     templates[kind] = template;
   }
 
+  const revisionPath = join(root, 'revision.md');
+  const revision = readText(revisionPath);
+  checkWords(revision, revisionPath);
+  if ([...slotsOf(revision)].sort().join() !== REVISION_SLOTS.join()) {
+    throw new StyleBibleError(
+      `${revisionPath}: needs exactly the slot ${REVISION_SLOTS.join(', ')}`,
+    );
+  }
+
   const stylePath = join(root, 'style.json');
   const style = readJson(stylePath, styleSchema);
   if (style.version !== version) {
@@ -272,7 +286,7 @@ export function loadStyleBible(
     return { ...anchor, path };
   });
 
-  return { version, dir: root, base, templates, style, palette, anchors };
+  return { version, dir: root, base, templates, revision, style, palette, anchors };
 }
 
 /** One line of a subject: a label and the record's value for it. */
@@ -313,6 +327,29 @@ export function buildImagePrompt(
     .replace(/[ \t]+$/gm, '')
     .trim();
   return `${bible.base}\n\n${filled}`;
+}
+
+export interface RevisionPromptInput extends ImagePromptInput {
+  /** What the GM wants changed. */
+  notes: string;
+}
+
+/**
+ * The prompt for a Regenerate with notes (F2.5, D-44): the same prompt as a new image of this
+ * kind, then the revision block with the GM's notes. It is sent with one reference image, the
+ * original being changed, instead of the anchors.
+ */
+export function buildRevisionPrompt(
+  bible: StyleBible,
+  kind: AssetKind,
+  input: RevisionPromptInput,
+): string {
+  const block = fillPrompt(bible.revision, { notes: input.notes.trim() })
+    .replace(/[ \t]+$/gm, '')
+    .trim();
+  return `${buildImagePrompt(bible, kind, input)}
+
+${block}`;
 }
 
 /** The anchors sent with a request for one kind: that kind's own, never another's (D-39). */

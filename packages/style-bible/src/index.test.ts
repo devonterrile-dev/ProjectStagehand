@@ -11,6 +11,7 @@ import {
   anchorsFor,
   ANCHORS_PER_KIND_MAX,
   buildImagePrompt,
+  buildRevisionPrompt,
   colorDistance,
   DEFAULT_STYLE_BIBLE_DIR,
   FORBIDDEN_STYLE_WORDS,
@@ -113,6 +114,16 @@ describe('the shipped style bible', () => {
       /Name: Grub$/,
     );
   });
+
+  it('builds a revision prompt: the prompt of its kind, then the notes as the change', () => {
+    const input = { name: 'Well', subject: 'Appearance: stone' };
+    const prompt = buildRevisionPrompt(bible, 'prop', { ...input, notes: '  add a {{rope}}\n' });
+    expect(prompt.startsWith(buildImagePrompt(bible, 'prop', input))).toBe(true);
+    expect(prompt).toContain('reference image');
+    expect(prompt.endsWith('\nadd a {{rope}}')).toBe(true);
+    expect(bible.revision).not.toContain('<!--');
+    for (const word of FORBIDDEN_STYLE_WORDS) expect(prompt.toLowerCase()).not.toContain(word);
+  });
 });
 
 describe('anchors', () => {
@@ -174,6 +185,14 @@ describe('loadStyleBible refuses a broken version', () => {
     expect(() => loadStyleBible(1, dir)).toThrow(/backdrop\.md: needs exactly the slots/);
     writeFileSync(path, 'Draw {{name}}.');
     expect(() => loadStyleBible(1, dir)).toThrow(/has name$/);
+  });
+
+  it('a revision block that is missing or has the wrong slots', () => {
+    const path = join(styleBibleDir(1, dir), 'revision.md');
+    writeFileSync(path, 'Change it: {{notes}} for {{name}}');
+    expect(() => loadStyleBible(1, dir)).toThrow(/revision\.md: needs exactly the slot notes/);
+    rmSync(path);
+    expect(() => loadStyleBible(1, dir)).toThrow(/not found: .*revision\.md/);
   });
 
   it('a franchise name in the base style', () => {

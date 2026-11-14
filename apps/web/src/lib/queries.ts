@@ -1,4 +1,5 @@
 import type {
+  AssetSummary,
   Campaign,
   CampaignRecord,
   CharacterSheet,
@@ -44,7 +45,9 @@ import {
   fetchCampaign,
   fetchVisuals,
   generateVisual,
+  reviseVisual,
   chooseVisual,
+  discardVisual,
   type VisualOwnerRef,
   fetchCampaigns,
   fetchCharacters,
@@ -713,7 +716,7 @@ const visualsKey = (campaignId: string, owner: VisualOwnerRef) =>
   ] as const;
 
 /**
- * A record's or PC's tries at a visual (F2.3), newest first. Polled while one is still being
+ * A record's or PC's image in use and its drafts (F2.3, F2.5). Polled while one is still being
  * made, so the card fills in by itself, also after a reload. GM only.
  */
 export function useVisuals(campaignId: string, owner: VisualOwnerRef, enabled: boolean) {
@@ -722,28 +725,60 @@ export function useVisuals(campaignId: string, owner: VisualOwnerRef, enabled: b
     queryFn: () => fetchVisuals(campaignId, owner),
     enabled,
     refetchInterval: (query) =>
-      query.state.data?.assets.some((asset) => asset.status === 'generating') === true
+      query.state.data?.drafts.some((asset) => asset.status === 'generating') === true
         ? visualPolling.intervalMs
         : false,
   });
 }
 
+/** Shows a just-started try at once (starting one dismisses failed tries), then refetches. */
+function useAddDraft(campaignId: string, owner: VisualOwnerRef) {
+  const queryClient = useQueryClient();
+  return (asset: AssetSummary) => {
+    queryClient.setQueryData<VisualsResponse>(visualsKey(campaignId, owner), (current) =>
+      current === undefined
+        ? current
+        : {
+            ...current,
+            drafts: [...current.drafts.filter((draft) => draft.status !== 'failed'), asset],
+          },
+    );
+    void queryClient.invalidateQueries({ queryKey: visualsKey(campaignId, owner) });
+  };
+}
+
 /** Starts an image; the `generating` try shows at once, then polling takes over. */
 export function useGenerateVisual(campaignId: string, owner: VisualOwnerRef) {
-  const queryClient = useQueryClient();
+  const addDraft = useAddDraft(campaignId, owner);
   return useMutation({
     mutationFn: (input: GenerateVisualRequest) => generateVisual(campaignId, owner, input),
-    onSuccess: (asset) => {
-      queryClient.setQueryData<VisualsResponse>(visualsKey(campaignId, owner), (current) =>
-        current === undefined ? current : { ...current, assets: [asset, ...current.assets] },
-      );
-      void queryClient.invalidateQueries({ queryKey: visualsKey(campaignId, owner) });
+    onSuccess: addDraft,
+  });
+}
+
+/** Regenerate with notes (F2.5): like `useGenerateVisual`, starting from an existing image. */
+export function useReviseVisual(campaignId: string, owner: VisualOwnerRef) {
+  const addDraft = useAddDraft(campaignId, owner);
+  return useMutation({
+    mutationFn: ({ assetId, notes }: { assetId: string; notes: string }) =>
+      reviseVisual(campaignId, owner, assetId, notes),
+    onSuccess: addDraft,
+  });
+}
+
+/** Discards a draft (F2.5); the answer replaces the cached visuals. */
+export function useDiscardVisual(campaignId: string, owner: VisualOwnerRef) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assetId: string) => discardVisual(campaignId, owner, assetId),
+    onSuccess: (visuals) => {
+      queryClient.setQueryData(visualsKey(campaignId, owner), visuals);
     },
   });
 }
 
 /**
- * "Use this one": the answer replaces the cached tries, and the open record or sheet learns
+ * "Use this" / "Replace": the answer replaces the cached visuals, and the open record or sheet learns
  * its new visual without a refetch (which would race the editor's own saves).
  */
 export function useChooseVisual(campaignId: string, owner: VisualOwnerRef) {

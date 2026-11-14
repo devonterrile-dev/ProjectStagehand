@@ -1,7 +1,8 @@
 /**
  * Generate visual (F2.3, governance §11, D-42), against a real Postgres with OpenRouter faked
  * and the queue run inline: the prompt and anchors per record type and kind, the image file
- * and its route, post-processing and its startup backfill (F2.4, D-43), "Use this one", every
+ * and its route, post-processing and its startup backfill (F2.4, D-43), review (F2.5, D-44: use,
+ * replace, discard, regenerate with notes, the startup sweep of discarded files), every
  * failure, the cost guardrails, archived campaigns, and
  * the two §14 checks (no prompt or key in logs, no key in responses). Route-level isolation
  * (outsiders 404, players 403) is in the table in `campaigns.int.test.ts`.
@@ -32,13 +33,13 @@ import {
   TEST_CREDENTIALS_KEY,
 } from '../../test/auth-helpers';
 import { FULL_FIELDS, richText } from '../../test/record-fixtures';
-import { failInterruptedVisuals } from '../campaigns/visuals';
+import { failInterruptedVisuals, purgeDiscarded } from '../campaigns/visuals';
 import { saveProviderKey } from '../credentials/store';
 import type { DbHandle } from '../db/client';
 import { assets, campaignMembers, users } from '../db/schema';
 import type { ImageCallInput, ImageCallResult } from '../providers/openrouter';
-import { processVisualJob, queueStaleProcessing } from '../visuals/job';
-import { BACKDROP_SIZE, PROCESSING_VERSION } from '../visuals/process';
+import { processStoredVisual, processVisualJob, queueStaleProcessing } from '../visuals/job';
+import { BACKDROP_SIZE, PROCESSING_VERSION, processImage } from '../visuals/process';
 import type { VisualQueue } from '../visuals/queue';
 import { loadReferences } from '../visuals/references';
 import type { AssetStorage } from '../visuals/storage';
@@ -53,6 +54,8 @@ interface Person {
 }
 
 const GM_KEY = 'sk-or-v1-VisualGmVisualGmVisualGm0123456789abcdefvis1';
+/** Marks a GM's revision notes, to look for in logs. */
+const NOTES_MARK = 'QUIZZICALMARMALADE';
 /** Marks a record's private appearance, to look for in logs. */
 const APPEARANCE_MARK = 'PERIWINKLEGANTRY';
 /** Not an image at all: the call "succeeds" but post-processing can't read it. */
@@ -193,6 +196,25 @@ describe('Visuals API', () => {
     return response.json<AssetSummary>();
   }
 
+  async function discard(base: string, assetId: string): Promise<VisualsResponse> {
+    const response = await call('DELETE', `${base}/visuals/${assetId}`, gm);
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json<VisualsResponse>();
+  }
+
+  async function revise(base: string, assetId: string, notes: unknown, who: Person = gm) {
+    return call('POST', `${base}/visuals/${assetId}/revise`, who, { notes });
+  }
+
+  async function use(base: string, assetId: string) {
+    return call('PUT', `${base}/visual`, gm, { assetId });
+  }
+
+  async function rowOf(assetId: string) {
+    const [row] = await handle.db.select().from(assets).where(eq(assets.id, assetId));
+    return row;
+  }
+
   async function visuals(base: string): Promise<VisualsResponse> {
     const response = await call('GET', `${base}/visuals`, gm);
     expect(response.statusCode, response.body).toBe(200);
@@ -235,16 +257,16 @@ describe('Visuals API', () => {
         costUsd: null,
         finishedAt: null,
       });
-      expect((await visuals(recordBase(prop))).assets[0]?.status).toBe('generating');
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.status).toBe('generating');
 
       release();
       await settled();
       const after = await visuals(recordBase(prop));
       expect(after.visualAssetId).toBeNull();
-      expect(after.assets).toEqual([
+      expect(after.drafts).toEqual([
         expect.objectContaining({ id: asset.id, status: 'pending', costUsd: 0.05 }),
       ]);
-      expect(after.assets[0]?.finishedAt).not.toBeNull();
+      expect(after.drafts[0]?.finishedAt).not.toBeNull();
     });
 
     it("sends the prop prompt and the prop anchors under the GM's key", async () => {
@@ -283,7 +305,7 @@ describe('Visuals API', () => {
       const original = await call('GET', `${imageUrl(asset.id)}?v=original`, gm);
       expect(original.headers['cache-control']).toBe('private, max-age=31536000, immutable');
       expect(original.rawPayload).toEqual(IMAGE);
-      expect((await visuals(recordBase(prop))).assets[0]?.processed).toBeNull();
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.processed).toBeNull();
       expect(logLines.join('')).toContain('"stage":"process"');
 
       const [row] = await handle.db.select().from(assets).where(eq(assets.id, asset.id));
@@ -343,19 +365,18 @@ describe('Visuals API', () => {
       });
       expect((await generate(recordBase(npc), { kind: 'prop' })).statusCode).toBe(400);
 
-      expect((await started(recordBase(npc), { kind: 'monster' })).kind).toBe('monster');
+      const monster = await started(recordBase(npc), { kind: 'monster' });
+      expect(monster.kind).toBe('monster');
       await settled();
       expect(calls[0]).toMatchObject({ aspectRatio: '2:3' });
       expect(calls[0]?.prompt).toContain('Appearance: Tall, salt-stained coat');
       expect(calls[0]?.references.map((r) => r.data)).toEqual(anchorBytes('monster'));
 
+      await discard(recordBase(npc), monster.id);
       expect((await started(recordBase(npc), { kind: 'character' })).kind).toBe('character');
       await settled();
       expect(calls[1]?.references.map((r) => r.data)).toEqual(anchorBytes('character'));
-      expect((await visuals(recordBase(npc))).assets.map((a) => a.kind)).toEqual([
-        'character',
-        'monster',
-      ]);
+      expect((await visuals(recordBase(npc))).drafts.map((a) => a.kind)).toEqual(['character']);
     });
 
     it('draws a PC as a humanoid, from its class and description', async () => {
@@ -425,7 +446,7 @@ describe('Visuals API', () => {
       const asset = await started(recordBase(prop));
       await settled();
 
-      const [summary] = (await visuals(recordBase(prop))).assets;
+      const [summary] = (await visuals(recordBase(prop))).drafts;
       expect(summary?.status).toBe('pending');
       expect(summary?.processed).toEqual({
         width: expect.any(Number) as number,
@@ -469,7 +490,7 @@ describe('Visuals API', () => {
       await started(recordBase(spot));
       await settled();
 
-      expect((await visuals(recordBase(spot))).assets[0]?.processed).toMatchObject({
+      expect((await visuals(recordBase(spot))).drafts.at(-1)?.processed).toMatchObject({
         width: BACKDROP_SIZE.width,
         height: BACKDROP_SIZE.height,
       });
@@ -486,14 +507,14 @@ describe('Visuals API', () => {
       const prop = await aProp('Ship in a Bottle');
       const asset = await started(recordBase(prop));
       await settled();
-      expect((await visuals(recordBase(prop))).assets[0]?.processed).toBeNull();
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.processed).toBeNull();
 
       // The original becomes a real image (as if made before post-processing existed).
       const [row] = await handle.db.select().from(assets).where(eq(assets.id, asset.id));
       await storage.put(row?.originalPath ?? '', await keyedPng());
       expect(await queueStaleProcessing(handle.db, visualQueue)).toBeGreaterThan(0);
       await settled();
-      expect((await visuals(recordBase(prop))).assets[0]?.processed?.version).toBe(
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.processed?.version).toBe(
         PROCESSING_VERSION,
       );
 
@@ -504,7 +525,7 @@ describe('Visuals API', () => {
         .where(eq(assets.id, asset.id));
       const stale = await queueStaleProcessing(handle.db, visualQueue);
       await settled();
-      expect((await visuals(recordBase(prop))).assets[0]?.processed?.version).toBe(
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.processed?.version).toBe(
         PROCESSING_VERSION,
       );
       const again = await queueStaleProcessing(handle.db, visualQueue);
@@ -527,7 +548,7 @@ describe('Visuals API', () => {
       const asset = await started(recordBase(prop));
       await settled();
 
-      expect((await visuals(recordBase(prop))).assets[0]).toMatchObject({
+      expect((await visuals(recordBase(prop))).drafts.at(-1)).toMatchObject({
         status: 'failed',
         errorCode: code,
         costUsd: null,
@@ -540,7 +561,7 @@ describe('Visuals API', () => {
       scripts = [() => ({ status: 'bad_request', message: 'content policy' })];
       await started(recordBase(prop));
       await settled();
-      expect((await visuals(recordBase(prop))).assets[0]?.errorCode).toBe('bad_request');
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.errorCode).toBe('bad_request');
     });
 
     it('tries a rate-limited call once more', async () => {
@@ -549,13 +570,15 @@ describe('Visuals API', () => {
       await started(recordBase(prop));
       await settled();
       expect(calls).toHaveLength(2);
-      expect((await visuals(recordBase(prop))).assets[0]?.status).toBe('pending');
+      const first = (await visuals(recordBase(prop))).drafts.at(-1);
+      expect(first?.status).toBe('pending');
+      await discard(recordBase(prop), first?.id ?? '');
 
       scripts = [() => ({ status: 'rate_limited' }), () => ({ status: 'rate_limited' })];
       await started(recordBase(prop));
       await settled();
       expect(calls).toHaveLength(4);
-      expect((await visuals(recordBase(prop))).assets[0]?.errorCode).toBe('rate_limited');
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.errorCode).toBe('rate_limited');
     });
 
     it('stores a crash as internal and logs only its kind', async () => {
@@ -567,7 +590,7 @@ describe('Visuals API', () => {
       ];
       await started(recordBase(prop));
       await settled();
-      expect((await visuals(recordBase(prop))).assets[0]?.errorCode).toBe('internal');
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.errorCode).toBe('internal');
       expect(logLines.join('')).toContain('"errorName":"TypeError"');
     });
 
@@ -599,7 +622,7 @@ describe('Visuals API', () => {
         row?.id ?? '',
       );
       expect(calls).toHaveLength(0);
-      expect((await visuals(recordBase(prop))).assets[0]).toMatchObject({
+      expect((await visuals(recordBase(prop))).drafts.at(-1)).toMatchObject({
         status: 'failed',
         errorCode: 'key_missing',
       });
@@ -642,8 +665,11 @@ describe('Visuals API', () => {
       expect(again.json<{ message: string }>().message).toMatch(/already being made/);
       release();
       await settled();
-      await started(recordBase(prop));
-      await settled();
+      const waiting = await generate(recordBase(prop), {});
+      expect(waiting.statusCode).toBe(409);
+      expect(waiting.json<{ message: string }>().message).toBe(
+        'Use or discard the new image first.',
+      );
     });
 
     it(`allows ${String(VISUAL_LIMITS.generatingAtOnce)} tries in flight per GM`, async () => {
@@ -691,6 +717,12 @@ describe('Visuals API', () => {
       expect(
         (await call('PUT', `${recordBase(prop, shelf)}/visual`, gm, { assetId: asset.id })).json(),
       ).toMatchObject(archived);
+      expect((await revise(recordBase(prop, shelf), asset.id, 'bigger')).json()).toMatchObject(
+        archived,
+      );
+      expect(
+        (await call('DELETE', `${recordBase(prop, shelf)}/visuals/${asset.id}`, gm)).json(),
+      ).toMatchObject(archived);
       expect((await call('GET', `${recordBase(prop, shelf)}/visuals`, gm)).statusCode).toBe(200);
       expect((await call('GET', imageUrl(asset.id, shelf), gm)).statusCode).toBe(200);
     });
@@ -717,6 +749,7 @@ describe('Visuals API', () => {
       expect((await generate(pcBase(pc, table), { kind: 'character' }, player)).statusCode).toBe(
         403,
       );
+      expect((await revise(pcBase(pc, table), asset.id, 'taller', player)).statusCode).toBe(403);
       expect((await call('GET', imageUrl(asset.id, table), player)).statusCode).toBe(403);
       // The player's own sheet doesn't carry the visual (yet).
       const own = await call('GET', pcBase(pc, table), player);
@@ -725,66 +758,370 @@ describe('Visuals API', () => {
     });
   });
 
-  describe('Use this one', () => {
-    it("makes a finished try the record's visual and marks it approved", async () => {
-      const prop = await aProp('Chosen Bell');
-      const first = await started(recordBase(prop));
+  describe('review (F2.5)', () => {
+    /** A draft for `base` with a real, processable image, finished. */
+    async function aDraft(base: string): Promise<AssetSummary> {
+      const png = await keyedPng();
+      scripts = [() => ({ status: 'ok', image: png, mediaType: 'image/png', costUsd: 0.07 })];
+      const asset = await started(base);
       await settled();
-      const second = await started(recordBase(prop));
-      await settled();
+      return asset;
+    }
 
-      const response = await call('PUT', `${recordBase(prop)}/visual`, gm, { assetId: first.id });
+    /** The asset's row, and whether each of its files is still in storage. */
+    async function filesOf(assetId: string) {
+      const row = await rowOf(assetId);
+      return { row, original: row?.originalPath, processed: row?.processedPath };
+    }
+
+    async function expectDiscarded(assetId: string, keys: (string | null | undefined)[]) {
+      expect(await rowOf(assetId)).toMatchObject({
+        status: 'rejected',
+        errorCode: null,
+        originalPath: null,
+        processedPath: null,
+        processingVersion: null,
+      });
+      for (const key of keys) {
+        if (key !== null && key !== undefined) expect(await storage.read(key)).toBeNull();
+      }
+      expect((await call('GET', imageUrl(assetId), gm)).statusCode).toBe(404);
+      expect((await call('GET', `${imageUrl(assetId)}?v=original`, gm)).statusCode).toBe(404);
+    }
+
+    it("Use this makes a draft the record's visual, shown as the image in use", async () => {
+      const prop = await aProp('Chosen Bell');
+      const asset = await aDraft(recordBase(prop));
+
+      const response = await use(recordBase(prop), asset.id);
       expect(response.statusCode, response.body).toBe(200);
       const body = response.json<VisualsResponse>();
-      expect(body.visualAssetId).toBe(first.id);
-      expect(body.assets.map((a) => [a.id, a.status])).toEqual([
-        [second.id, 'pending'],
-        [first.id, 'approved'],
-      ]);
-
-      const record = await call('GET', recordBase(prop), gm);
-      expect(record.json<CampaignRecord>().visualAssetId).toBe(first.id);
-
-      await call('PUT', `${recordBase(prop)}/visual`, gm, { assetId: second.id });
-      expect((await visuals(recordBase(prop))).visualAssetId).toBe(second.id);
+      expect(body.visualAssetId).toBe(asset.id);
+      expect(body.inUse).toMatchObject({ id: asset.id, status: 'approved' });
+      expect(body.drafts).toEqual([]);
+      expect((await call('GET', recordBase(prop), gm)).json<CampaignRecord>().visualAssetId).toBe(
+        asset.id,
+      );
+      // Using it again changes nothing.
+      expect((await use(recordBase(prop), asset.id)).statusCode).toBe(200);
     });
 
     it("sets a PC's visual", async () => {
       const pc = await makePc('Chosen PC');
       const asset = await started(pcBase(pc));
       await settled();
-      const response = await call('PUT', `${pcBase(pc)}/visual`, gm, { assetId: asset.id });
+      const response = await use(pcBase(pc), asset.id);
       expect(response.statusCode, response.body).toBe(200);
       const sheet = await call('GET', pcBase(pc), gm);
       expect(sheet.json<CharacterSheet>().visualAssetId).toBe(asset.id);
     });
 
-    it("refuses another record's try, and a try with no image", async () => {
+    it('shows the image in use first, beside a newer draft', async () => {
+      const prop = await aProp('Two Bells');
+      const current = await aDraft(recordBase(prop));
+      await use(recordBase(prop), current.id);
+      const draft = await aDraft(recordBase(prop));
+
+      const body = await visuals(recordBase(prop));
+      expect(body.inUse?.id).toBe(current.id);
+      expect(body.drafts.map((a) => [a.id, a.status])).toEqual([[draft.id, 'pending']]);
+    });
+
+    it('Replace discards the image it replaces, files and all', async () => {
+      const prop = await aProp('Replaced Bell');
+      const old = await aDraft(recordBase(prop));
+      await use(recordBase(prop), old.id);
+      const { original, processed } = await filesOf(old.id);
+      expect(original).not.toBeNull();
+      expect(processed).not.toBeNull();
+      const fresh = await aDraft(recordBase(prop));
+
+      const body = (await use(recordBase(prop), fresh.id)).json<VisualsResponse>();
+      expect(body.inUse?.id).toBe(fresh.id);
+      expect(body.drafts).toEqual([]);
+      await expectDiscarded(old.id, [original, processed]);
+    });
+
+    it('Discard and Keep current discard the draft and keep the image in use', async () => {
+      const prop = await aProp('Kept Bell');
+      const draft = await aDraft(recordBase(prop));
+      const { original, processed } = await filesOf(draft.id);
+      const body = await discard(recordBase(prop), draft.id);
+      expect(body).toMatchObject({ visualAssetId: null, inUse: null, drafts: [] });
+      await expectDiscarded(draft.id, [original, processed]);
+
+      const current = await aDraft(recordBase(prop));
+      await use(recordBase(prop), current.id);
+      const newer = await aDraft(recordBase(prop));
+      const kept = await discard(recordBase(prop), newer.id);
+      expect(kept.inUse?.id).toBe(current.id);
+      expect(kept.drafts).toEqual([]);
+      // Discarding again changes nothing.
+      expect((await discard(recordBase(prop), newer.id)).inUse?.id).toBe(current.id);
+    });
+
+    it('never discards the image in use', async () => {
+      const prop = await aProp('Clung Bell');
+      const asset = await aDraft(recordBase(prop));
+      await use(recordBase(prop), asset.id);
+      const refused = await call('DELETE', `${recordBase(prop)}/visuals/${asset.id}`, gm);
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json<{ message: string }>().message).toMatch(/image in use/);
+      expect((await rowOf(asset.id))?.status).toBe('approved');
+    });
+
+    it('refuses a fresh try while a draft waits for review', async () => {
+      const prop = await aProp('Waiting Bell');
+      await aDraft(recordBase(prop));
+      const response = await generate(recordBase(prop), {});
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ message: string }>().message).toBe(
+        'Use or discard the new image first.',
+      );
+    });
+
+    it("Regenerate with notes sends only the draft's untouched original, with the notes", async () => {
+      const prop = await aProp('Revised Bell');
+      const base = await aDraft(recordBase(prop));
+      const { row } = await filesOf(base.id);
+      const original = await storage.read(row?.originalPath ?? '');
+
+      const response = await revise(recordBase(prop), base.id, `  bigger clapper ${NOTES_MARK} `);
+      expect(response.statusCode, response.body).toBe(202);
+      const revision = response.json<AssetSummary>();
+      expect(revision).toMatchObject({
+        kind: 'prop',
+        status: 'generating',
+        revisedFromId: base.id,
+        revisionNotes: `bigger clapper ${NOTES_MARK}`,
+      });
+      await settled();
+
+      const input = calls.at(-1);
+      expect(input?.references).toHaveLength(1);
+      expect(input?.references[0]?.data).toEqual(original);
+      expect(input?.references[0]?.mediaType).toBe('image/png');
+      expect(input?.prompt.startsWith(BIBLE.base)).toBe(true);
+      expect(input?.prompt).toContain(`Appearance: A barnacled bell on a post ${APPEARANCE_MARK}`);
+      expect(input?.prompt).toContain('reference image');
+      expect(input?.prompt.endsWith(`bigger clapper ${NOTES_MARK}`)).toBe(true);
+      const [stored] = await handle.db
+        .select({ prompt: assets.prompt })
+        .from(assets)
+        .where(eq(assets.id, revision.id));
+      expect(stored?.prompt).toBe(input?.prompt);
+
+      // Both versions wait side by side for Keep new or Go back.
+      const body = await visuals(recordBase(prop));
+      expect(body.drafts.map((a) => [a.id, a.status, a.revisedFromId])).toEqual([
+        [base.id, 'pending', null],
+        [revision.id, 'pending', base.id],
+      ]);
+    });
+
+    it('Keep new and Go back settle a comparison; nothing else may happen until then', async () => {
+      const prop = await aProp('Compared Bell');
+      const base = await aDraft(recordBase(prop));
+      const first = (await revise(recordBase(prop), base.id, 'add a rope')).json<AssetSummary>();
+      await settled();
+
+      const compareFirst = 'Keep the new version or go back to the old one first.';
+      for (const response of [
+        await use(recordBase(prop), first.id),
+        await use(recordBase(prop), base.id),
+        await revise(recordBase(prop), base.id, 'again'),
+        await revise(recordBase(prop), first.id, 'again'),
+      ]) {
+        expect(response.statusCode).toBe(409);
+        expect(response.json<{ message: string }>().message).toBe(compareFirst);
+      }
+      expect((await generate(recordBase(prop), {})).statusCode).toBe(409);
+
+      // Keep new: the old version goes, and the new one is the draft.
+      const kept = await discard(recordBase(prop), base.id);
+      expect(kept.drafts.map((a) => a.id)).toEqual([first.id]);
+
+      // Revise again, then Go back: the newest goes.
+      const second = (await revise(recordBase(prop), first.id, 'brass')).json<AssetSummary>();
+      await settled();
+      const back = await discard(recordBase(prop), second.id);
+      expect(back.drafts.map((a) => a.id)).toEqual([first.id]);
+      expect((await use(recordBase(prop), first.id)).json<VisualsResponse>().inUse?.id).toBe(
+        first.id,
+      );
+    });
+
+    it('regenerates the image in use, then Replace swaps it', async () => {
+      const prop = await aProp('Retouched Bell');
+      const current = await aDraft(recordBase(prop));
+      await use(recordBase(prop), current.id);
+      const { row } = await filesOf(current.id);
+      const original = await storage.read(row?.originalPath ?? '');
+
+      const revision = (await revise(recordBase(prop), current.id, 'shinier')).json<AssetSummary>();
+      await settled();
+      expect(calls.at(-1)?.references.map((r) => r.data)).toEqual([original]);
+      const body = await visuals(recordBase(prop));
+      expect(body.inUse?.id).toBe(current.id);
+      expect(body.drafts.map((a) => a.id)).toEqual([revision.id]);
+      // With a draft waiting, the image in use can't be changed again.
+      expect((await revise(recordBase(prop), current.id, 'again')).statusCode).toBe(409);
+
+      const replaced = (await use(recordBase(prop), revision.id)).json<VisualsResponse>();
+      expect(replaced.inUse?.id).toBe(revision.id);
+      await expectDiscarded(current.id, [row?.originalPath, row?.processedPath]);
+    });
+
+    it('refuses notes that are empty or too long, and images that are not this one', async () => {
       const prop = await aProp('Picky Bell');
       const other = await aProp('Other Bell');
-      const theirs = await started(recordBase(other));
-      await settled();
-      const notFound = await call('PUT', `${recordBase(prop)}/visual`, gm, { assetId: theirs.id });
-      expect(notFound.statusCode).toBe(404);
+      const mine = await aDraft(recordBase(prop));
+      const theirs = await aDraft(recordBase(other));
 
+      expect((await revise(recordBase(prop), mine.id, '   ')).statusCode).toBe(400);
+      expect(
+        (await revise(recordBase(prop), mine.id, 'x'.repeat(VISUAL_LIMITS.notesMax + 1)))
+          .statusCode,
+      ).toBe(400);
+      expect((await revise(recordBase(prop), theirs.id, 'mine now')).statusCode).toBe(404);
+      expect((await use(recordBase(prop), theirs.id)).statusCode).toBe(404);
+      expect(
+        (await call('DELETE', `${recordBase(prop)}/visuals/${theirs.id}`, gm)).statusCode,
+      ).toBe(404);
+      expect((await rowOf(theirs.id))?.status).toBe('pending');
+
+      await discard(recordBase(prop), mine.id);
+      expect((await revise(recordBase(prop), mine.id, 'come back')).statusCode).toBe(404);
+      expect((await use(recordBase(prop), mine.id)).statusCode).toBe(404);
+      expect(calls).toHaveLength(2);
+    });
+
+    it('refuses a revision when the GM has no key', async () => {
+      const own = await newCampaign('Keyless Review', keyless);
+      const prop = await makeRecord({ type: 'prop', name: 'Unpaid Revision' }, own, keyless);
+      const [row] = await handle.db
+        .insert(assets)
+        .values({
+          campaignId: own.id,
+          recordId: prop.id,
+          createdBy: keyless.id,
+          kind: 'prop',
+          status: 'pending',
+          prompt: 'seeded',
+          model: IMAGE_MODEL,
+          styleBibleVersion: 1,
+          quality: 'medium',
+          aspectRatio: '1:1',
+          originalPath: `campaigns/${own.id}/seeded.png`,
+        })
+        .returning();
+      const response = await revise(recordBase(prop, own), row?.id ?? '', 'redder', keyless);
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ message: NO_OPENROUTER_KEY });
+    });
+
+    it('refuses to use or discard while an image is being made', async () => {
+      const prop = await aProp('Busy Review');
+      const base = await aDraft(recordBase(prop));
+      const { release } = hold();
+      await revise(recordBase(prop), base.id, 'wait for me');
+      for (const response of [
+        await use(recordBase(prop), base.id),
+        await call('DELETE', `${recordBase(prop)}/visuals/${base.id}`, gm),
+      ]) {
+        expect(response.statusCode).toBe(409);
+        expect(response.json<{ message: string }>().message).toMatch(/already being made/);
+      }
+      release();
+      await settled();
+    });
+
+    it('fails a revision whose image has lost its file, and lets the GM dismiss it', async () => {
+      const prop = await aProp('Lost Bell');
+      const base = await aDraft(recordBase(prop));
+      const { original } = await filesOf(base.id);
+      await storage.remove(original ?? '');
+
+      const revision = (await revise(recordBase(prop), base.id, 'anything')).json<AssetSummary>();
+      await settled();
+      const body = await visuals(recordBase(prop));
+      expect(body.drafts.map((a) => [a.id, a.status, a.errorCode])).toEqual([
+        [base.id, 'pending', null],
+        [revision.id, 'failed', 'source_missing'],
+      ]);
+      expect(calls).toHaveLength(1);
+
+      const dismissed = await discard(recordBase(prop), revision.id);
+      expect(dismissed.drafts.map((a) => a.id)).toEqual([base.id]);
+      expect(await rowOf(revision.id)).toMatchObject({ status: 'rejected', errorCode: null });
+    });
+
+    it('dismisses a failed try when the next one starts', async () => {
+      const prop = await aProp('Retried Bell');
       scripts = [() => ({ status: 'failed' })];
       const failed = await started(recordBase(prop));
       await settled();
-      const refused = await call('PUT', `${recordBase(prop)}/visual`, gm, { assetId: failed.id });
-      expect(refused.statusCode).toBe(409);
-      expect((await visuals(recordBase(prop))).visualAssetId).toBeNull();
+      expect((await use(recordBase(prop), failed.id)).statusCode).toBe(409);
+
+      const next = await started(recordBase(prop));
+      await settled();
+      expect((await visuals(recordBase(prop))).drafts.map((a) => a.id)).toEqual([next.id]);
+      expect((await rowOf(failed.id))?.status).toBe('rejected');
     });
 
-    it('keeps the asset and its image when the record is deleted', async () => {
+    it('keeps the image in use when the record is deleted, and discards its draft', async () => {
       const prop = await aProp('Doomed Bell');
-      const asset = await started(recordBase(prop));
-      await settled();
-      await call('PUT', `${recordBase(prop)}/visual`, gm, { assetId: asset.id });
+      const asset = await aDraft(recordBase(prop));
+      await use(recordBase(prop), asset.id);
+      const draft = await aDraft(recordBase(prop));
+      const { original, processed } = await filesOf(draft.id);
 
       expect((await call('DELETE', recordBase(prop), gm)).statusCode).toBe(204);
-      const [row] = await handle.db.select().from(assets).where(eq(assets.id, asset.id));
-      expect(row).toMatchObject({ recordId: null, status: 'approved' });
+      expect(await rowOf(asset.id)).toMatchObject({ recordId: null, status: 'approved' });
       expect((await call('GET', imageUrl(asset.id), gm)).statusCode).toBe(200);
+
+      // The startup sweep discards the orphaned draft and deletes its files.
+      expect(await purgeDiscarded(handle.db, storage)).toBeGreaterThanOrEqual(1);
+      await expectDiscarded(draft.id, [original, processed]);
+      expect((await rowOf(asset.id))?.status).toBe('approved');
+    });
+
+    it('deletes at startup the files a discard left behind', async () => {
+      const prop = await aProp('Half Discarded');
+      const draft = await aDraft(recordBase(prop));
+      const { original, processed } = await filesOf(draft.id);
+      // As if the server stopped between marking it discarded and deleting its files.
+      await handle.db.update(assets).set({ status: 'rejected' }).where(eq(assets.id, draft.id));
+      expect(await storage.read(original ?? '')).not.toBeNull();
+
+      expect(await purgeDiscarded(handle.db, storage)).toBeGreaterThanOrEqual(1);
+      await expectDiscarded(draft.id, [original, processed]);
+      expect(await purgeDiscarded(handle.db, storage)).toBe(0);
+    });
+
+    it('leaves no stage version behind for a try discarded while it was processed', async () => {
+      const prop = await aProp('Raced Bell');
+      const draft = await aDraft(recordBase(prop));
+      await handle.db
+        .update(assets)
+        .set({ processingVersion: PROCESSING_VERSION - 1 })
+        .where(eq(assets.id, draft.id));
+      const { processed } = await filesOf(draft.id);
+      await storage.remove(processed ?? '');
+
+      await processStoredVisual(
+        {
+          db: handle.db,
+          storage,
+          processImage: async (input, kind) => {
+            await discard(recordBase(prop), draft.id);
+            return processImage(input, kind);
+          },
+        },
+        draft.id,
+      );
+      expect(await storage.read(processed ?? '')).toBeNull();
+      expect((await rowOf(draft.id))?.processedPath).toBeNull();
     });
   });
 
@@ -797,14 +1134,14 @@ describe('Visuals API', () => {
         .update(assets)
         .set({ createdAt: sql`now() - interval '20 minutes'` })
         .where(eq(assets.id, asset.id));
-      expect((await visuals(recordBase(prop))).assets[0]).toMatchObject({
+      expect((await visuals(recordBase(prop))).drafts.at(-1)).toMatchObject({
         status: 'failed',
         errorCode: 'interrupted',
       });
       release();
       await settled();
       // The late answer doesn't bring it back.
-      expect((await visuals(recordBase(prop))).assets[0]?.status).toBe('failed');
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.status).toBe('failed');
     });
 
     it('fails tries cut off by a restart, and leaves queued ones to run', async () => {
@@ -844,7 +1181,13 @@ describe('Visuals API', () => {
       // The logger really ran at trace level for these requests.
       expect(everything).toContain('/visuals');
       expect(logLines.length).toBeGreaterThan(50);
-      for (const secret of [APPEARANCE_MARK, GM_KEY, GM_KEY.slice(9, 30), 'Tall, salt-stained']) {
+      for (const secret of [
+        APPEARANCE_MARK,
+        NOTES_MARK,
+        GM_KEY,
+        GM_KEY.slice(9, 30),
+        'Tall, salt-stained',
+      ]) {
         expect(everything).not.toContain(secret);
       }
 

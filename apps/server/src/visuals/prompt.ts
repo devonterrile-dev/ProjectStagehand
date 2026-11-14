@@ -3,10 +3,13 @@
  * asset kind's template, filled with the subject's name and a few labelled lines from its
  * fields. The lines and their order match the fixed test set (`eval/images/test-set.ts`), so
  * what `pnpm style:sample` tried is what the GM gets.
+ *
+ * A Regenerate with notes (F2.5) adds the style bible's revision block after that prompt.
  */
 import { richTextToPlainText, type AssetKind, type RichText } from '@stagehand/shared';
 import {
   buildImagePrompt,
+  buildRevisionPrompt,
   subjectLines,
   type StyleBible,
   type SubjectLine,
@@ -75,8 +78,25 @@ export function subjectLinesFor(source: VisualSource): SubjectLine[] {
   }
 }
 
+function promptInput(source: VisualSource): { name: string; subject: string } {
+  const lines = subjectLinesFor(source).map(([label, value]) => [label, capped(value)] as const);
+  return { name: source.name, subject: subjectLines(lines) };
+}
+
 /** The full text prompt sent to the image model. */
 export function visualPrompt(bible: StyleBible, kind: AssetKind, source: VisualSource): string {
-  const lines = subjectLinesFor(source).map(([label, value]) => [label, capped(value)] as const);
-  return buildImagePrompt(bible, kind, { name: source.name, subject: subjectLines(lines) });
+  return buildImagePrompt(bible, kind, promptInput(source));
+}
+
+/**
+ * The prompt for a Regenerate with notes (F2.5, D-44): the record's prompt as it reads now, then
+ * the style bible's revision block with the GM's notes. Sent with the image being changed.
+ */
+export function revisionPrompt(
+  bible: StyleBible,
+  kind: AssetKind,
+  source: VisualSource,
+  notes: string,
+): string {
+  return buildRevisionPrompt(bible, kind, { ...promptInput(source), notes });
 }

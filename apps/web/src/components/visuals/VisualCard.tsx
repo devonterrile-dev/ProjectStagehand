@@ -3,41 +3,36 @@ import {
   isCutoutKind,
   VISUAL_COST_ESTIMATE_USD,
   VISUAL_ERROR_MESSAGES,
+  VISUAL_LIMITS,
+  VISUAL_REVISION_COST_ESTIMATE_USD,
   visualKindsFor,
   type AssetKind,
   type AssetSummary,
   type VisualSubject,
 } from '@stagehand/shared';
-import { cn } from 'cn';
-import { ImageIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ImageIcon, PencilIcon } from 'lucide-react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { formatUsd } from '@/lib/ai-import';
 import { ApiError, type VisualOwnerRef } from '@/lib/api';
 import {
   useChooseVisual,
+  useDiscardVisual,
   useGenerateVisual,
   useProviderCredentials,
+  useReviseVisual,
   useVisuals,
 } from '@/lib/queries';
 
+import { ImageViewer, type ViewerItem } from './ImageViewer';
+import { CHECKERBOARD, KIND_LABELS, visualAlt } from './visual-style';
 import { VisualKindDialog } from './VisualKindDialog';
-
-/** Behind a cutout, so its transparency shows: a checkerboard in the theme's muted color. */
-const CHECKERBOARD = {
-  background: 'repeating-conic-gradient(var(--muted) 0 25%, transparent 0 50%) 0 0 / 16px 16px',
-};
-
-const KIND_LABELS: Record<AssetKind, string> = {
-  character: 'Humanoid',
-  monster: 'Monster',
-  prop: 'Prop',
-  backdrop: 'Backdrop',
-};
 
 /** A 409 that the GM fixes in Settings (no key, or one that can't be read any more). */
 const needsSettings = (error: unknown) =>
@@ -54,11 +49,32 @@ interface VisualCardProps {
   className?: string;
 }
 
+/** What the card shows, worked out from the image in use and the drafts (D-44). */
+type Review =
+  /** Nothing to review: the image in use, or none. */
+  | { mode: 'idle' }
+  /** One finished draft: Use this / Discard, or Replace / Keep current beside the image in use. */
+  | { mode: 'draft'; draft: AssetSummary }
+  /** A draft and a change of it: Keep new / Go back. */
+  | { mode: 'compare'; before: AssetSummary; after: AssetSummary };
+
+function reviewOf(drafts: readonly AssetSummary[]): Review {
+  const pending = drafts.filter((asset) => asset.status === 'pending');
+  const after = pending.find((asset) => pending.some((other) => other.id === asset.revisedFromId));
+  const before = pending.find((asset) => asset.id === after?.revisedFromId);
+  if (after !== undefined && before !== undefined) return { mode: 'compare', before, after };
+  const [draft] = pending.slice(-1);
+  return draft === undefined ? { mode: 'idle' } : { mode: 'draft', draft };
+}
+
 /**
- * Generate visual (F2.3, governance §11): the record's or PC's tries at an image, newest
- * first, with the one in use marked. Generate starts a new try in the background (an NPC
- * asks humanoid or monster first); the card polls until it is ready. Images are shown as the
- * stage will use them (F2.4: cutouts on a checkerboard, so their transparency shows), with the
+ * Generate visual (F2.3) and review (F2.5, governance §11, D-44). A record or PC has one image
+ * in use, always shown first, and at most a draft under review:
+ * - with no image in use, the GM uses or discards the draft;
+ * - beside an image in use, the GM keeps the current one or replaces it;
+ * - Regenerate with notes sends the draft (or the image in use) back with the GM's notes, and
+ *   the two versions are compared until the GM keeps the new one or goes back.
+ * Images are shown as the stage will use them (F2.4: cutouts on a checkerboard), with the
  * model's original a click away.
  */
 export function VisualCard({
@@ -72,30 +88,118 @@ export function VisualCard({
   const visuals = useVisuals(campaignId, owner, true);
   const credentials = useProviderCredentials();
   const generate = useGenerateVisual(campaignId, owner);
+  const revise = useReviseVisual(campaignId, owner);
   const choose = useChooseVisual(campaignId, owner);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const discard = useDiscardVisual(campaignId, owner);
   const [asking, setAsking] = useState(false);
+  const [revising, setRevising] = useState<string | null>(null);
+  /** The kind last asked for here, for the next question once its image was discarded. */
+  const [chosenKind, setChosenKind] = useState<AssetKind | null>(null);
+  /** The image open in the large viewer, among the ones shown. */
+  const [viewing, setViewing] = useState<{ items: ViewerItem[]; index: number } | null>(null);
 
   const kinds = visualKindsFor(subject);
-  const assets = visuals.data?.assets ?? [];
-  const inUse = visuals.data?.visualAssetId ?? null;
-  const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0] ?? null;
-  const busy = assets.some((asset) => asset.status === 'generating');
+  const inUse = visuals.data?.inUse ?? null;
+  const drafts = visuals.data?.drafts ?? [];
+  const working = drafts.find((asset) => asset.status === 'generating') ?? null;
+  const failed = drafts.filter((asset) => asset.status === 'failed');
+  const review = reviewOf(drafts);
   const hasKey = credentials.data?.some((c) => c.provider === 'openrouter') ?? true;
   const [defaultKind = 'prop'] = kinds;
-  const lastKind = assets.find((asset) => kinds.includes(asset.kind))?.kind ?? defaultKind;
+  const lastKind =
+    [...drafts, ...(inUse === null ? [] : [inUse])].find((asset) => kinds.includes(asset.kind))
+      ?.kind ??
+    chosenKind ??
+    defaultKind;
+  const pending = generate.isPending || revise.isPending || choose.isPending || discard.isPending;
+  const locked = working !== null || pending;
+
+  function resetErrors() {
+    generate.reset();
+    revise.reset();
+    choose.reset();
+    discard.reset();
+  }
 
   function start(kind?: AssetKind) {
     setAsking(false);
-    choose.reset();
-    generate.mutate(kind === undefined ? {} : { kind }, {
-      onSuccess: (asset) => {
-        setSelectedId(asset.id);
-      },
-    });
+    if (kind !== undefined) setChosenKind(kind);
+    resetErrors();
+    generate.mutate(kind === undefined ? {} : { kind });
   }
 
-  const error = generate.error ?? choose.error;
+  function sendNotes(assetId: string, notes: string) {
+    resetErrors();
+    revise.mutate(
+      { assetId, notes },
+      {
+        onSuccess: () => {
+          setRevising(null);
+        },
+      },
+    );
+  }
+
+  function use(assetId: string) {
+    resetErrors();
+    choose.mutate(assetId);
+  }
+
+  function drop(assetId: string) {
+    resetErrors();
+    discard.mutate(assetId);
+  }
+
+  const error = generate.error ?? revise.error ?? choose.error ?? discard.error;
+  /** The images on show, in order: what the large viewer flips between. */
+  const shown: ViewerItem[] = [];
+  const shot = (asset: AssetSummary, label?: string) => {
+    const index = shown.push({ asset, label }) - 1;
+    return (
+      <Shot
+        key={asset.id}
+        campaignId={campaignId}
+        asset={asset}
+        name={name}
+        label={label}
+        inUse={asset.id === inUse?.id}
+        onEnlarge={() => {
+          setViewing({ items: [...shown], index });
+        }}
+      />
+    );
+  };
+
+  /** The image a Regenerate with notes would change now, if any. */
+  const revisable = review.mode === 'draft' ? review.draft : review.mode === 'idle' ? inUse : null;
+
+  let images: ReactNode;
+  if (review.mode === 'compare') {
+    images = (
+      <Pair>
+        {shot(review.before, 'Before')}
+        {shot(review.after, 'After')}
+      </Pair>
+    );
+  } else if (review.mode === 'draft' && inUse !== null) {
+    images = (
+      <Pair>
+        {shot(inUse, 'Current')}
+        {shot(review.draft, 'New')}
+      </Pair>
+    );
+  } else if (review.mode === 'draft') {
+    images = shot(review.draft);
+  } else if (inUse !== null) {
+    images = shot(inUse);
+  } else if (working === null && failed.length === 0) {
+    images = (
+      <p className="text-sm text-muted-foreground">
+        No visual yet. Generate one from this {subject === 'pc' ? 'sheet' : 'record'}&apos;s
+        {subject === 'spot' ? ' backdrop notes' : ' appearance'} and description.
+      </p>
+    );
+  }
 
   return (
     <Card role="region" aria-label="Visual" className={className}>
@@ -109,70 +213,37 @@ export function VisualCard({
           <p role="alert" className="text-sm">
             Could not load the visuals. Try again in a moment.
           </p>
-        ) : selected === null ? (
-          <p className="text-sm text-muted-foreground">
-            No visual yet. Generate one from this {subject === 'pc' ? 'sheet' : 'record'}&apos;s
-            {subject === 'spot' ? ' backdrop notes' : ' appearance'} and description.
-          </p>
         ) : (
-          <SelectedTry
-            key={selected.id}
-            campaignId={campaignId}
-            asset={selected}
-            name={name}
-            inUse={selected.id === inUse}
-            readOnly={readOnly}
-            choosing={choose.isPending}
-            onChoose={() => {
-              generate.reset();
-              choose.mutate(selected.id);
-            }}
-          />
-        )}
-
-        {assets.length > 1 && (
-          <ul className="flex flex-wrap gap-2" aria-label="Tries">
-            {assets.map((asset, index) => (
-              <li key={asset.id}>
-                <button
-                  type="button"
-                  aria-label={`Try ${String(assets.length - index)}${asset.id === inUse ? ', in use' : ''}`}
-                  aria-pressed={asset.id === selected?.id}
-                  className={cn(
-                    'flex size-14 items-center justify-center overflow-hidden rounded-md border text-xs text-muted-foreground',
-                    asset.status !== 'pending' && asset.status !== 'approved' && 'bg-muted',
-                    asset.id === selected?.id && 'ring-2 ring-ring',
-                  )}
-                  style={
-                    (asset.status === 'pending' || asset.status === 'approved') &&
-                    isCutoutKind(asset.kind)
-                      ? CHECKERBOARD
-                      : undefined
-                  }
-                  onClick={() => {
-                    setSelectedId(asset.id);
-                  }}
-                >
-                  {asset.status === 'pending' || asset.status === 'approved' ? (
-                    <img
-                      src={assetImagePath(campaignId, asset.id, { processed: asset.processed })}
-                      alt=""
-                      loading="lazy"
-                      className="size-full object-contain"
-                    />
-                  ) : asset.status === 'generating' ? (
-                    '…'
-                  ) : (
-                    '✕'
-                  )}
-                </button>
-              </li>
+          <>
+            {images}
+            {working !== null && <Generating asset={working} />}
+            {failed.map((asset) => (
+              <div
+                key={asset.id}
+                role="status"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+              >
+                <span>
+                  {asset.errorCode === null
+                    ? 'This image was not made.'
+                    : VISUAL_ERROR_MESSAGES[asset.errorCode]}
+                </span>
+                {!readOnly && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={locked}
+                    onClick={() => {
+                      drop(asset.id);
+                    }}
+                  >
+                    Dismiss
+                  </Button>
+                )}
+              </div>
             ))}
-          </ul>
-        )}
-
-        {inUse !== null && !assets.some((asset) => asset.id === inUse) && (
-          <p className="text-xs text-muted-foreground">The visual in use is an older try.</p>
+          </>
         )}
 
         {error !== null && (
@@ -186,8 +257,59 @@ export function VisualCard({
           </p>
         )}
 
-        {!readOnly && (
-          <div className="space-y-2">
+        {!readOnly && visuals.isSuccess && (
+          <div className="space-y-3">
+            {review.mode === 'compare' && (
+              <Actions>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={locked}
+                  onClick={() => {
+                    drop(review.before.id);
+                  }}
+                >
+                  Keep new
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={locked}
+                  onClick={() => {
+                    drop(review.after.id);
+                  }}
+                >
+                  Go back
+                </Button>
+              </Actions>
+            )}
+            {review.mode === 'draft' && (
+              <Actions>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={locked}
+                  onClick={() => {
+                    use(review.draft.id);
+                  }}
+                >
+                  {inUse === null ? 'Use this' : 'Replace'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={locked}
+                  onClick={() => {
+                    drop(review.draft.id);
+                  }}
+                >
+                  {inUse === null ? 'Discard' : 'Keep current'}
+                </Button>
+              </Actions>
+            )}
+
             {!hasKey ? (
               <p className="text-sm text-muted-foreground">
                 Add your OpenRouter key in Settings to make images.{' '}
@@ -195,29 +317,74 @@ export function VisualCard({
                   Open Settings
                 </Link>
               </p>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy || generate.isPending}
-                onClick={() => {
-                  if (kinds.length > 1) setAsking(true);
-                  else start();
+            ) : revisable !== null && revising === revisable.id ? (
+              <NotesForm
+                busy={locked}
+                onCancel={() => {
+                  setRevising(null);
                 }}
-              >
-                <ImageIcon aria-hidden />
-                {assets.length === 0 ? 'Generate visual' : 'Generate another'}
-              </Button>
-            )}
-            {hasKey && (
-              <p className="text-xs text-muted-foreground">
-                About {formatUsd(VISUAL_COST_ESTIMATE_USD[lastKind])} an image, on your OpenRouter
-                key.
-              </p>
+                onSend={(notes) => {
+                  sendNotes(revisable.id, notes);
+                }}
+              />
+            ) : (
+              <>
+                <Actions>
+                  {revisable !== null && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={locked}
+                      onClick={() => {
+                        resetErrors();
+                        setRevising(revisable.id);
+                      }}
+                    >
+                      <PencilIcon aria-hidden />
+                      Regenerate with notes
+                    </Button>
+                  )}
+                  {review.mode === 'idle' && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={locked}
+                      onClick={() => {
+                        if (kinds.length > 1) setAsking(true);
+                        else start();
+                      }}
+                    >
+                      <ImageIcon aria-hidden />
+                      {inUse === null ? 'Generate visual' : 'Generate new'}
+                    </Button>
+                  )}
+                </Actions>
+                {review.mode === 'idle' && (
+                  <p className="text-xs text-muted-foreground">
+                    About {formatUsd(VISUAL_COST_ESTIMATE_USD[lastKind])} an image, on your
+                    OpenRouter key.
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
+
+        <ImageViewer
+          campaignId={campaignId}
+          name={name}
+          open={viewing !== null}
+          onOpenChange={(open) => {
+            if (!open) setViewing(null);
+          }}
+          items={viewing?.items ?? []}
+          index={viewing?.index ?? 0}
+          onIndexChange={(index) => {
+            setViewing((current) => (current === null ? current : { ...current, index }));
+          }}
+        />
 
         {kinds.length > 1 && (
           <VisualKindDialog
@@ -233,78 +400,131 @@ export function VisualCard({
   );
 }
 
-function SelectedTry({
+function Pair({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>;
+}
+
+function Actions({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap gap-2">{children}</div>;
+}
+
+/**
+ * One image: the stage version (or the original), what kind it is, its cost and notes. Clicking
+ * it opens the large viewer. Only a cutout can switch to its original: a backdrop's stage
+ * version is the same picture, cropped and sized (D-43).
+ */
+function Shot({
   campaignId,
   asset,
   name,
+  label,
   inUse,
-  readOnly,
-  choosing,
-  onChoose,
+  onEnlarge,
 }: {
   campaignId: string;
   asset: AssetSummary;
   name: string;
+  /** "Current" / "New" or "Before" / "After" when two are shown side by side. */
+  label?: string | undefined;
   inUse: boolean;
-  readOnly: boolean;
-  choosing: boolean;
-  onChoose: () => void;
+  onEnlarge: () => void;
 }) {
   const [showOriginal, setShowOriginal] = useState(false);
-  if (asset.status === 'generating') return <Generating asset={asset} />;
-  if (asset.status === 'failed' || asset.status === 'rejected') {
-    return (
-      <p className="rounded-md border px-3 py-2 text-sm" role="status">
-        {asset.errorCode === null
-          ? 'This try was rejected.'
-          : VISUAL_ERROR_MESSAGES[asset.errorCode]}
-      </p>
-    );
-  }
-  const processed = asset.processed !== null && !showOriginal;
-  const label = KIND_LABELS[asset.kind].toLowerCase();
+  const cutout = isCutoutKind(asset.kind);
+  const original = showOriginal && cutout;
+  const alt = visualAlt(name, asset.kind, label, original);
   return (
     <figure className="space-y-2">
-      <div
-        className="overflow-hidden rounded-md border"
-        style={processed && isCutoutKind(asset.kind) ? CHECKERBOARD : undefined}
+      {label !== undefined && <p className="text-sm font-medium">{label}</p>}
+      <button
+        type="button"
+        aria-label={`Enlarge ${alt}`}
+        className="block w-full cursor-zoom-in overflow-hidden rounded-md border transition-shadow hover:ring-2 hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        style={cutout && !original && asset.processed !== null ? CHECKERBOARD : undefined}
+        onClick={onEnlarge}
       >
         <img
           src={assetImagePath(campaignId, asset.id, {
-            variant: showOriginal ? 'original' : 'processed',
+            variant: original ? 'original' : 'processed',
             processed: asset.processed,
           })}
-          alt={`${name}, ${label} visual${showOriginal ? ', original' : ''}`}
+          alt={alt}
           className="max-h-80 w-full object-contain"
         />
-      </div>
-      <figcaption className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Badge variant="secondary">{KIND_LABELS[asset.kind]}</Badge>
-        {inUse && <Badge>In use</Badge>}
-        <span>Cost {formatUsd(asset.costUsd)}</span>
-        {asset.processed === null ? (
-          <span>Not ready for the stage yet: this is the model&apos;s original.</span>
-        ) : (
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            className="h-auto p-0 text-xs"
-            aria-pressed={showOriginal}
-            onClick={() => {
-              setShowOriginal((shown) => !shown);
-            }}
-          >
-            {showOriginal ? 'Show the stage version' : 'Show the original'}
-          </Button>
-        )}
+      </button>
+      <figcaption className="space-y-1 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">{KIND_LABELS[asset.kind]}</Badge>
+          {inUse && <Badge>In use</Badge>}
+          <span>Cost {formatUsd(asset.costUsd)}</span>
+          {asset.processed === null ? (
+            <span>Not ready for the stage yet: this is the model&apos;s original.</span>
+          ) : !cutout ? null : (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              aria-pressed={showOriginal}
+              onClick={() => {
+                setShowOriginal((shown) => !shown);
+              }}
+            >
+              {showOriginal ? 'Show the stage version' : 'Show the original'}
+            </Button>
+          )}
+        </div>
+        {asset.revisionNotes !== null && <p>Notes: {asset.revisionNotes}</p>}
       </figcaption>
-      {!readOnly && !inUse && (
-        <Button type="button" size="sm" disabled={choosing} onClick={onChoose}>
-          Use this one
-        </Button>
-      )}
     </figure>
+  );
+}
+
+/** Regenerate with notes: what to change, sent with the image being changed. */
+function NotesForm({
+  busy,
+  onCancel,
+  onSend,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onSend: (notes: string) => void;
+}) {
+  const fieldId = useId();
+  const [notes, setNotes] = useState('');
+  const empty = notes.trim() === '';
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!empty) onSend(notes.trim());
+      }}
+    >
+      <Label htmlFor={fieldId}>What should change?</Label>
+      <Textarea
+        id={fieldId}
+        value={notes}
+        maxLength={VISUAL_LIMITS.notesMax}
+        rows={3}
+        placeholder="Bigger hat, angrier eyebrows"
+        onChange={(event) => {
+          setNotes(event.target.value);
+        }}
+      />
+      <p className="text-xs text-muted-foreground">
+        {notes.length} / {VISUAL_LIMITS.notesMax}. The image is sent back with these notes: about{' '}
+        {formatUsd(VISUAL_REVISION_COST_ESTIMATE_USD)}, on your OpenRouter key.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" disabled={busy || empty}>
+          Regenerate
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -322,7 +542,9 @@ function Generating({ asset }: { asset: AssetSummary }) {
   const elapsed = `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, '0')}`;
   return (
     <div className="rounded-md border px-3 py-2 text-sm" role="status">
-      <p className="font-medium">Making the image…</p>
+      <p className="font-medium">
+        {asset.revisedFromId === null ? 'Making the image…' : 'Making the new version…'}
+      </p>
       <p className="text-muted-foreground">
         This takes about a minute ({elapsed} so far). You can leave this page and come back.
       </p>

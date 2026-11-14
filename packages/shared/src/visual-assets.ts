@@ -37,9 +37,10 @@ export const imageAspectRatioSchema = z.enum(IMAGE_ASPECT_RATIOS);
 export type ImageAspectRatio = z.infer<typeof imageAspectRatioSchema>;
 
 /**
- * An asset's life (F2.3, D-42): `generating` while its job is queued or running, then
- * `pending` with an image or `failed` without one. The GM's "Use this one" makes it
- * `approved`; `rejected` arrives with review (F2.5).
+ * An asset's life (F2.3, D-42; F2.5, D-44): `generating` while its job is queued or running,
+ * then `pending` with an image (a draft to review) or `failed` without one. "Use this" or
+ * "Replace" makes it `approved`: the record's or PC's one image in use. A discarded or replaced
+ * try is `rejected`: its files are deleted, its row stays for the hourly limit and its cost.
  */
 export const ASSET_STATUSES = ['generating', 'failed', 'pending', 'approved', 'rejected'] as const;
 export const assetStatusSchema = z.enum(ASSET_STATUSES);
@@ -82,6 +83,7 @@ export const VISUAL_ERROR_CODES = [
   'failed',
   'unreachable',
   'interrupted',
+  'source_missing',
   'internal',
 ] as const;
 export const visualErrorCodeSchema = z.enum(VISUAL_ERROR_CODES);
@@ -101,6 +103,7 @@ export const VISUAL_ERROR_MESSAGES: Record<VisualErrorCode, string> = {
   failed: "The image model didn't send an image back. Try again.",
   unreachable: "Couldn't reach OpenRouter. Try again.",
   interrupted: 'The server stopped while this image was being made. Try again.',
+  source_missing: 'The image to change was missing. Generate a new one instead.',
   internal: 'Something went wrong while making this image. Try again.',
 };
 
@@ -112,8 +115,8 @@ export const VISUAL_LIMITS = {
   generatingAtOnce: 3,
   /** A job still `generating` after this long was lost; it is shown and counted as failed. */
   generatingMaxMs: 15 * 60 * 1000,
-  /** Tries listed on a record or PC, newest first. */
-  listed: 12,
+  /** Longest note for a Regenerate with notes (F2.5). */
+  notesMax: 1000,
 } as const;
 
 /**
@@ -127,6 +130,12 @@ export const VISUAL_COST_ESTIMATE_USD: Record<AssetKind, number> = {
   prop: 0.071,
   backdrop: 0.044,
 };
+
+/**
+ * About what a Regenerate with notes costs (F2.5, D-44): one reference image, the one being
+ * changed, instead of the kind's two anchors. A first estimate; the real cost is logged per asset.
+ */
+export const VISUAL_REVISION_COST_ESTIMATE_USD = 0.05;
 
 const timestamp = z.iso.datetime({ offset: true });
 
@@ -151,17 +160,29 @@ export const assetSummarySchema = z.object({
       version: z.int().positive(),
     })
     .nullable(),
+  /** The image this one changes, for a Regenerate with notes (F2.5); null for a fresh one. */
+  revisedFromId: z.uuid().nullable(),
+  /** The GM's notes for that change. */
+  revisionNotes: z.string().nullable(),
   createdAt: timestamp,
   finishedAt: timestamp.nullable(),
 });
 export type AssetSummary = z.infer<typeof assetSummarySchema>;
 
-/** `GET …/records/:recordId/visuals` and `…/characters/:characterId/visuals`. */
+/**
+ * `GET …/records/:recordId/visuals` and `…/characters/:characterId/visuals`, and the answer
+ * to every review action (F2.5, D-44): the one image in use, and the drafts under review.
+ */
 export const visualsResponseSchema = z.object({
   /** The asset in use (approved), or null. */
   visualAssetId: z.uuid().nullable(),
-  /** The latest tries, newest first (at most `VISUAL_LIMITS.listed`). */
-  assets: z.array(assetSummarySchema),
+  /** That asset, or null when there is none (or its row is gone). */
+  inUse: assetSummarySchema.nullable(),
+  /**
+   * Tries not in use and not discarded, oldest first: `generating`, `pending` or `failed`.
+   * At most one fresh draft and one change of it (or of the image in use).
+   */
+  drafts: z.array(assetSummarySchema),
 });
 export type VisualsResponse = z.infer<typeof visualsResponseSchema>;
 
@@ -174,11 +195,24 @@ export const generateVisualRequestSchema = z.strictObject({
 });
 export type GenerateVisualRequest = z.infer<typeof generateVisualRequestSchema>;
 
-/** `PUT …/visual`: use this try as the record's or PC's visual ("Use this one"). */
+/** `PUT …/visual`: use this draft as the record's or PC's visual ("Use this" / "Replace"). */
 export const useVisualRequestSchema = z.strictObject({
   assetId: z.uuid(),
 });
 export type UseVisualRequest = z.infer<typeof useVisualRequestSchema>;
+
+/**
+ * `POST …/visuals/:assetId/revise`: Regenerate with notes (F2.5). The asset's untouched original
+ * goes back to the model with these notes; the result is a new draft.
+ */
+export const reviseVisualRequestSchema = z.strictObject({
+  notes: z
+    .string()
+    .trim()
+    .min(1, 'Say what to change')
+    .max(VISUAL_LIMITS.notesMax, `At most ${String(VISUAL_LIMITS.notesMax)} characters`),
+});
+export type ReviseVisualRequest = z.infer<typeof reviseVisualRequestSchema>;
 
 /** Which file of an asset: the stage's version (the default) or the model's original. */
 export const ASSET_IMAGE_VARIANTS = ['processed', 'original'] as const;

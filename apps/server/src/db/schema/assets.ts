@@ -2,7 +2,9 @@
  * Visual assets (F2.3, governance §8 and §11, D-42). One row per try at an image for a record
  * (NPC, Prop, Item, Spot) or a PC: the prompt that was sent, which style bible and model made
  * it, what it cost, where its file is, and how far it got. The record's or PC's
- * `visual_asset_id` points at the one in use.
+ * `visual_asset_id` points at the one in use. Since F2.5 (D-44) a record or PC has that one
+ * image and at most a draft or two under review; a discarded try keeps its row (`rejected`,
+ * for the hourly limit and its cost) but loses its files.
  *
  * `prompt` holds private campaign text (a record's appearance and GM-written fields). It never
  * goes to a log, and only the campaign's GM reads it, through `src/campaigns/visuals.ts`, the
@@ -26,6 +28,7 @@ import {
   text,
   timestamp,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
 import { users } from './auth';
@@ -66,8 +69,15 @@ export const assets = pgTable(
     styleBibleVersion: integer('style_bible_version').notNull(),
     quality: text('quality').$type<ImageQuality>().notNull(),
     aspectRatio: text('aspect_ratio').$type<ImageAspectRatio>().notNull(),
-    /** The GM's notes for a regeneration (F2.5). */
+    /** The GM's notes for a Regenerate with notes (F2.5). */
     revisionNotes: text('revision_notes'),
+    /**
+     * The asset whose original was sent back with those notes (F2.5, D-44); null for a fresh
+     * try. Cleared if that row is ever deleted (only with its campaign or GM).
+     */
+    revisedFromId: uuid('revised_from_id').references((): AnyPgColumn => assets.id, {
+      onDelete: 'set null',
+    }),
     /** Storage key of the image exactly as the model sent it. Set once it is `pending`. */
     originalPath: text('original_path'),
     /** Storage key of the post-processed image, always WebP (F2.4, D-43). */
@@ -105,7 +115,7 @@ export const assets = pgTable(
     ),
     check(
       'assets_image_once_made',
-      sql`${table.status} in ('generating', 'failed') or ${table.originalPath} is not null`,
+      sql`${table.status} in ('generating', 'failed', 'rejected') or ${table.originalPath} is not null`,
     ),
     check(
       'assets_processed_complete',

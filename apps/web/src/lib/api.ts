@@ -30,6 +30,7 @@ import {
   type AssetSummary,
   type BacklinksResponse,
   type GenerateVisualRequest,
+  type ReviseVisualRequest,
   type VisualsResponse,
   type Campaign,
   type CampaignRecord,
@@ -561,7 +562,7 @@ const visualOwnerPath = (campaignId: string, owner: VisualOwnerRef) =>
     ? recordsPath(campaignId, owner.recordId)
     : characterPath(campaignId, owner.characterId);
 
-/** A record's or PC's tries at a visual, newest first, and the one in use. GM only. */
+/** A record's or PC's image in use and its drafts under review (F2.5). GM only. */
 export async function fetchVisuals(
   campaignId: string,
   owner: VisualOwnerRef,
@@ -581,7 +582,25 @@ export async function generateVisual(
   return assetSummarySchema.parse(await response.json());
 }
 
-/** "Use this one": makes a finished try the record's or PC's visual. */
+/**
+ * Regenerate with notes (F2.5): the image's untouched original goes back to the model with the
+ * notes; the change is made in the background and answers `generating` at once.
+ */
+export async function reviseVisual(
+  campaignId: string,
+  owner: VisualOwnerRef,
+  assetId: string,
+  notes: string,
+): Promise<AssetSummary> {
+  const response = await send(
+    `${visualOwnerPath(campaignId, owner)}/visuals/${encodeURIComponent(assetId)}/revise`,
+    'POST',
+    { notes } satisfies ReviseVisualRequest,
+  );
+  return assetSummarySchema.parse(await response.json());
+}
+
+/** "Use this" / "Replace": makes a draft the record's or PC's visual. */
 export async function chooseVisual(
   campaignId: string,
   owner: VisualOwnerRef,
@@ -590,5 +609,18 @@ export async function chooseVisual(
   const response = await send(`${visualOwnerPath(campaignId, owner)}/visual`, 'PUT', {
     assetId,
   });
+  return visualsResponseSchema.parse(await response.json());
+}
+
+/** "Discard", "Keep current", "Keep new", "Go back", or dismissing a failed try (F2.5). */
+export async function discardVisual(
+  campaignId: string,
+  owner: VisualOwnerRef,
+  assetId: string,
+): Promise<VisualsResponse> {
+  const response = await send(
+    `${visualOwnerPath(campaignId, owner)}/visuals/${encodeURIComponent(assetId)}`,
+    'DELETE',
+  );
   return visualsResponseSchema.parse(await response.json());
 }

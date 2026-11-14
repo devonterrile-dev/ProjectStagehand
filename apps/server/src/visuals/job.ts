@@ -4,6 +4,10 @@
  * it, post-process it (F2.4, D-43), and record how it ended. If post-processing fails, the try
  * still ends `pending` with its original: the GM has paid for it.
  *
+ * A Regenerate with notes (F2.5, D-44) sends one reference instead of the anchors: the stored
+ * original of the image being changed, exactly as the model made it (never the processed one,
+ * whose cut-out background and border the model would copy).
+ *
  * Also the backfill job (`processStoredVisual`): images made before post-processing existed,
  * or by an older version of it, are processed again from their stored original.
  *
@@ -25,7 +29,12 @@ import {
 import { CredentialUnreadableError } from '../credentials/crypto';
 import { getProviderKey } from '../credentials/store';
 import type { Database } from '../db/client';
-import type { ImageCallResult, ImageFailure, OpenRouterProvider } from '../providers/openrouter';
+import type {
+  ImageCallResult,
+  ImageFailure,
+  OpenRouterProvider,
+  ReferenceImage,
+} from '../providers/openrouter';
 
 import { PROCESSING_VERSION, processImage, type ProcessedImage } from './process';
 import type { VisualQueue } from './queue';
@@ -124,11 +133,19 @@ async function makeImage(
   }
   if (apiKey === null) return { ok: false, errorCode: 'key_missing' };
 
+  let references: readonly ReferenceImage[] = deps.references[claimed.kind];
+  if (claimed.revisionOf !== null) {
+    const { originalPath, mediaType } = claimed.revisionOf;
+    const data = originalPath === null ? null : await deps.storage.read(originalPath);
+    if (data === null) return { ok: false, errorCode: 'source_missing' };
+    references = [{ data, mediaType: mediaType ?? 'image/png' }];
+  }
+
   const request = {
     apiKey,
     model: claimed.model,
     prompt: claimed.prompt,
-    references: deps.references[claimed.kind],
+    references,
     aspectRatio: claimed.aspectRatio,
     quality: claimed.quality,
     ...(signal === undefined ? {} : { signal }),
@@ -183,7 +200,11 @@ export async function processStoredVisual(deps: ProcessJobDeps, assetId: string)
       return;
     }
     const processed = await storeProcessed(deps, asset, original);
-    if (processed !== null) await saveProcessed(deps.db, assetId, processed);
+    if (processed === null) return;
+    if ((await saveProcessed(deps.db, assetId, processed)) === 'discarded') {
+      // Discarded while it was being processed: nothing points at the new file.
+      await deps.storage.remove(processed.key);
+    }
   } catch (error) {
     deps.onError?.(assetId, errorNameOf(error), 'process');
   }

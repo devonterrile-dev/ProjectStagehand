@@ -3,9 +3,14 @@
  * only code that sets a record's or PC's `visual_asset_id`.
  *
  * Routes start a try (`startVisual`, a `generating` row), the queue's worker makes the image
- * (`claimVisual` → `finishVisual`, with its post-processed version), and the GM lists the
- * tries and picks one (`useVisual`). Images made before post-processing existed, or by an
- * older version of it, are processed again at startup (`assetsToProcess` → `saveProcessed`).
+ * (`claimVisual` → `finishVisual`, with its post-processed version), and the GM reviews it
+ * (F2.5, D-44): a record or PC has one image in use and at most a draft and a change of it
+ * (`revised_from_id`). The GM uses a draft (`useVisual`, which discards the image it replaces)
+ * or discards it (`discardVisual`). A discarded try keeps its row as `rejected`, for the hourly
+ * limit and its cost, but its files are deleted; `purgeDiscarded` finishes any deletion a
+ * crash cut short. Images made before post-processing existed, or by an older version of it,
+ * are processed again at startup (`assetsToProcess` → `saveProcessed`).
+ *
  * Every function that takes a scope stays inside its campaign; the worker's functions take
  * only an asset id, which it got from a row we inserted.
  */
@@ -42,10 +47,17 @@ import { assets, characters, records } from '../db/schema';
 import { httpError } from '../http/errors';
 import { PROCESSED_MEDIA_TYPE } from '../visuals/process';
 import type { VisualSource } from '../visuals/prompt';
+import type { AssetStorage } from '../visuals/storage';
 
+import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 
 type AssetRow = typeof assets.$inferSelect;
+
+/** Tries not in use and not discarded: what the GM still has to review. */
+const DRAFT_STATUSES = ['generating', 'pending', 'failed'] as const;
+/** Tries with an image the GM may see. */
+const SHOWN_STATUSES = ['pending', 'approved'] as const;
 
 /** Whose visual: a record's or a PC's. */
 export type VisualOwner = { recordId: string } | { characterId: string };
@@ -72,6 +84,8 @@ function toSummary(row: AssetRow): AssetSummary {
             height: row.processedHeight,
             version: row.processingVersion,
           },
+    revisedFromId: row.revisedFromId,
+    revisionNotes: row.revisionNotes,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt?.toISOString() ?? null,
   });
@@ -163,13 +177,127 @@ export interface StartVisualInput {
   styleBibleVersion: number;
   quality: ImageQuality;
   aspectRatio: ImageAspectRatio;
+  /** Regenerate with notes (F2.5): the asset whose original is changed, and the GM's notes. */
+  revision?: { fromId: string; notes: string };
+}
+
+/** Holds the GM's lock until the transaction ends: their image actions run one at a time. */
+async function lockGm(tx: DbOrTx, userId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+}
+
+/** The owner's image in use, read inside a transaction. 404 if the owner isn't in this campaign. */
+async function visualAssetIdIn(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  owner: VisualOwner,
+): Promise<string | null> {
+  if ('recordId' in owner) {
+    const [row] = await tx
+      .select({ visualAssetId: records.visualAssetId })
+      .from(records)
+      .where(and(eq(records.id, owner.recordId), eq(records.campaignId, scope.campaignId)));
+    if (row === undefined) throw httpError(404, RECORD_NOT_FOUND);
+    return row.visualAssetId;
+  }
+  const [row] = await tx
+    .select({ visualAssetId: characters.visualAssetId })
+    .from(characters)
+    .where(and(eq(characters.id, owner.characterId), eq(characters.campaignId, scope.campaignId)));
+  if (row === undefined) throw httpError(404, CHARACTER_NOT_FOUND);
+  return row.visualAssetId;
+}
+
+/** The owner's drafts, oldest first. */
+async function draftsOf(tx: DbOrTx, scope: CampaignScope, owner: VisualOwner): Promise<AssetRow[]> {
+  return tx
+    .select()
+    .from(assets)
+    .where(
+      and(
+        ownedBy(owner),
+        eq(assets.campaignId, scope.campaignId),
+        inArray(assets.status, [...DRAFT_STATUSES]),
+      ),
+    )
+    .orderBy(assets.createdAt, assets.id);
+}
+
+const WAIT_FOR_IMAGE = 'An image for this is already being made. Wait for it to finish.';
+const REVIEW_FIRST = 'Use or discard the new image first.';
+const COMPARE_FIRST = 'Keep the new version or go back to the old one first.';
+
+/** Discards rows (status only; their files go in `removeFiles`, after the transaction). */
+async function markRejected(tx: DbOrTx, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await tx
+    .update(assets)
+    .set({ status: 'rejected', errorCode: null })
+    .where(inArray(assets.id, [...ids]));
+}
+
+/** The files of discarded rows, still to be deleted. */
+interface DiscardedFiles {
+  id: string;
+  originalPath: string | null;
+  processedPath: string | null;
+}
+
+async function discardedFiles(db: DbOrTx, ids: readonly string[]): Promise<DiscardedFiles[]> {
+  if (ids.length === 0) return [];
+  return db
+    .select({
+      id: assets.id,
+      originalPath: assets.originalPath,
+      processedPath: assets.processedPath,
+    })
+    .from(assets)
+    .where(and(inArray(assets.id, [...ids]), eq(assets.status, 'rejected')));
 }
 
 /**
- * Records a new try as `generating`, for the queue to pick up. Refused (409) while this record
- * or PC already has one in flight or the GM has `generatingAtOnce` of them, and (429) after
- * `jobsPerHour` in the last hour. The checks and the insert run under a per-GM lock, so two
- * quick clicks can't both get through. Callers check `assertGm`, `assertWritable` and the key.
+ * Deletes discarded rows' files, then forgets their paths. A file that can't be deleted keeps
+ * its path, so the next startup's `purgeDiscarded` tries again; nothing is thrown, since the
+ * GM's action itself has already happened.
+ */
+async function removeFiles(
+  db: Database,
+  storage: AssetStorage,
+  rows: readonly DiscardedFiles[],
+): Promise<number> {
+  let removed = 0;
+  for (const row of rows) {
+    try {
+      for (const key of [row.originalPath, row.processedPath]) {
+        if (key !== null) await storage.remove(key);
+      }
+      await db
+        .update(assets)
+        .set({
+          originalPath: null,
+          processedPath: null,
+          processedWidth: null,
+          processedHeight: null,
+          processingVersion: null,
+        })
+        .where(and(eq(assets.id, row.id), eq(assets.status, 'rejected')));
+      removed += 1;
+    } catch {
+      // Left for the next startup.
+    }
+  }
+  return removed;
+}
+
+/**
+ * Records a new try as `generating`, for the queue to pick up (F2.3; review rules F2.5, D-44).
+ *
+ * Refused (409) while this record or PC has a try being made or the GM has `generatingAtOnce`
+ * of them, and (429) after `jobsPerHour` in the last hour. A fresh try is refused while a
+ * finished draft waits for review. A change (`revision`) may start from the one draft, or from
+ * the image in use when there is no draft. Earlier failed tries are dismissed. The checks and
+ * the insert run under a per-GM lock, so two quick clicks can't both get through. Callers check
+ * `assertGm`, `assertWritable` and the key.
  */
 export async function startVisual(
   db: Database,
@@ -180,14 +308,21 @@ export async function startVisual(
   await expireLost(db, eq(assets.createdBy, scope.userId));
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${scope.userId}, 0))`);
+    await lockGm(tx, scope.userId);
+    const visualAssetId = await visualAssetIdIn(tx, scope, owner);
+    const drafts = await draftsOf(tx, scope, owner);
+    if (drafts.some((draft) => draft.status === 'generating')) throw httpError(409, WAIT_FOR_IMAGE);
 
-    const [mine] = await tx
-      .select({ n: count() })
-      .from(assets)
-      .where(and(ownedBy(owner), eq(assets.status, 'generating')));
-    if ((mine?.n ?? 0) > 0) {
-      throw httpError(409, 'An image for this is already being made. Wait for it to finish.');
+    const pending = drafts.filter((draft) => draft.status === 'pending');
+    if (input.revision === undefined) {
+      if (pending.length > 0) throw httpError(409, REVIEW_FIRST);
+    } else {
+      const fromId = input.revision.fromId;
+      const fromDraft = pending.length === 1 && pending[0]?.id === fromId;
+      const fromInUse = pending.length === 0 && fromId === visualAssetId;
+      if (!fromDraft && !fromInUse) {
+        throw httpError(409, pending.length > 1 ? COMPARE_FIRST : REVIEW_FIRST);
+      }
     }
 
     const [running] = await tx
@@ -213,6 +348,12 @@ export async function startVisual(
       );
     }
 
+    // A failed try has no files; starting another dismisses it.
+    await markRejected(
+      tx,
+      drafts.filter((draft) => draft.status === 'failed').map((draft) => draft.id),
+    );
+
     const [row] = await tx
       .insert(assets)
       .values({
@@ -227,6 +368,8 @@ export async function startVisual(
         styleBibleVersion: input.styleBibleVersion,
         quality: input.quality,
         aspectRatio: input.aspectRatio,
+        revisedFromId: input.revision?.fromId ?? null,
+        revisionNotes: input.revision?.notes ?? null,
       })
       .returning();
     if (row === undefined) throw new Error('asset insert returned no row');
@@ -234,7 +377,34 @@ export async function startVisual(
   });
 }
 
-/** The latest tries for a record or PC, newest first, and the one in use. */
+/**
+ * The image a Regenerate with notes would change: one of this owner's finished images (a draft
+ * or the one in use). 404 otherwise. Whether it may be changed right now is `startVisual`'s
+ * call, under the lock.
+ */
+export async function revisionBaseOf(
+  db: Database,
+  scope: CampaignScope,
+  owner: VisualOwner,
+  assetId: string,
+): Promise<{ kind: AssetKind }> {
+  const [row] = await db
+    .select({ kind: assets.kind })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.id, assetId),
+        eq(assets.campaignId, scope.campaignId),
+        ownedBy(owner),
+        inArray(assets.status, [...SHOWN_STATUSES]),
+        isNotNull(assets.originalPath),
+      ),
+    );
+  if (row === undefined) throw httpError(404, ASSET_NOT_FOUND);
+  return row;
+}
+
+/** The image in use and the drafts under review (F2.5, D-44). */
 export async function listVisuals(
   db: Database,
   scope: CampaignScope,
@@ -242,36 +412,51 @@ export async function listVisuals(
 ): Promise<VisualsResponse> {
   const { visualAssetId } = await loadVisualSource(db, scope, owner);
   await expireLost(db, and(ownedBy(owner), eq(assets.campaignId, scope.campaignId)));
-  const rows = await db
-    .select()
-    .from(assets)
-    .where(and(ownedBy(owner), eq(assets.campaignId, scope.campaignId)))
-    .orderBy(desc(assets.createdAt))
-    .limit(VISUAL_LIMITS.listed);
-  return visualsResponseSchema.parse({ visualAssetId, assets: rows.map(toSummary) });
+  const [inUse] =
+    visualAssetId === null
+      ? []
+      : await db
+          .select()
+          .from(assets)
+          .where(and(eq(assets.id, visualAssetId), eq(assets.campaignId, scope.campaignId)));
+  const drafts = await draftsOf(db, scope, owner);
+  return visualsResponseSchema.parse({
+    visualAssetId,
+    inUse: inUse === undefined ? null : toSummary(inUse),
+    drafts: drafts.map(toSummary),
+  });
 }
 
 /**
- * "Use this one" (D-42, ahead of F2.5's review): makes one of the record's or PC's own finished
- * tries its visual, and marks that try approved. Callers check `assertGm` and `assertWritable`.
+ * "Use this" / "Replace" (F2.5, D-44): makes one of the record's or PC's finished drafts its
+ * visual and marks it approved. The image it replaces and any failed try are discarded, files
+ * and all. Refused while an image is being made, or while a change waits for Keep new / Go
+ * back. Callers check `assertGm` and `assertWritable`.
  */
 export async function useVisual(
   db: Database,
+  storage: AssetStorage,
   scope: CampaignScope,
   owner: VisualOwner,
   assetId: string,
 ): Promise<VisualsResponse> {
-  await loadVisualSource(db, scope, owner);
-  await db.transaction(async (tx) => {
+  const discarded = await db.transaction(async (tx) => {
+    await lockGm(tx, scope.userId);
+    const visualAssetId = await visualAssetIdIn(tx, scope, owner);
     const [asset] = await tx
       .select({ id: assets.id, status: assets.status })
       .from(assets)
-      .where(and(eq(assets.id, assetId), eq(assets.campaignId, scope.campaignId), ownedBy(owner)))
-      .for('update');
-    if (asset === undefined) throw httpError(404, ASSET_NOT_FOUND);
-    if (asset.status !== 'pending' && asset.status !== 'approved') {
-      throw httpError(409, 'Only a finished image can be used');
+      .where(and(eq(assets.id, assetId), eq(assets.campaignId, scope.campaignId), ownedBy(owner)));
+    if (asset === undefined || asset.status === 'rejected') throw httpError(404, ASSET_NOT_FOUND);
+    if (asset.id === visualAssetId) return [];
+
+    const drafts = await draftsOf(tx, scope, owner);
+    if (drafts.some((draft) => draft.status === 'generating')) throw httpError(409, WAIT_FOR_IMAGE);
+    if (asset.status !== 'pending') throw httpError(409, 'Only a finished image can be used');
+    if (drafts.filter((draft) => draft.status === 'pending').length > 1) {
+      throw httpError(409, COMPARE_FIRST);
     }
+
     await tx.update(assets).set({ status: 'approved' }).where(eq(assets.id, assetId));
     if ('recordId' in owner) {
       await tx
@@ -286,14 +471,89 @@ export async function useVisual(
           and(eq(characters.id, owner.characterId), eq(characters.campaignId, scope.campaignId)),
         );
     }
+    const replaced = [
+      ...(visualAssetId === null ? [] : [visualAssetId]),
+      ...drafts.filter((draft) => draft.status === 'failed').map((draft) => draft.id),
+    ];
+    await markRejected(tx, replaced);
+    return discardedFiles(tx, replaced);
   });
+  await removeFiles(db, storage, discarded);
   return listVisuals(db, scope, owner);
 }
 
 /**
+ * "Discard", "Keep current", "Keep new" (discards the old version), "Go back" (discards the
+ * new one) and dismissing a failed try (F2.5, D-44): the draft becomes `rejected` and its files
+ * are deleted. The image in use can only be replaced, never discarded here. Refused while an
+ * image is being made: it may be a change of this very draft. Discarding a try already
+ * discarded changes nothing. Callers check `assertGm` and `assertWritable`.
+ */
+export async function discardVisual(
+  db: Database,
+  storage: AssetStorage,
+  scope: CampaignScope,
+  owner: VisualOwner,
+  assetId: string,
+): Promise<VisualsResponse> {
+  const discarded = await db.transaction(async (tx) => {
+    await lockGm(tx, scope.userId);
+    const visualAssetId = await visualAssetIdIn(tx, scope, owner);
+    const [asset] = await tx
+      .select({ id: assets.id, status: assets.status })
+      .from(assets)
+      .where(and(eq(assets.id, assetId), eq(assets.campaignId, scope.campaignId), ownedBy(owner)));
+    if (asset === undefined) throw httpError(404, ASSET_NOT_FOUND);
+    if (asset.status === 'rejected') return [];
+    if (asset.id === visualAssetId || asset.status === 'approved') {
+      throw httpError(409, 'This is the image in use. Replace it with a new one instead.');
+    }
+    const drafts = await draftsOf(tx, scope, owner);
+    if (drafts.some((draft) => draft.status === 'generating')) throw httpError(409, WAIT_FOR_IMAGE);
+
+    await markRejected(tx, [asset.id]);
+    return discardedFiles(tx, [asset.id]);
+  });
+  await removeFiles(db, storage, discarded);
+  return listVisuals(db, scope, owner);
+}
+
+/**
+ * At startup: drafts whose record or PC was deleted are discarded, and every discarded try
+ * that still has files (the migration's tidy, or a deletion a crash cut short) loses them.
+ * Returns how many tries had files deleted.
+ */
+export async function purgeDiscarded(db: Database, storage: AssetStorage): Promise<number> {
+  await db
+    .update(assets)
+    .set({ status: 'rejected', errorCode: null })
+    .where(
+      and(
+        inArray(assets.status, ['pending', 'failed']),
+        isNull(assets.recordId),
+        isNull(assets.characterId),
+      ),
+    );
+  const rows = await db
+    .select({
+      id: assets.id,
+      originalPath: assets.originalPath,
+      processedPath: assets.processedPath,
+    })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.status, 'rejected'),
+        or(isNotNull(assets.originalPath), isNotNull(assets.processedPath)),
+      ),
+    );
+  return removeFiles(db, storage, rows);
+}
+
+/**
  * Where an asset's image is stored: the processed one unless the original is asked for, or
- * the original while nothing has been processed. 404 for another campaign's asset or one with
- * no image yet.
+ * the original while nothing has been processed. 404 for another campaign's asset, one with
+ * no image yet, or one discarded.
  */
 export async function assetImageOf(
   db: Database,
@@ -308,7 +568,13 @@ export async function assetImageOf(
       processed: assets.processedPath,
     })
     .from(assets)
-    .where(and(eq(assets.id, assetId), eq(assets.campaignId, scope.campaignId)));
+    .where(
+      and(
+        eq(assets.id, assetId),
+        eq(assets.campaignId, scope.campaignId),
+        inArray(assets.status, [...SHOWN_STATUSES]),
+      ),
+    );
   if (row?.original === null || row?.original === undefined) {
     throw httpError(404, ASSET_NOT_FOUND);
   }
@@ -330,6 +596,11 @@ export interface ClaimedVisual {
   model: string;
   quality: ImageQuality;
   aspectRatio: ImageAspectRatio;
+  /**
+   * For a Regenerate with notes (F2.5): the stored original of the image being changed, sent as
+   * the only reference. `originalPath` is null if that image has lost its file.
+   */
+  revisionOf: { originalPath: string | null; mediaType: string | null } | null;
 }
 
 /**
@@ -356,8 +627,16 @@ export async function claimVisual(db: Database, assetId: string): Promise<Claime
       model: assets.model,
       quality: assets.quality,
       aspectRatio: assets.aspectRatio,
+      revisedFromId: assets.revisedFromId,
     });
-  return row ?? null;
+  if (row === undefined) return null;
+  const { revisedFromId, ...claimed } = row;
+  if (revisedFromId === null) return { ...claimed, revisionOf: null };
+  const [base] = await db
+    .select({ originalPath: assets.originalPath, mediaType: assets.mediaType })
+    .from(assets)
+    .where(eq(assets.id, revisedFromId));
+  return { ...claimed, revisionOf: base ?? { originalPath: null, mediaType: null } };
 }
 
 /** A stored post-processed image (F2.4). */
@@ -444,7 +723,7 @@ export async function assetsToProcess(db: Database, version: number): Promise<Un
     .from(assets)
     .where(
       and(
-        inArray(assets.status, ['pending', 'approved', 'rejected']),
+        inArray(assets.status, [...SHOWN_STATUSES]),
         isNotNull(assets.originalPath),
         or(isNull(assets.processingVersion), lt(assets.processingVersion, version)),
       ),
@@ -472,6 +751,7 @@ export async function unprocessedVisual(
     .where(
       and(
         eq(assets.id, assetId),
+        inArray(assets.status, [...SHOWN_STATUSES]),
         or(isNull(assets.processingVersion), lt(assets.processingVersion, version)),
       ),
     );
@@ -479,19 +759,31 @@ export async function unprocessedVisual(
   return { ...row, originalPath: row.originalPath };
 }
 
-/** Stores a (re)processed image. A newer version already stored is never replaced by an older. */
+/**
+ * Stores a (re)processed image. A newer version already stored is never replaced by an older
+ * (`stale`), and a try discarded meanwhile gets nothing (`discarded`: the caller deletes the
+ * file it wrote, which no row points at now).
+ */
 export async function saveProcessed(
   db: Database,
   assetId: string,
   processed: ProcessedFile,
-): Promise<void> {
-  await db
+): Promise<'saved' | 'stale' | 'discarded'> {
+  const rows = await db
     .update(assets)
     .set(processedColumns(processed))
     .where(
       and(
         eq(assets.id, assetId),
+        inArray(assets.status, [...SHOWN_STATUSES]),
         or(isNull(assets.processingVersion), lt(assets.processingVersion, processed.version)),
       ),
-    );
+    )
+    .returning({ id: assets.id });
+  if (rows.length > 0) return 'saved';
+  const [row] = await db
+    .select({ status: assets.status })
+    .from(assets)
+    .where(eq(assets.id, assetId));
+  return row === undefined || row.status === 'rejected' ? 'discarded' : 'stale';
 }

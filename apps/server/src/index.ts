@@ -13,7 +13,7 @@ import {
 import { loadImportSystemPrompt } from './ai-import/prompt';
 import { buildApp } from './app';
 import { failInterruptedImports } from './campaigns/ai-imports';
-import { failInterruptedVisuals } from './campaigns/visuals';
+import { failInterruptedVisuals, purgeDiscarded } from './campaigns/visuals';
 import { createAuth } from './auth/auth';
 import { ConfigError, loadConfig } from './config';
 import { createDb } from './db/client';
@@ -173,6 +173,9 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
               app.log.warn({ interrupted: imports }, 'marked interrupted ai imports failed');
             if (visuals > 0)
               app.log.warn({ interrupted: visuals }, 'marked interrupted visuals failed');
+            // Discarded images (F2.5) whose files are still on disk.
+            const purged = await purgeDiscarded(db.db, storage);
+            if (purged > 0) app.log.info({ purged }, 'deleted the files of discarded visuals');
             if (visualQueue === undefined) return;
             await visualQueue.start();
             // Images stored before post-processing (F2.4), or by an older version of it.

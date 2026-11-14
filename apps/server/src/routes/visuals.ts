@@ -3,23 +3,25 @@
  * refused while the campaign is archived. Every campaign route here is in the isolation table
  * in `campaigns.int.test.ts`.
  *
- * GET  /api/campaigns/:campaignId/records/:recordId/visuals        the tries, newest first
- * POST /api/campaigns/:campaignId/records/:recordId/visuals        start one → 202 `generating`
- * PUT  /api/campaigns/:campaignId/records/:recordId/visual         "Use this one"
- * GET  /api/campaigns/:campaignId/characters/:characterId/visuals  (the same for a PC)
- * POST /api/campaigns/:campaignId/characters/:characterId/visuals
- * PUT  /api/campaigns/:campaignId/characters/:characterId/visual
- * GET  /api/campaigns/:campaignId/assets/:assetId/image            the stage's version (F2.4),
- *      ?v=original for the model's own                              or the original until made
+ * GET    …/records/:recordId/visuals                  the image in use and the drafts
+ * POST   …/records/:recordId/visuals                  a new image → 202 `generating`
+ * POST   …/records/:recordId/visuals/:assetId/revise  Regenerate with notes → 202 (F2.5)
+ * PUT    …/records/:recordId/visual                   "Use this" / "Replace"
+ * DELETE …/records/:recordId/visuals/:assetId         "Discard", "Keep current", "Keep new",
+ *                                                     "Go back", dismiss a failed try (F2.5)
+ * (the same five under …/characters/:characterId for a PC; … is /api/campaigns/:campaignId)
+ * GET    /api/campaigns/:campaignId/assets/:assetId/image  the stage's version (F2.4), or the
+ *        ?v=original for the model's own                    original until it is made
  *
  * The image is made in the background (`visuals/queue.ts`); the browser polls the list while a
  * try is `generating`. The prompt is built here from the record and the style bible, stored
- * with the asset, and never logged.
+ * with the asset, and never logged; nor are a revision's notes. Review rules: D-44.
  */
 import {
   assetImageQuerySchema,
   generateVisualRequestSchema,
   IMAGE_MODEL,
+  reviseVisualRequestSchema,
   useVisualRequestSchema,
   visualKindsFor,
   type AssetKind,
@@ -30,21 +32,24 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { Auth } from '../auth/auth';
 import { campaignOf, memberOnly, uuidParam } from '../campaigns/guard';
-import { assertGm, assertWritable } from '../campaigns/scope';
+import { assertGm, assertWritable, type CampaignScope } from '../campaigns/scope';
 import {
   assetImageOf,
+  discardVisual,
   finishVisual,
   listVisuals,
   loadVisualSource,
+  revisionBaseOf,
   startVisual,
   useVisual,
+  type StartVisualInput,
   type VisualOwner,
 } from '../campaigns/visuals';
 import { CredentialUnreadableError } from '../credentials/crypto';
 import { getProviderKey } from '../credentials/store';
 import type { Database } from '../db/client';
 import { sendValidationError } from '../http/errors';
-import { visualPrompt } from '../visuals/prompt';
+import { revisionPrompt, visualPrompt } from '../visuals/prompt';
 import type { VisualQueue } from '../visuals/queue';
 import type { AssetStorage } from '../visuals/storage';
 
@@ -96,7 +101,35 @@ export function registerVisualRoutes(
     }
   }
 
-  /** The three routes of one owner type: records or characters. */
+  /** The settings a new asset of this kind is made with. */
+  function made(kind: AssetKind): Omit<StartVisualInput, 'kind' | 'prompt' | 'revision'> {
+    const settings = visuals.bible.style.kinds[kind];
+    return {
+      model: IMAGE_MODEL,
+      styleBibleVersion: visuals.bible.version,
+      quality: settings.quality,
+      aspectRatio: settings.aspectRatio,
+    };
+  }
+
+  /** Records the try, queues its job, and answers 202 with it. */
+  async function launch(
+    reply: FastifyReply,
+    scope: CampaignScope,
+    owner: VisualOwner,
+    input: StartVisualInput,
+  ): Promise<FastifyReply> {
+    const started = await startVisual(db, scope, owner, input);
+    try {
+      await visuals.queue.enqueue(started.id);
+    } catch (error) {
+      await finishVisual(db, started.id, { ok: false, errorCode: 'internal' });
+      throw error;
+    }
+    return reply.code(202).send(started);
+  }
+
+  /** The routes of one owner type: records or characters. */
   function ownerRoutes(path: string, ownerOf: (request: FastifyRequest) => VisualOwner): void {
     app.get(`${path}/visuals`, { preHandler }, async (request) => {
       const scope = campaignOf(request);
@@ -124,22 +157,35 @@ export function registerVisualRoutes(
       const noKey = await hasKey(scope.userId);
       if (noKey !== null) return refuse(reply, noKey);
 
-      const settings = visuals.bible.style.kinds[assetKind];
-      const started = await startVisual(db, scope, owner, {
+      return launch(reply, scope, owner, {
         kind: assetKind,
         prompt: visualPrompt(visuals.bible, assetKind, source),
-        model: IMAGE_MODEL,
-        styleBibleVersion: visuals.bible.version,
-        quality: settings.quality,
-        aspectRatio: settings.aspectRatio,
+        ...made(assetKind),
       });
-      try {
-        await visuals.queue.enqueue(started.id);
-      } catch (error) {
-        await finishVisual(db, started.id, { ok: false, errorCode: 'internal' });
-        throw error;
-      }
-      return reply.code(202).send(started);
+    });
+
+    app.post(`${path}/visuals/:assetId/revise`, { preHandler }, async (request, reply) => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      assertWritable(scope);
+      const owner = ownerOf(request);
+      const assetId = uuidParam(request, 'assetId', 'Image not found');
+
+      const parsed = reviseVisualRequestSchema.safeParse(request.body);
+      if (!parsed.success) return sendValidationError(reply, parsed.error);
+      const { source } = await loadVisualSource(db, scope, owner);
+      const { kind } = await revisionBaseOf(db, scope, owner, assetId);
+
+      const noKey = await hasKey(scope.userId);
+      if (noKey !== null) return refuse(reply, noKey);
+
+      const { notes } = parsed.data;
+      return launch(reply, scope, owner, {
+        kind,
+        prompt: revisionPrompt(visuals.bible, kind, source, notes),
+        ...made(kind),
+        revision: { fromId: assetId, notes },
+      });
     });
 
     app.put(`${path}/visual`, { preHandler }, async (request, reply) => {
@@ -149,7 +195,16 @@ export function registerVisualRoutes(
       const owner = ownerOf(request);
       const parsed = useVisualRequestSchema.safeParse(request.body);
       if (!parsed.success) return sendValidationError(reply, parsed.error);
-      return useVisual(db, scope, owner, parsed.data.assetId);
+      return useVisual(db, visuals.storage, scope, owner, parsed.data.assetId);
+    });
+
+    app.delete(`${path}/visuals/:assetId`, { preHandler }, async (request) => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      assertWritable(scope);
+      const owner = ownerOf(request);
+      const assetId = uuidParam(request, 'assetId', 'Image not found');
+      return discardVisual(db, visuals.storage, scope, owner, assetId);
     });
   }
 

@@ -197,6 +197,11 @@ export const LOG_REDACT_PATHS = [
   // An image prompt quotes the record's appearance and fields (F2.3).
   'prompt',
   '*.prompt',
+  // A GM's notes for a Regenerate with notes (F2.5), and the asset fields that keep them.
+  'req.body.notes',
+  'body.notes',
+  'revisionNotes',
+  '*.revisionNotes',
 ];
 
 /**
