@@ -3,14 +3,16 @@
  *
  * Restore drill (governance §14): decrypts a backup (default: the newest), checks every
  * file's checksum, restores the database into a throwaway Postgres container and confirms
- * every table's row count matches the backup's manifest. Production is never touched; the
+ * every table's row count matches the backup's manifest, then unpacks the images (if the
+ * backup has them) into a throwaway volume and confirms every file arrived. Production is never touched; the
  * stack doesn't even need to be running, only Docker. Results go to restore-drill.log.
  */
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DATABASE_DUMP, extractEncryptedArchive } from './lib/archive';
+import { ASSETS, DATABASE_DUMP, extractEncryptedArchive } from './lib/archive';
+import { compareAssets, readAssetsArchive, restoreIntoThrowawayVolume } from './lib/assets';
 import { logDrill, summarise } from './lib/backup';
 import { main, parseCommandArgs, step } from './lib/cli';
 import { dockerAvailable } from './lib/docker';
@@ -39,15 +41,29 @@ main(async () => {
       join(work, DATABASE_DUMP),
     );
     const differences = compareCounts(manifest.tableCounts, restored);
+    let images = 'no images';
+    if (manifest.assets === 'included') {
+      step('Unpacking the images into a throwaway volume');
+      const tarPath = join(work, ASSETS);
+      const unpacked = await restoreIntoThrowawayVolume(manifest.postgres.image, tarPath);
+      differences.push(...compareAssets(await readAssetsArchive(tarPath), unpacked));
+      images = `${String(unpacked.files)} image files`;
+    }
     if (differences.length > 0) {
       await logDrill(settings.backupDir, 'FAIL', backup, differences.join('; '), 'drill');
       throw new Error(
         `Restored data does not match the backup:\n  - ${differences.join('\n  - ')}`,
       );
     }
-    await logDrill(settings.backupDir, 'PASS', backup, summarise(restored), 'drill');
+    await logDrill(
+      settings.backupDir,
+      'PASS',
+      backup,
+      `${summarise(restored)}, ${images}`,
+      'drill',
+    );
     step(
-      `PASS: ${summarise(restored)}, backup taken ${manifest.createdAt} (commit ${manifest.gitCommit ?? 'unknown'})`,
+      `PASS: ${summarise(restored)}, ${images}, backup taken ${manifest.createdAt} (commit ${manifest.gitCommit ?? 'unknown'})`,
     );
   } catch (error) {
     if (!(error instanceof Error && error.message.startsWith('Restored data'))) {

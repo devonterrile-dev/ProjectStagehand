@@ -149,7 +149,7 @@ pnpm stack:shutdown --quit-docker       # ...and also quit Docker Desktop / WSL 
 docker desktop start                    # after --quit-docker: start Docker before `pnpm stack:up`
 pnpm stack:backup                       # extra backup while running (the site stays up)
 pnpm stack:restore-drill                # re-check the newest backup (or pass a file)
-pnpm stack:restore <file> --yes         # disaster recovery: REPLACES the live database
+pnpm stack:restore <file> --yes         # disaster recovery: REPLACES the live database and images
 ```
 
 `stack:shutdown` works in this order:
@@ -158,10 +158,11 @@ pnpm stack:restore <file> --yes         # disaster recovery: REPLACES the live d
 2. Records every table's row count.
 3. Dumps the database (`pg_dump -Fc`).
 4. **Proves the dump restores** into a throwaway Postgres container with identical row counts.
-5. Packs the dump, a manifest and `infra/.env` into one encrypted `stagehand-<UTC time>.stbak` in `BACKUP_DIR` (`D:\StagehandBackups`, a different physical disk from Docker's data on C:).
-6. Decrypts that file once more to check it.
-7. Keeps the newest `BACKUP_KEEP` (30).
-8. Stops the stack. The data volumes are kept.
+5. Archives the generated images (the `stagehand_assets` volume) and **proves they unpack** into a throwaway volume: the same number of files, with the top folder still owned by the app's `node` user.
+6. Packs the dump, the images, a manifest and `infra/.env` into one encrypted `stagehand-<UTC time>.stbak` in `BACKUP_DIR` (`D:\StagehandBackups`, a different physical disk from Docker's data on C:).
+7. Decrypts that file once more to check it.
+8. Keeps the newest `BACKUP_KEEP` (30).
+9. Stops the stack. The data volumes are kept.
 
 If any backup step fails, **nothing is stopped**: the database keeps running and the error says what to do. `--skip-backup` stops without a backup and says so loudly.
 
@@ -176,7 +177,7 @@ To restore onto a fresh machine:
 3. `pnpm stack:restore <file> --yes`.
 4. Copy settings from the generated `infra/.env.restored` into `infra/.env`.
 
-Assets (Phase 2) are included automatically once a `stagehand_assets` volume exists.
+`stack:restore` replaces the `stagehand_assets` volume with the backup's images too (Compose creates the volume first on a fresh machine), then checks the file count and the owner. A backup with no images leaves the volume as it is. `stack:restore-drill` unpacks the images into a throwaway volume, so production is never touched.
 
 **File format** (v1), so a backup can be opened without this code if ever needed:
 

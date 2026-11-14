@@ -1,7 +1,5 @@
 import { appendFile, mkdir, readdir, rm, unlink, writeFile } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
 import { basename, join } from 'node:path';
-import { finished } from 'node:stream/promises';
 
 import {
   ASSETS,
@@ -14,7 +12,13 @@ import {
   writeEncryptedArchive,
   type Manifest,
 } from './archive';
-import { postgresImage, projectName, REPO_ROOT, run } from './docker';
+import {
+  archiveAssetsVolume,
+  compareAssets,
+  readAssetsArchive,
+  restoreIntoThrowawayVolume,
+} from './assets';
+import { postgresImage, REPO_ROOT, run } from './docker';
 import { backupSettings, envForBackup, readEnvFile, type BackupSettings } from './env';
 import {
   compareCounts,
@@ -103,11 +107,25 @@ export async function runBackup(
     await writeFile(join(staging, ENV_FILE), envForBackup(envRaw));
     const files = [DATABASE_DUMP, ENV_FILE];
 
-    const assetsIncluded = await archiveAssetsVolume(envFile, image, join(staging, ASSETS));
-    if (assetsIncluded) files.push(ASSETS);
-    step(
-      assetsIncluded ? 'Included the assets volume' : 'No assets volume yet (Phase 2); skipping',
-    );
+    const assetsPath = join(staging, ASSETS);
+    const assetsIncluded = await archiveAssetsVolume(envFile, image, assetsPath);
+    if (assetsIncluded) {
+      files.push(ASSETS);
+      step('Verifying the images by unpacking them into a throwaway volume');
+      const archived = await readAssetsArchive(assetsPath);
+      const assetDifferences = compareAssets(
+        archived,
+        await restoreIntoThrowawayVolume(image, assetsPath),
+      );
+      if (assetDifferences.length > 0) {
+        throw new Error(
+          `The images did not unpack identically:\n  - ${assetDifferences.join('\n  - ')}`,
+        );
+      }
+      step(`  Included ${String(archived.files)} image files`);
+    } else {
+      step('No assets volume yet; skipping');
+    }
 
     const manifest: Manifest = {
       format: FORMAT_VERSION,
@@ -144,44 +162,6 @@ async function pruneOldBackups(settings: BackupSettings): Promise<void> {
     step(
       `Removed ${String(prune.length)} old backup(s), keeping the newest ${String(settings.keep)}`,
     );
-}
-
-/** Tars the `<project>_assets` volume, if it exists, using the postgres image (it has tar). */
-async function archiveAssetsVolume(
-  envFile: string,
-  image: string,
-  outPath: string,
-): Promise<boolean> {
-  const volume = `${await projectName(envFile)}_assets`;
-  const exists = await run('docker', ['volume', 'inspect', volume], { allowFailure: true });
-  if (exists.code !== 0) return false;
-
-  const out = createWriteStream(outPath);
-  try {
-    await run(
-      'docker',
-      [
-        'run',
-        '--rm',
-        '-v',
-        `${volume}:/data:ro`,
-        '--entrypoint',
-        'tar',
-        image,
-        '-c',
-        '-C',
-        '/data',
-        '.',
-      ],
-      {
-        stdout: out,
-      },
-    );
-  } finally {
-    out.end();
-    await finished(out);
-  }
-  return true;
 }
 
 async function gitCommit(): Promise<string | null> {
