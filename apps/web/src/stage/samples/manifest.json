@@ -1,0 +1,50 @@
+[
+  {
+    "name": "backdrop-forest-path",
+    "kind": "backdrop",
+    "width": 1536,
+    "height": 864
+  },
+  {
+    "name": "backdrop-village-square",
+    "kind": "backdrop",
+    "width": 1536,
+    "height": 864
+  },
+  {
+    "name": "character-ranger",
+    "kind": "character",
+    "width": 673,
+    "height": 1024
+  },
+  {
+    "name": "character-shopkeeper",
+    "kind": "character",
+    "width": 633,
+    "height": 1024
+  },
+  {
+    "name": "monster-bog-troll",
+    "kind": "monster",
+    "width": 837,
+    "height": 1024
+  },
+  {
+    "name": "monster-cave-spider",
+    "kind": "monster",
+    "width": 892,
+    "height": 1024
+  },
+  {
+    "name": "prop-lantern",
+    "kind": "prop",
+    "width": 527,
+    "height": 1024
+  },
+  {
+    "name": "prop-well",
+    "kind": "prop",
+    "width": 832,
+    "height": 1024
+  }
+]

@@ -19,6 +19,8 @@
     "eval": "pnpm --filter @stagehand/server eval",
     "style:sample": "pnpm --filter @stagehand/server style:sample",
     "style:process": "pnpm --filter @stagehand/server style:process",
+    "stage:samples": "pnpm --filter @stagehand/server stage:samples",
+    "stage:textures": "pnpm --filter @stagehand/server stage:textures",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "prepare": "husky",
     "db:up": "docker compose -f infra/docker-compose.dev.yml up -d --wait",

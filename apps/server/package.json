@@ -17,6 +17,8 @@
     "eval": "tsx --env-file-if-exists=.env eval/import/cli.ts",
     "style:sample": "tsx --env-file-if-exists=.env eval/images/cli.ts",
     "style:process": "tsx eval/processing/cli.ts",
+    "stage:samples": "tsx eval/stage-samples/cli.ts",
+    "stage:textures": "tsx eval/stage-textures/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env src/migrate-cli.ts",
     "db:check": "drizzle-kit check",

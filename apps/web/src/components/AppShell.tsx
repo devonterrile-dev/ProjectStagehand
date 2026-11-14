@@ -9,9 +9,17 @@ import { useMe } from '@/lib/queries';
 /** Pages laid out wider than the rest: a record page has a side column (F1.5b). */
 const WIDE_PAGE = '/campaigns/:campaignId/records/:recordId';
 
+/** Pages that are all stage: they fill the window, with no header (F3.1). */
+const STAGE_PAGE = '/stage-test';
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: me } = useMe();
   const width = useMatch(WIDE_PAGE) === null ? 'max-w-3xl' : 'max-w-6xl';
+  const stage = useMatch(STAGE_PAGE) !== null;
+
+  if (stage) {
+    return <main className="h-svh w-full overflow-hidden bg-black text-white">{children}</main>;
+  }
 
   return (
     <div className="min-h-svh bg-background text-foreground">

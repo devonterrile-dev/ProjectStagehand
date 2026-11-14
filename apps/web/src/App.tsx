@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Link, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/components/AppShell';
@@ -14,6 +15,11 @@ import { RecordsPage } from '@/pages/RecordsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
+
+// The stage brings Three.js with it, so it loads only when a stage page is opened (F3.1).
+const StageTestPage = lazy(() =>
+  import('@/pages/StageTestPage').then((module) => ({ default: module.StageTestPage })),
+);
 
 export function App() {
   return (
@@ -97,6 +103,16 @@ export function App() {
           element={
             <RequireAuth>
               <ImportReviewPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/stage-test"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<p className="p-4">Loading the stage…</p>}>
+                <StageTestPage />
+              </Suspense>
             </RequireAuth>
           }
         />

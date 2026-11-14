@@ -308,6 +308,7 @@ export {
   type PlayerInventoryItem,
   type Weapon,
 } from './sheet-parts';
+export { DEPTH_TICKS, depthTickSchema, STAGE_MAX_OBJECTS, type DepthTick } from './stage';
 export {
   createStatBlockRequestSchema,
   MOTIVE_MAX,

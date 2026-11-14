@@ -1,3 +1,5 @@
+import { Link } from 'react-router';
+
 import { AiUsageCard } from '@/components/settings/AiUsageCard';
 import { ProviderKeyCard } from '@/components/settings/ProviderKeyCard';
 import { useProviderCredentials } from '@/lib/queries';
@@ -33,6 +35,12 @@ export function SettingsPage() {
         )}
       </section>
       <AiUsageCard />
+      <p className="text-sm text-muted-foreground">
+        <Link to="/stage-test" className="underline">
+          Stage test
+        </Link>
+        : see how the 3D stage looks and runs on this device.
+      </p>
     </div>
   );
 }
