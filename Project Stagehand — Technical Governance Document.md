@@ -90,7 +90,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 
 - [x] F2.1 Style bible v1, anchor reference images, and asset templates for puppets (PCs, NPCs, monsters), props (Prop and Item records) and back-wall backdrops (section 11)
 - [x] F2.2 Settings: GM stores an OpenRouter API key (encrypted)
-- [ ] F2.3 "Generate visual" button on records, Props included; background job queue
+- [x] F2.3 "Generate visual" button on records, Props included; background job queue
 - [ ] F2.4 Post-processing: transparency, cardboard border, palette, sizing. Puppet sticks and prop stands are stage geometry, never part of the image (section 11)
 - [ ] F2.5 Review: approve, regenerate with notes, reject
 - [ ] F2.6 Manual upload as a fallback, through the same post-processing
