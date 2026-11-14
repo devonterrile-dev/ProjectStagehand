@@ -24,6 +24,7 @@ import {
   type AssetSummary,
   type ImageAspectRatio,
   type ImageQuality,
+  type StageImage,
   type VisualErrorCode,
   type VisualsResponse,
 } from '@stagehand/shared';
@@ -582,6 +583,47 @@ export async function assetImageOf(
     return { key: row.processed, mediaType: PROCESSED_MEDIA_TYPE };
   }
   return { key: row.original, mediaType: row.mediaType ?? 'image/png' };
+}
+
+/**
+ * The stage's version of each image in use among `assetIds` (F3.2): its size and the version
+ * that goes in its URL. An id is left out when it isn't an approved asset of this campaign, or
+ * has no stage version yet (post-processing failed or hasn't run).
+ */
+export async function stageImagesOf(
+  db: DbOrTx,
+  scope: CampaignScope,
+  assetIds: readonly string[],
+): Promise<Map<string, StageImage>> {
+  const ids = [...new Set(assetIds)];
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: assets.id,
+      width: assets.processedWidth,
+      height: assets.processedHeight,
+      version: assets.processingVersion,
+    })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.campaignId, scope.campaignId),
+        inArray(assets.id, ids),
+        eq(assets.status, 'approved'),
+        isNotNull(assets.processedPath),
+      ),
+    );
+  const images = new Map<string, StageImage>();
+  for (const row of rows) {
+    if (row.width === null || row.height === null || row.version === null) continue;
+    images.set(row.id, {
+      assetId: row.id,
+      width: row.width,
+      height: row.height,
+      version: row.version,
+    });
+  }
+  return images;
 }
 
 // --- The worker's side ------------------------------------------------------------------

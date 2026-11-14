@@ -25,6 +25,7 @@ import {
   type CredentialDeps,
 } from './routes/provider-credentials';
 import { registerRecordRoutes } from './routes/records';
+import { registerSceneRoutes } from './routes/scenes';
 import { registerStatBlockRoutes } from './routes/stat-blocks';
 import { registerVisualRoutes, type VisualDeps } from './routes/visuals';
 
@@ -168,6 +169,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       credentialsKey: options.credentials.key,
       visuals: options.visuals,
     });
+    registerSceneRoutes(app, { auth: options.auth, db: handle.db });
   }
 
   if (options.activityTest !== undefined) {

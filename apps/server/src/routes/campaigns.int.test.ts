@@ -26,7 +26,7 @@ interface CampaignRoute {
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
  * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`,
  * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts`,
- * `ai-imports.int.test.ts` and `visuals.int.test.ts`.
+ * `ai-imports.int.test.ts`, `visuals.int.test.ts` and `scenes.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -199,6 +199,28 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     gmOnly: true,
   },
   { method: 'GET', path: '/api/campaigns/:campaignId/assets/:assetId/image', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/scenes', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/scenes',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/scenes/:sceneId', gmOnly: true },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/scenes/:sceneId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/scenes/:sceneId', gmOnly: true },
+  {
+    method: 'PUT',
+    path: '/api/campaigns/:campaignId/scenes/:sceneId/objects',
+    gmOnly: true,
+    payload: { objects: [] },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/stage-records', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */
@@ -383,7 +405,8 @@ describe('Campaigns API', () => {
         .replace(':statBlockId', '00000000-0000-4000-8000-000000000004')
         .replace(':importId', '00000000-0000-4000-8000-000000000005')
         .replace(':proposalId', '00000000-0000-4000-8000-000000000006')
-        .replace(':assetId', '00000000-0000-4000-8000-000000000007');
+        .replace(':assetId', '00000000-0000-4000-8000-000000000007')
+        .replace(':sceneId', '00000000-0000-4000-8000-000000000008');
     }
 
     it('lists every campaign route in the isolation table', () => {

@@ -11,6 +11,9 @@ export const DEPTH_TICKS = 10;
 /** Most props and puppets in the theater at once (§12 performance budget). */
 export const STAGE_MAX_OBJECTS = 30;
 
+/** Most players in one live session, besides the GM (§3). Each brings one PC puppet. */
+export const SESSION_MAX_PLAYERS = 6;
+
 /** A depth tick: a whole number from 0 (front) to 9 (back). */
 export const depthTickSchema = z
   .int()
