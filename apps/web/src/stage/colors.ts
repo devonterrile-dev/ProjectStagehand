@@ -11,6 +11,11 @@ export const STAGE_COLORS = {
   walls: '#5b4636',
   curtain: '#b3232d',
   valance: '#8f1b24',
+  /** A puppet's stick: pale wood. A prop's stand: darker, so it draws less attention. */
+  stick: '#d8b384',
+  stand: '#6f5236',
+  /** The sheet page's stand-in on the table. */
+  paper: '#f4efe2',
   /** The void: black, so nothing below the scene is seen. */
   void: '#000000',
 } as const;

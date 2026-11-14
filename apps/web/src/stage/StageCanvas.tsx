@@ -5,6 +5,7 @@ import { Backdrop } from './Backdrop';
 import { fitStageCamera, STAGE_FOV } from './camera';
 import { STAGE_COLORS } from './colors';
 import { Curtain } from './Curtain';
+import { MAX_PIXEL_RATIO } from './quality';
 import { Room } from './Room';
 import { StageCamera } from './StageCamera';
 import { Table } from './Table';
@@ -13,16 +14,12 @@ import { TheaterBox } from './TheaterBox';
 /** Where the camera starts before the canvas knows its own shape. */
 const INITIAL_CAMERA = fitStageCamera(16 / 9);
 
-/**
- * Sharper than 1.5 device pixels per pixel costs integrated graphics a lot for little gain
- * (§12 performance budget). F3.1b measures this.
- */
-export const MAX_PIXEL_RATIO = 1.5;
-
 export interface StageCanvasProps {
   /** The backdrop on the back wall; null leaves the wall bare. */
   backdropUrl: string | null;
   curtainOpen: boolean;
+  /** The most device pixels per CSS pixel to draw at. */
+  maxPixelRatio?: number;
   /** Extra objects in the scene: props and puppets. */
   children?: ReactNode;
 }
@@ -55,12 +52,17 @@ class StageErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
  * Lighting follows the §12 budget: one directional light and an ambient one for the table and
  * the box, no shadow maps. Art (backdrops, cutouts) is unlit, so it keeps its drawn colors.
  */
-export function StageCanvas({ backdropUrl, curtainOpen, children }: StageCanvasProps) {
+export function StageCanvas({
+  backdropUrl,
+  curtainOpen,
+  maxPixelRatio = MAX_PIXEL_RATIO,
+  children,
+}: StageCanvasProps) {
   return (
     <StageErrorBoundary>
       <Canvas
         flat
-        dpr={[1, MAX_PIXEL_RATIO]}
+        dpr={[1, Math.max(1, maxPixelRatio)]}
         camera={{
           fov: STAGE_FOV,
           near: 0.1,
