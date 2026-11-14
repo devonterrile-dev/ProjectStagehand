@@ -1,5 +1,5 @@
 import { STAGE_MAX_OBJECTS } from '@stagehand/shared';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
@@ -70,8 +70,11 @@ function Choice<T extends string | number>({
  * signed in can open it to see how the stage looks and runs on their device, and send back a
  * one-line measurement. Rendered inside RequireAuth and loaded lazily, so Three.js stays out
  * of the main bundle.
+ *
+ * `onResult` is told the last measurement's result line (null before the first), for a page
+ * that shows the stage test inside something larger: the Activity test.
  */
-export function StageTestPage() {
+export function StageTestPage({ onResult }: { onResult?: (line: string | null) => void } = {}) {
   const [backdropName, setBackdropName] = useState(SAMPLE_BACKDROPS[0]?.name ?? '');
   const [curtainOpen, setCurtainOpen] = useState(true);
   const [objectCount, setObjectCount] = useState<number>(STAGE_MAX_OBJECTS);
@@ -83,6 +86,11 @@ export function StageTestPage() {
     run: null,
     result: null,
   });
+
+  const result = measurement.result;
+  useEffect(() => {
+    onResult?.(result);
+  }, [onResult, result]);
 
   const backdrop = SAMPLE_BACKDROPS.find((sample) => sample.name === backdropName) ?? null;
   const measuring = measurement.run !== null;

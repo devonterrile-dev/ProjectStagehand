@@ -11,15 +11,20 @@ const WIDE_PAGE = '/campaigns/:campaignId/records/:recordId';
 
 /** Pages that are all stage: they fill the window, with no header (F3.1). */
 const STAGE_PAGE = '/stage-test';
+const ACTIVITY_PAGE = '/activity-test';
+
+/** The whole window for the stage: black, no header, nothing scrolls. */
+export function StageShell({ children }: { children: ReactNode }) {
+  return <main className="h-svh w-full overflow-hidden bg-black text-white">{children}</main>;
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: me } = useMe();
   const width = useMatch(WIDE_PAGE) === null ? 'max-w-3xl' : 'max-w-6xl';
-  const stage = useMatch(STAGE_PAGE) !== null;
+  const stageTest = useMatch(STAGE_PAGE) !== null;
+  const activityTest = useMatch(ACTIVITY_PAGE) !== null;
 
-  if (stage) {
-    return <main className="h-svh w-full overflow-hidden bg-black text-white">{children}</main>;
-  }
+  if (stageTest || activityTest) return <StageShell>{children}</StageShell>;
 
   return (
     <div className="min-h-svh bg-background text-foreground">

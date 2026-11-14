@@ -54,6 +54,8 @@ export async function buildTestApp(
     openrouter?: Partial<CredentialDeps['openrouter'] & Pick<OpenRouterProvider, 'generateImage'>>;
     /** Post-processing; the real `processImage` unless a test swaps it. */
     processImage?: ImageProcessor;
+    /** Serve the Discord Activity test (`ACTIVITY_TEST=true`). */
+    activityTest?: boolean;
   } = {},
 ): Promise<{
   app: FastifyInstance;
@@ -130,6 +132,10 @@ export async function buildTestApp(
     },
     importPrompt: loadImportSystemPrompt(),
     visuals: { queue, storage, bible: STYLE_BIBLE },
+    activityTest:
+      options.activityTest === true
+        ? { discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' } }
+        : undefined,
   });
   await app.ready();
   return { app, handle, storage, visualsSettled: () => queue.settled(), visualQueue: queue };

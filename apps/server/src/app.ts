@@ -4,6 +4,8 @@ import fastifyStatic from '@fastify/static';
 import { healthResponseSchema, type HealthResponse } from '@stagehand/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { ACTIVITY_PREFIX, registerActivityRoutes, type ActivityDeps } from './activity/routes';
+import { registerActivitySocket } from './activity/socket';
 import { createImportRunner } from './ai-import/runner';
 import { AUTH_BASE_PATH, type Auth } from './auth/auth';
 import { registerAuthRoutes } from './auth/routes';
@@ -62,6 +64,11 @@ export interface BuildAppOptions {
    * everything would let a visitor choose their own IP. See TRUSTED_PROXIES.
    */
   trustProxy?: boolean | undefined;
+  /**
+   * The Discord Activity test (governance §13, `ACTIVITY_TEST`): its routes and Socket.IO
+   * echo are served. Unset everywhere but a dev machine.
+   */
+  activityTest?: ActivityDeps | undefined;
 }
 
 /**
@@ -74,7 +81,7 @@ export interface BuildAppOptions {
 const TRUSTED_PROXIES = 'loopback, uniquelocal';
 
 /** Path prefixes owned by the server; these never fall back to the SPA. */
-const SERVER_PREFIXES = ['/api', '/health'];
+const SERVER_PREFIXES = ['/api', '/health', '/socket.io'];
 
 /**
  * Builds the Fastify app without starting it, so tests can drive it with `inject()`.
@@ -127,7 +134,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       );
     }
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
-    registerCsrfProtection(app, { publicUrl: options.publicUrl, exempt: [`${AUTH_BASE_PATH}/`] });
+    // The Activity test's routes are called from Discord's proxy origin and carry no session.
+    registerCsrfProtection(app, {
+      publicUrl: options.publicUrl,
+      exempt: [
+        `${AUTH_BASE_PATH}/`,
+        ...(options.activityTest === undefined ? [] : [ACTIVITY_PREFIX]),
+      ],
+    });
     registerAuthRoutes(app, options.auth);
     registerMeRoutes(app, { auth: options.auth, db: handle.db });
     registerProviderCredentialRoutes(app, {
@@ -154,6 +168,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       credentialsKey: options.credentials.key,
       visuals: options.visuals,
     });
+  }
+
+  if (options.activityTest !== undefined) {
+    registerActivityRoutes(app, options.activityTest);
+    registerActivitySocket(app);
   }
 
   if (options.webDistDir !== undefined) {
@@ -202,6 +221,11 @@ export const LOG_REDACT_PATHS = [
   'body.notes',
   'revisionNotes',
   '*.revisionNotes',
+  // A Discord sign-in code and the token it buys (the Activity test).
+  'req.body.code',
+  'body.code',
+  'accessToken',
+  '*.accessToken',
 ];
 
 /**

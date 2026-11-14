@@ -39,6 +39,12 @@ const envSchema = z
       .enum(['true', 'false'], { error: 'must be "true" or "false"' })
       .default('false')
       .transform((value) => value === 'true'),
+    // The Discord Activity test (governance §13): its routes and its Socket.IO echo. Off
+    // unless set, and never set on the live site.
+    ACTIVITY_TEST: z
+      .enum(['true', 'false'], { error: 'must be "true" or "false"' })
+      .default('false')
+      .transform((value) => value === 'true'),
   })
   .superRefine((env, ctx) => {
     // Only unit tests may run without a database or auth (they build the app without them).
@@ -98,6 +104,11 @@ export interface Config {
    */
   trustProxy: boolean;
   /**
+   * Serve the Discord Activity test (governance §13): `/api/activity` and a Socket.IO echo.
+   * For a dev machine behind a temporary tunnel.
+   */
+  activityTest: boolean;
+  /**
    * AES-256-GCM master key for GMs' provider API keys. Only ever in the environment, never
    * in the repo or the database. Present outside unit tests.
    */
@@ -145,6 +156,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     assetsDir: parsed.ASSETS_DIR,
     publicUrl: parsed.PUBLIC_URL,
     trustProxy: parsed.TRUST_PROXY,
+    activityTest: parsed.ACTIVITY_TEST,
     credentialsKey: parsed.CREDENTIALS_ENCRYPTION_KEY,
     auth:
       parsed.BETTER_AUTH_SECRET !== undefined &&

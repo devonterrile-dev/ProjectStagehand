@@ -10,8 +10,9 @@ export interface SecurityHeaderOptions {
  *
  * - nosniff: browsers must not guess content types (stops uploads being run as scripts).
  * - Referrer-Policy: other sites see only our origin, never full URLs with ids in them.
- * - frame-ancestors 'self': nobody can frame the app (clickjacking). F3.9 adds Discord's
- *   origins here so the Discord Activity can embed it.
+ * - frame-ancestors 'self': nobody can frame the app (clickjacking). The Discord Activity
+ *   needs no exception: Discord's proxy replaces this header with its own policy before the
+ *   page reaches Discord's frame (D-48).
  * - HSTS (https only): browsers go straight to https for a year. No includeSubDomains, so
  *   other subdomains stay free to do their own thing.
  *

@@ -21,6 +21,8 @@ export default defineConfig({
     proxy: {
       '/api': serverUrl,
       '/health': serverUrl,
+      // Socket.IO (the Activity test now, live sessions in F3.3), websocket included.
+      '/socket.io': { target: serverUrl, ws: true },
     },
   },
 });

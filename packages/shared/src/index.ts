@@ -1,4 +1,16 @@
 export {
+  ACTIVITY_CODE_MAX,
+  ACTIVITY_SOCKET,
+  activityConfigResponseSchema,
+  activityProbeResponseSchema,
+  activityTokenRequestSchema,
+  activityTokenResponseSchema,
+  type ActivityConfigResponse,
+  type ActivityProbeResponse,
+  type ActivityTokenRequest,
+  type ActivityTokenResponse,
+} from './activity';
+export {
   addTokenUsage,
   AI_IMPORT_EFFORT,
   AI_IMPORT_LIMITS,

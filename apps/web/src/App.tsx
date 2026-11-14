@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Link, Route, Routes } from 'react-router';
 
-import { AppShell } from '@/components/AppShell';
+import { isActivityFrame } from '@/activity/frame';
+import { AppShell, StageShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
@@ -21,7 +22,28 @@ const StageTestPage = lazy(() =>
   import('@/pages/StageTestPage').then((module) => ({ default: module.StageTestPage })),
 );
 
+// The Discord Activity test (governance §13) brings Discord's SDK and Socket.IO with it.
+const ActivityTestPage = lazy(() =>
+  import('@/pages/ActivityTestPage').then((module) => ({ default: module.ActivityTestPage })),
+);
+
+const stageFallback = <p className="p-4">Loading the stage…</p>;
+
 export function App() {
+  // Discord always opens an Activity at the root path, with launch parameters its SDK reads
+  // from the URL. So inside Discord's frame the whole app is the Activity test, wherever the
+  // router goes. Decided once: later navigation drops the query.
+  const [inFrame] = useState(() => isActivityFrame(window.location.search));
+  if (inFrame) {
+    return (
+      <StageShell>
+        <Suspense fallback={stageFallback}>
+          <ActivityTestPage inFrame />
+        </Suspense>
+      </StageShell>
+    );
+  }
+
   return (
     <AppShell>
       <Routes>
@@ -110,10 +132,19 @@ export function App() {
           path="/stage-test"
           element={
             <RequireAuth>
-              <Suspense fallback={<p className="p-4">Loading the stage…</p>}>
+              <Suspense fallback={stageFallback}>
                 <StageTestPage />
               </Suspense>
             </RequireAuth>
+          }
+        />
+        {/* Not behind RequireAuth: there is no Stagehand sign-in inside Discord yet. */}
+        <Route
+          path="/activity-test"
+          element={
+            <Suspense fallback={stageFallback}>
+              <ActivityTestPage inFrame={false} />
+            </Suspense>
           }
         />
         {/* Not behind RequireAuth: signed-out visitors sign in from the page itself. */}

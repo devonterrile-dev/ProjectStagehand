@@ -132,6 +132,15 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
     auth,
     publicUrl: config.publicUrl,
     trustProxy: config.trustProxy,
+    activityTest:
+      config.activityTest && config.auth !== undefined
+        ? {
+            discord: {
+              clientId: config.auth.discordClientId,
+              clientSecret: config.auth.discordClientSecret,
+            },
+          }
+        : undefined,
     credentials:
       config.credentialsKey === undefined
         ? undefined
