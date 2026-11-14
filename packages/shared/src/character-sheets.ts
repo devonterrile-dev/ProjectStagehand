@@ -43,6 +43,8 @@ export const characterSheetSchema = z.object({
   publicDescription: richTextSchema,
   /** Private to the GM; never sent to the player. */
   gmNotes: richTextSchema,
+  /** The puppet's visual in use ("Use this one", F2.3), or null. GM only for now. */
+  visualAssetId: z.uuid().nullable(),
 
   /** Trait id → modifier, one entry per trait of the campaign's ruleset. */
   traits: z.record(z.string(), z.int()),

@@ -16,3 +16,5 @@ Dockerfile
 .dockerignore
 # The AI import eval: never part of the image, and the local notes stay private.
 apps/server/eval/
+# Images made in dev (F2.3).
+apps/server/var/

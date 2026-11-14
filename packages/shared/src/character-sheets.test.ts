@@ -41,6 +41,7 @@ const SHEET: CharacterSheet = {
   className: 'Ranger',
   publicDescription: emptyRichText(),
   gmNotes: emptyRichText(),
+  visualAssetId: null,
   traits: TRAITS,
   evasion: 10,
   armorScore: 3,
@@ -78,6 +79,8 @@ describe('playerCharacterSheetSchema', () => {
     expect(Object.keys(parsed).sort()).toEqual([...PLAYER_CHARACTER_SHEET_KEYS].sort());
     expect(parsed).not.toHaveProperty('gmNotes');
     expect(parsed).not.toHaveProperty('assignedToUserId');
+    // The visual stays the GM's until the stage needs it (F2.3).
+    expect(parsed).not.toHaveProperty('visualAssetId');
   });
 
   it("drops an inventory row's Item record link, keeping its name and detail", () => {

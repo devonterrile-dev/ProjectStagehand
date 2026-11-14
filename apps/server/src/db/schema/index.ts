@@ -9,6 +9,7 @@
  * - Change tables here, then run `pnpm db:generate` and commit the generated SQL with the code.
  */
 export * from './ai-imports';
+export * from './assets';
 export * from './auth';
 export * from './campaigns';
 export * from './invites';

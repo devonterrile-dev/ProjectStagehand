@@ -1,5 +1,6 @@
 import {
   acceptInviteResponseSchema,
+  assetSummarySchema,
   backlinksResponseSchema,
   campaignListResponseSchema,
   campaignSchema,
@@ -25,7 +26,11 @@ import {
   recordSchema,
   statBlockListResponseSchema,
   statBlockSchema,
+  visualsResponseSchema,
+  type AssetSummary,
   type BacklinksResponse,
+  type GenerateVisualRequest,
+  type VisualsResponse,
   type Campaign,
   type CampaignRecord,
   type Character,
@@ -546,4 +551,44 @@ export async function discardImport(campaignId: string, importId: string): Promi
 /** The signed-in GM's imports and token usage across their campaigns. */
 export async function fetchUsage(): Promise<UsageResponse> {
   return usageResponseSchema.parse(await getJson('/api/me/usage'));
+}
+
+/** Whose visual (F2.3): a record's or a PC's. */
+export type VisualOwnerRef = { recordId: string } | { characterId: string };
+
+const visualOwnerPath = (campaignId: string, owner: VisualOwnerRef) =>
+  'recordId' in owner
+    ? recordsPath(campaignId, owner.recordId)
+    : characterPath(campaignId, owner.characterId);
+
+/** A record's or PC's tries at a visual, newest first, and the one in use. GM only. */
+export async function fetchVisuals(
+  campaignId: string,
+  owner: VisualOwnerRef,
+): Promise<VisualsResponse> {
+  return visualsResponseSchema.parse(
+    await getJson(`${visualOwnerPath(campaignId, owner)}/visuals`),
+  );
+}
+
+/** Starts making an image; it runs in the background and answers `generating` at once. */
+export async function generateVisual(
+  campaignId: string,
+  owner: VisualOwnerRef,
+  input: GenerateVisualRequest,
+): Promise<AssetSummary> {
+  const response = await send(`${visualOwnerPath(campaignId, owner)}/visuals`, 'POST', input);
+  return assetSummarySchema.parse(await response.json());
+}
+
+/** "Use this one": makes a finished try the record's or PC's visual. */
+export async function chooseVisual(
+  campaignId: string,
+  owner: VisualOwnerRef,
+  assetId: string,
+): Promise<VisualsResponse> {
+  const response = await send(`${visualOwnerPath(campaignId, owner)}/visual`, 'PUT', {
+    assetId,
+  });
+  return visualsResponseSchema.parse(await response.json());
 }

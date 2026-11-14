@@ -5,7 +5,7 @@
 #   docker compose -f infra/docker-compose.yml --env-file infra/.env --profile tunnel up -d
 #                                      # ...plus the tunnel, once F0.5 provides a token
 #
-# To move to a VPS: copy this file, infra/.env and the pgdata volume.
+# To move to a VPS: copy this file, infra/.env and the pgdata and assets volumes.
 
 name: stagehand
 
@@ -77,6 +77,9 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    volumes:
+      # Generated images (F2.3, D-42): `stagehand_assets`, backed up by `stack:shutdown`.
+      - assets:/app/data/assets
     ports:
       # Localhost only, for checking the stack by hand. Public traffic arrives via cloudflared.
       - 127.0.0.1:${APP_PORT:-8080}:3000
@@ -96,3 +99,4 @@ services:
 
 volumes:
   pgdata:
+  assets:

@@ -85,6 +85,13 @@
       "when": 1794612819716,
       "tag": "0011_prop_records",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794623081422,
+      "tag": "0012_visual_assets",
+      "breakpoints": true
     }
   ]
 }

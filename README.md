@@ -306,7 +306,7 @@ Per governance §1, assumptions the build relies on:
 - **Rich text is TipTap/ProseMirror document JSON** (D-22) with a closed set of nodes and marks, checked by `richTextSchema` in the shared package. Limits: `RICH_TEXT_MAX_JSON_CHARS` (50,000) per field and `RICH_TEXT_MAX_DEPTH` (32). The `mention` node arrived with links (F1.5a), for record text only.
 - **Stored `fields` are re-validated on every read** (`recordSchema.parse`), so renaming or retyping a field needs a jsonb data migration in the same commit, or reads of old rows fail.
 - **Link fields live in `record_links` (F1.5a), not in `fields`.** `RECORD_FIELD_SPECS` lists them as `kind: 'links'` so the display order from governance §8 is kept.
-- **`visual_asset_id` is deferred** to the feature that creates its table (F2.x). `stat_block_id` arrived with stat blocks (F1.4a).
+- **`visual_asset_id`** arrived with assets (F2.3, see below). `stat_block_id` arrived with stat blocks (F1.4a).
 - **Records are hard-deleted.** An Area that still has Spots can't be deleted (409); a record's `type` never changes. The Spot → Area foreign key is `NO ACTION`, not `RESTRICT`, so a future cascading campaign delete can remove both in one statement.
 - **Last write wins** on concurrent edits (one GM per campaign, D-14). The UI autosaves field by field (F1.3b).
 - **Record names allow 120 characters**; campaign and PC names stay at 80.
@@ -458,7 +458,7 @@ The AI import eval (governance §10, D-32). It checks the import pipeline agains
 
 ## Working assumptions (F2.1a)
 
-The image style bible and the tool that tries it out (governance §11, D-38). Nothing in the app reads it yet; F2.3's "Generate visual" will.
+The image style bible and the tool that tries it out (governance §11, D-38). F2.3's Generate visual reads it too.
 
 - **The style bible** is `packages/style-bible/v<N>/`: `base.md` (the look, sent first in every request), `templates/<kind>.md` (character, monster, prop, backdrop), `style.json` (the key color, an aspect ratio and quality per kind, the anchor images) and `palette.json`. `loadStyleBible` checks all of it: every template has exactly its slots, the palette keeps its distance from the key color, and every anchor file exists. Like the AI prompts, a released version is never edited; v1 is released when F2.1b commits its anchors.
 - **No franchise names**: the prompts describe the look in plain words. The loader refuses a base or template that names one, because image models refuse or imitate them.
@@ -488,7 +488,7 @@ The GM's OpenRouter key, for generating visuals (governance §14, D-40). It work
 - **Format** (`openRouterApiKeySchema`): `sk-or-` and at least 20 more letters, digits, `-` or `_`; checked in the browser and again on the server, with messages that never repeat the key.
 - **Routes**: `PUT` and `DELETE /api/me/credentials/:provider` serve both `anthropic` and `openrouter`; any other provider is 404. `GET /api/me/credentials` lists both.
 - **Settings** shows one card per provider (`ProviderKeyCard`), the same card with each provider's words: what the key is for, where its data goes, and a link to the provider's key page. Each card is a named region.
-- No migration: `provider_credentials` has allowed `openrouter` since F1.7. Nothing uses the stored OpenRouter key yet; F2.3's Generate visual will read it with `getProviderKey`.
+- No migration: `provider_credentials` has allowed `openrouter` since F1.7. F2.3's Generate visual reads the stored key with `getProviderKey` when a job runs.
 
 ## Working assumptions (F1.10)
 
@@ -499,3 +499,16 @@ Prop records replace a Spot's points of interest (governance §8, D-37, D-41).
 - **Migration 0011** is hand-written. drizzle-kit's `ADD VALUE` can't be used in the transaction that adds it, and every pending migration runs in one transaction, so it rebuilds the `record_type` enum (dropping and recreating the two checks and the index that read `type`). Then each point of interest becomes a hidden Prop at its Spot: the detail becomes hidden details, and tags, source and import come from the Spot. A point of interest that is already an Item at that place stays only the Item, its detail added to the Item's GM notes. "At that place" means linked from the Spot's items here, or held by the Spot or its Area. "Already an Item" compares names without a leading the/a/an, and counts one name inside the other as whole words. Finally `pointsOfInterest` is removed from Spot fields and from old import proposals. `src/db/prop-migration.int.test.ts` runs it on a scratch database migrated to 0010 and seeded with old rows.
 - **AI import, prompt v5.** A Prop for something worth a closer look that stays put, an Item for what can be carried, never both. The index line of a Prop says `at <its Spot>`, and a Spot shown in full lists `propsHere`. A link written from the Spot's side (`propsHere`, `Props here`, `props`) is turned around into the Prop's `spot` link, and in fill mode it counts as a change to the Spot. The wire format has no points-of-interest list any more. The review shows new Props right after Spots.
 - **Eval**: case 14, `props` (a square with a well, a statue, a notice board and a lantern, plus the Black Anvil's bellows; then a note that must update the well rather than add one), and `ExpectedCreate.linkedTo`. The local Utopia scenario forbids a Prop for the trunk.
+
+## Working assumptions (F2.3)
+
+Generate visual on records and PCs, made by a background job queue (governance §11, D-42).
+
+- **Where**: a **Visual** card in the side column of NPC, Prop, Item and Spot records, and on a PC's sheet between Identity and Traits (GM only). Stat blocks have none yet. Props and Items are drawn with the prop template and anchors, Spots as backdrops, PCs always as humanoids (the character template). An NPC first asks "humanoid or monster?", which picks the character or the monster template and anchors; the dialog starts on the last choice.
+- **The prompt** (`apps/server/src/visuals/prompt.ts`) is `buildImagePrompt` with the record's name and the same labelled lines as the image test set: NPC and Prop: appearance, description; Item: kind, appearance, description; Spot: backdrop notes and its Area's description (or name); PC: class or role, description. Each line is cut at 1,000 characters. The prompt is stored with the asset and never logged (`prompt` is in `LOG_REDACT_PATHS`).
+- **The queue** (`visuals/queue.ts`) is pg-boss 12 inside the app process: queue `generate-visual`, 2 workers, no pg-boss retries, 10-minute expiry. pg-boss creates and upgrades its own `pgboss` schema in the same database when the server starts; Drizzle never touches it. Integration tests run jobs inline instead (`createInlineQueue`, `visualsSettled()`), except `visuals/queue.int.test.ts`, which runs the real thing.
+- **A job** (`visuals/job.ts`) claims its asset (so a job delivered twice makes one image), decrypts the GM's OpenRouter key, sends the prompt with the kind's two anchors, tries a rate-limited call once more after 10 seconds, stores the PNG and records the cost OpenRouter reports. Every failure becomes an error code with a message for the GM (`VISUAL_ERROR_MESSAGES`); none of them is billed.
+- **The `assets` table** (migration `0012_visual_assets`) keeps every try: `generating` → `pending` or `failed`; **Use this one** makes it `approved` and sets the record's or PC's `visual_asset_id` (a new column on `records` and `characters`). At startup a try that had started is marked `interrupted`; one still generating after 15 minutes is shown as interrupted. Deleting a record or PC keeps its assets, unlinked, for the asset library (F2.7).
+- **Files** are stored untouched under `ASSETS_DIR` as `campaigns/<campaignId>/<assetId>.png` (`visuals/storage.ts`, behind an interface for S3 later). In dev that is the git-ignored `apps/server/var/assets`; in production the image sets `/app/data/assets`, the Compose volume `stagehand_assets`, which `stack:shutdown` already archives. `GET /api/campaigns/:id/assets/:assetId/image` serves them to the GM only, cached privately. Images keep the magenta background until F2.4.
+- **Limits** per GM: 30 images an hour (429), 3 being made at once and one at a time per record or PC (409). The card shows the D-39 estimate per kind (about $0.055 a puppet, $0.071 a prop, $0.044 a backdrop) and each try's real cost.
+- **The image** needs `STYLE_BIBLE_DIR` (the Dockerfile copies `packages/style-bible/v1` to `/app/style-bible`); the server loads the style bible and its anchors at startup and exits if they are missing, like the AI prompt.

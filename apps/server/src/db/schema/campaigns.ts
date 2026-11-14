@@ -31,8 +31,10 @@ import {
   unique,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
+import { assets } from './assets';
 import { users } from './auth';
 
 export const campaignRole = pgEnum('campaign_role', ['gm', 'player']);
@@ -138,6 +140,10 @@ export const characters = pgTable(
       .notNull(),
     /** Private to the GM. */
     gmNotes: jsonb('gm_notes').$type<RichText>().default(emptyRichText()).notNull(),
+    /** The puppet's visual in use (F2.3, D-42): one of this PC's own assets. */
+    visualAssetId: uuid('visual_asset_id').references((): AnyPgColumn => assets.id, {
+      onDelete: 'set null',
+    }),
     /** Trait id → modifier; missing traits read as 0. */
     traits: jsonb('traits').$type<Record<string, number>>().default({}).notNull(),
 

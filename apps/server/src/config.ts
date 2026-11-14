@@ -16,6 +16,10 @@ const envSchema = z
     WEB_DIST_DIR: z.string().min(1).optional(),
     // Where the versioned AI prompt files are (F1.9). Unset in dev: read from the package.
     PROMPTS_DIR: z.string().min(1).optional(),
+    // Where the style bible's v<N>/ folders are (F2.3). Unset in dev: read from the package.
+    STYLE_BIBLE_DIR: z.string().min(1).optional(),
+    // Where generated images are stored (F2.3). Required in production (the image sets it).
+    ASSETS_DIR: z.string().min(1).optional(),
     PUBLIC_URL: z
       .url({ protocol: /^https?$/, error: 'must be an http(s) URL' })
       .transform((value) => new URL(value).origin)
@@ -39,6 +43,13 @@ const envSchema = z
   .superRefine((env, ctx) => {
     // Only unit tests may run without a database or auth (they build the app without them).
     if (env.NODE_ENV === 'test') return;
+    if (env.NODE_ENV === 'production' && env.ASSETS_DIR === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ASSETS_DIR'],
+        message: 'is required when NODE_ENV=production',
+      });
+    }
     for (const key of [
       'DATABASE_URL',
       'PUBLIC_URL',
@@ -69,6 +80,16 @@ export interface Config {
    * the bundled server can't find the `@stagehand/prompts` package on its own; unset in dev.
    */
   promptsDir: string | undefined;
+  /**
+   * Folder holding the style bible's `v<N>/` folders (F2.3). Set in the production image, like
+   * `promptsDir`; unset in dev.
+   */
+  styleBibleDir: string | undefined;
+  /**
+   * Folder generated images are stored in (F2.3, D-42). Set in production (a Docker volume);
+   * unset in dev, where `apps/server/var/assets` is used.
+   */
+  assetsDir: string | undefined;
   /** Origin users reach the app at (no trailing slash), e.g. http://localhost:5173. */
   publicUrl: string | undefined;
   /**
@@ -120,6 +141,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: parsed.DATABASE_URL,
     webDistDir: parsed.WEB_DIST_DIR,
     promptsDir: parsed.PROMPTS_DIR,
+    styleBibleDir: parsed.STYLE_BIBLE_DIR,
+    assetsDir: parsed.ASSETS_DIR,
     publicUrl: parsed.PUBLIC_URL,
     trustProxy: parsed.TRUST_PROXY,
     credentialsKey: parsed.CREDENTIALS_ENCRYPTION_KEY,

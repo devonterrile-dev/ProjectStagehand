@@ -3,13 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { CharacterSheetForm } from '@/components/sheets/CharacterSheetForm';
 import { CharacterSheetView } from '@/components/sheets/CharacterSheetView';
+import { VisualCard } from '@/components/visuals/VisualCard';
 import { useCampaign, useCharacterSheet, useMembers, useOwnCharacterSheet } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
- * `/campaigns/:campaignId/characters/:characterId`: the GM edits any PC's sheet; a player
- * reads their own PC's sheet only (D-23).
+ * `/campaigns/:campaignId/characters/:characterId`: the GM edits any PC's sheet and makes its
+ * puppet's visual (F2.3); a player reads their own PC's sheet only (D-23).
  */
 export function CharacterSheetPage() {
   const { campaignId = '', characterId = '' } = useParams();
@@ -84,6 +85,15 @@ function GmSheet({ campaign, characterId }: { campaign: Campaign; characterId: s
         onDeleted={() => {
           void navigate(`/campaigns/${campaign.id}`, { replace: true });
         }}
+        visual={
+          <VisualCard
+            campaignId={campaign.id}
+            owner={{ characterId: sheet.id }}
+            name={sheet.name}
+            subject="pc"
+            readOnly={campaign.archivedAt !== null}
+          />
+        }
       />
     </div>
   );

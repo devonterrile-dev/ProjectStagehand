@@ -25,8 +25,8 @@ interface CampaignRoute {
  * exists that isn't listed here, so new routes can't skip the isolation checks.
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
  * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`,
- * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts` and
- * `ai-imports.int.test.ts`.
+ * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts`,
+ * `ai-imports.int.test.ts` and `visuals.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -146,6 +146,37 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: {},
   },
   { method: 'POST', path: '/api/campaigns/:campaignId/imports/:importId/retry', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/records/:recordId/visuals', gmOnly: true },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/records/:recordId/visuals',
+    gmOnly: true,
+    payload: {},
+  },
+  {
+    method: 'PUT',
+    path: '/api/campaigns/:campaignId/records/:recordId/visual',
+    gmOnly: true,
+    payload: { assetId: '00000000-0000-4000-8000-000000000007' },
+  },
+  {
+    method: 'GET',
+    path: '/api/campaigns/:campaignId/characters/:characterId/visuals',
+    gmOnly: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/visuals',
+    gmOnly: true,
+    payload: { kind: 'character' },
+  },
+  {
+    method: 'PUT',
+    path: '/api/campaigns/:campaignId/characters/:characterId/visual',
+    gmOnly: true,
+    payload: { assetId: '00000000-0000-4000-8000-000000000007' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/assets/:assetId/image', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */
@@ -329,7 +360,8 @@ describe('Campaigns API', () => {
         .replace(':characterId', '00000000-0000-4000-8000-000000000003')
         .replace(':statBlockId', '00000000-0000-4000-8000-000000000004')
         .replace(':importId', '00000000-0000-4000-8000-000000000005')
-        .replace(':proposalId', '00000000-0000-4000-8000-000000000006');
+        .replace(':proposalId', '00000000-0000-4000-8000-000000000006')
+        .replace(':assetId', '00000000-0000-4000-8000-000000000007');
     }
 
     it('lists every campaign route in the isolation table', () => {

@@ -73,6 +73,8 @@ const recordBase = {
   statBlockId: z.uuid().nullable(),
   /** Null = hidden from players. Set by the reveal flow (F3.5). */
   revealedAt: timestamp.nullable(),
+  /** The visual in use ("Use this one", F2.3), or null. NPCs, Props, Items and Spots only. */
+  visualAssetId: z.uuid().nullable(),
   source: recordSourceSchema,
   createdAt: timestamp,
   updatedAt: timestamp,

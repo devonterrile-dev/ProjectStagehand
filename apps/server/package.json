@@ -28,15 +28,16 @@
     "@fastify/static": "^10.1.10",
     "@stagehand/prompts": "workspace:*",
     "@stagehand/shared": "workspace:*",
+    "@stagehand/style-bible": "workspace:*",
     "better-auth": "^1.7.18",
     "drizzle-orm": "~0.45.4",
     "fastify": "^5.12.8",
     "marked": "^18.2.0",
     "pg": "^8.23.1",
+    "pg-boss": "^12.28.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@stagehand/style-bible": "workspace:*",
     "@types/pg": "^8.23.1",
     "auth": "^1.7.18",
     "drizzle-kit": "~0.31.11",

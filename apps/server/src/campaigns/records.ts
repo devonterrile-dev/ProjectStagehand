@@ -75,6 +75,7 @@ async function toRecord(db: DbOrTx, scope: CampaignScope, row: RecordRow): Promi
     parentId: row.parentId,
     statBlockId: row.statBlockId,
     revealedAt: row.revealedAt?.toISOString() ?? null,
+    visualAssetId: row.visualAssetId,
     source: row.source,
     links,
     otherLinks,

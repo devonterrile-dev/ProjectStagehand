@@ -37,14 +37,22 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
     WEB_DIST_DIR=/app/web \
-    PROMPTS_DIR=/app/prompts
+    PROMPTS_DIR=/app/prompts \
+    STYLE_BIBLE_DIR=/app/style-bible \
+    ASSETS_DIR=/app/data/assets
 WORKDIR /app
+
+# Generated images (F2.3). Compose mounts the `assets` volume here; a new named volume copies
+# this folder's owner, so the app (user node) can write to it.
+RUN mkdir -p /app/data/assets && chown -R node:node /app/data
 
 COPY --from=build --chown=node:node /out/server ./
 COPY --from=build --chown=node:node /repo/apps/web/dist ./web
 # The versioned AI prompt files (F1.9). They are read from disk, not bundled; the server
 # loads its prompt at startup and exits if it isn't here.
 COPY --from=build --chown=node:node /repo/packages/prompts/import ./prompts/import
+# The image style bible and its anchor images (F2.3), read at startup like the prompt.
+COPY --from=build --chown=node:node /repo/packages/style-bible/v1 ./style-bible/v1
 
 USER node
 EXPOSE 3000

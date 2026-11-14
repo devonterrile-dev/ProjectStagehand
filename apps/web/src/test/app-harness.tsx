@@ -49,6 +49,7 @@ import { vi } from 'vitest';
 import { App } from '@/App';
 
 import { importsWorld, type ImportsWorldOptions } from './imports-world';
+import { visualsWorld, type VisualsWorldOptions } from './visuals-world';
 
 export const MIRA: MeResponse = {
   id: '0b7e2f1c-3c1d-4b8a-9a50-6f2a0e1d9c11',
@@ -123,6 +124,7 @@ export function record(
     parentId: null,
     statBlockId: null,
     revealedAt: null,
+    visualAssetId: null,
     source: 'manual',
     links: emptyLinksFor(overrides.type),
     otherLinks: [],
@@ -142,6 +144,7 @@ export function characterSheet(overrides: Partial<CharacterSheet> = {}): Charact
     className: '',
     publicDescription: emptyRichText(),
     gmNotes: emptyRichText(),
+    visualAssetId: null,
     traits: { agility: 0, strength: 0, finesse: 0, instinct: 0, presence: 0, knowledge: 0 },
     evasion: 0,
     armorScore: 0,
@@ -229,7 +232,7 @@ type CampaignSeed = Partial<Omit<CampaignData, 'characters'>> & {
   characters?: Partial<CharacterSheet>[];
 };
 
-export interface FakeWorld extends ImportsWorldOptions {
+export interface FakeWorld extends ImportsWorldOptions, VisualsWorldOptions {
   /** Extra members, PCs, invites, records and stat blocks per campaign id. Each campaign also has `me` as a member. */
   campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
@@ -332,6 +335,11 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     notFound,
   });
   for (const c of store.values()) imports.setCampaignName(c);
+  const visuals = visualsWorld(world, {
+    hasKey: () => credentials.some((c) => c.provider === 'openrouter'),
+    refused,
+    notFound,
+  });
 
   /** The records API, GM only, mirroring the server's rules and messages. */
   const respondRecords = (
@@ -846,6 +854,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         return new Response(null, { status: 204 });
       }
 
+      const visual = visuals.respond(found, d, rest, method, rawBody);
+      if (visual !== null) return visual;
       const records = respondRecords(found, d, rest, method, rawBody);
       if (records !== null) return records;
       const sheet = respondCharacter(found, d, rest, method, rawBody);

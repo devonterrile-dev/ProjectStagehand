@@ -1,9 +1,12 @@
 import type {
   Campaign,
+  CampaignRecord,
+  CharacterSheet,
   CharacterSheetPatch,
   CreateCharacterRequest,
   CreateRecordRequest,
   CreateStatBlockRequest,
+  GenerateVisualRequest,
   ImportDetail,
   ImportSummary,
   PatchProposalRequest,
@@ -16,6 +19,7 @@ import type {
   UpdateMeRequest,
   UpdateRecordRequest,
   UpdateStatBlockRequest,
+  VisualsResponse,
 } from '@stagehand/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -38,6 +42,10 @@ import {
   estimateImport,
   fetchBacklinks,
   fetchCampaign,
+  fetchVisuals,
+  generateVisual,
+  chooseVisual,
+  type VisualOwnerRef,
   fetchCampaigns,
   fetchCharacters,
   fetchCharacterSheet,
@@ -691,4 +699,72 @@ export function useDiscardImport(campaignId: string, importId: string) {
 /** The signed-in GM's imports and token usage, for Settings. */
 export function useUsage() {
   return useQuery({ queryKey: USAGE_KEY, queryFn: fetchUsage });
+}
+
+/** How often a record's or PC's visuals are polled while an image is being made. Tests shorten it. */
+export const visualPolling = { intervalMs: 2000 };
+
+const visualsKey = (campaignId: string, owner: VisualOwnerRef) =>
+  [
+    ...CAMPAIGNS_KEY,
+    campaignId,
+    'visuals',
+    'recordId' in owner ? `record:${owner.recordId}` : `character:${owner.characterId}`,
+  ] as const;
+
+/**
+ * A record's or PC's tries at a visual (F2.3), newest first. Polled while one is still being
+ * made, so the card fills in by itself, also after a reload. GM only.
+ */
+export function useVisuals(campaignId: string, owner: VisualOwnerRef, enabled: boolean) {
+  return useQuery({
+    queryKey: visualsKey(campaignId, owner),
+    queryFn: () => fetchVisuals(campaignId, owner),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.assets.some((asset) => asset.status === 'generating') === true
+        ? visualPolling.intervalMs
+        : false,
+  });
+}
+
+/** Starts an image; the `generating` try shows at once, then polling takes over. */
+export function useGenerateVisual(campaignId: string, owner: VisualOwnerRef) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: GenerateVisualRequest) => generateVisual(campaignId, owner, input),
+    onSuccess: (asset) => {
+      queryClient.setQueryData<VisualsResponse>(visualsKey(campaignId, owner), (current) =>
+        current === undefined ? current : { ...current, assets: [asset, ...current.assets] },
+      );
+      void queryClient.invalidateQueries({ queryKey: visualsKey(campaignId, owner) });
+    },
+  });
+}
+
+/**
+ * "Use this one": the answer replaces the cached tries, and the open record or sheet learns
+ * its new visual without a refetch (which would race the editor's own saves).
+ */
+export function useChooseVisual(campaignId: string, owner: VisualOwnerRef) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assetId: string) => chooseVisual(campaignId, owner, assetId),
+    onSuccess: (visuals) => {
+      queryClient.setQueryData(visualsKey(campaignId, owner), visuals);
+      const patch = <T extends { visualAssetId: string | null }>(current: T | null | undefined) =>
+        current == null ? current : { ...current, visualAssetId: visuals.visualAssetId };
+      if ('recordId' in owner) {
+        queryClient.setQueryData<CampaignRecord | null>(
+          recordKey(campaignId, owner.recordId),
+          patch,
+        );
+      } else {
+        queryClient.setQueryData<CharacterSheet | null>(
+          characterKey(campaignId, owner.characterId, 'gm'),
+          patch,
+        );
+      }
+    },
+  });
 }

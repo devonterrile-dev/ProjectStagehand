@@ -63,6 +63,7 @@ function toCharacterSheet(
     className: row.className,
     publicDescription: row.publicDescription,
     gmNotes: row.gmNotes,
+    visualAssetId: row.visualAssetId,
     traits,
     evasion: row.evasion,
     armorScore: row.armorScore,

@@ -5,8 +5,8 @@
  * `@stagehand/shared`. `type` is a Postgres enum built from `RECORD_TYPES`, so a new type
  * also needs a migration that rebuilds the enum (see 0011, which added `prop`; D-41).
  *
- * Deferred column: `visual_asset_id` arrives with assets (F2.x). `revealed_at` exists now, but nothing sets it until the reveal flow
- * (F3.5); every record route is GM-only until then.
+ * `revealed_at` exists now, but nothing sets it until the reveal flow (F3.5); every record
+ * route is GM-only until then. `visual_asset_id` is the visual in use (F2.3, D-42).
  *
  * Only the data-access layer in `src/campaigns/` queries this table.
  */
@@ -21,12 +21,14 @@ import {
   pgEnum,
   pgTable,
   text,
+  type AnyPgColumn,
   timestamp,
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
 import { aiImports } from './ai-imports';
+import { assets } from './assets';
 import { campaigns } from './campaigns';
 import { statBlocks } from './stat-blocks';
 
@@ -62,6 +64,13 @@ export const records = pgTable(
     statBlockId: uuid('stat_block_id'),
     /** Null = hidden from players. */
     revealedAt: timestamp('revealed_at', { withTimezone: true }),
+    /**
+     * The visual in use (F2.3, D-42): one of this record's own assets, checked by the data
+     * layer. Cleared if that asset is ever deleted.
+     */
+    visualAssetId: uuid('visual_asset_id').references((): AnyPgColumn => assets.id, {
+      onDelete: 'set null',
+    }),
     tags: text('tags')
       .array()
       .notNull()

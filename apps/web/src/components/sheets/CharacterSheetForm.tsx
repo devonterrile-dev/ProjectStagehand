@@ -18,7 +18,7 @@ import {
   type Weapon,
 } from '@stagehand/shared';
 import { MoreHorizontalIcon, Trash2Icon } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FieldError } from '@/components/FieldError';
@@ -74,6 +74,8 @@ interface CharacterSheetFormProps {
   /** The display name of the PC's player, if assigned. */
   playerName: string | null;
   onDeleted: () => void;
+  /** Shown between Identity and Traits: the PC's Visual card (F2.3). */
+  visual?: ReactNode;
 }
 
 /**
@@ -86,6 +88,7 @@ export function CharacterSheetForm({
   sheet,
   playerName,
   onDeleted,
+  visual,
 }: CharacterSheetFormProps) {
   const ruleset = rulesetFor(campaign.rulesetVersion);
   const { mutateAsync: sendPatch } = usePatchCharacter(campaign.id, sheet.id);
@@ -262,6 +265,8 @@ export function CharacterSheetForm({
           <FieldError message={errors.publicDescription ?? null} />
         </div>
       </Group>
+
+      {visual}
 
       <Group title="Traits">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">

@@ -24,6 +24,7 @@ import {
 } from './routes/provider-credentials';
 import { registerRecordRoutes } from './routes/records';
 import { registerStatBlockRoutes } from './routes/stat-blocks';
+import { registerVisualRoutes, type VisualDeps } from './routes/visuals';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -40,14 +41,19 @@ export interface BuildAppOptions {
   /** Database handle. The app takes ownership and ends the pool when it closes. */
   db?: DbHandle | undefined;
   /**
-   * Sign-in, sessions and the user API. Requires `db`, `publicUrl`, `credentials` and
-   * `importPrompt`.
+   * Sign-in, sessions and the user API. Requires `db`, `publicUrl`, `credentials`,
+   * `importPrompt` and `visuals`.
    */
   auth?: Auth | undefined;
   /** Master key and provider clients for GMs' stored API keys (F1.7). */
   credentials?: CredentialDeps | undefined;
   /** The filled AI import prompt (`loadImportSystemPrompt`), read once at startup (F1.8). */
   importPrompt?: string | undefined;
+  /**
+   * Generate visual (F2.3): the image job queue, where images are stored, and the style
+   * bible. The app stops the queue when it closes, before the database pool.
+   */
+  visuals?: VisualDeps | undefined;
   /** The app's own origin (PUBLIC_URL), used for CSRF checks and HSTS. */
   publicUrl?: string | undefined;
   /**
@@ -98,7 +104,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // Runs on app.close(), which graceful shutdown already calls. Imports in flight are
     // cancelled first, while they can still record that they were.
     app.addHook('onClose', async () => {
-      await importRunner.stop();
+      await Promise.all([importRunner.stop(), options.visuals?.queue.stop()]);
       await handle.pool.end();
     });
   }
@@ -113,10 +119,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       handle === undefined ||
       options.publicUrl === undefined ||
       options.credentials === undefined ||
-      options.importPrompt === undefined
+      options.importPrompt === undefined ||
+      options.visuals === undefined
     ) {
       throw new Error(
-        'buildApp: `auth` requires `db`, `publicUrl`, `credentials` and `importPrompt`',
+        'buildApp: `auth` requires `db`, `publicUrl`, `credentials`, `importPrompt` and `visuals`',
       );
     }
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
@@ -140,6 +147,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       db: handle.db,
       credentials: options.credentials,
       imports: { systemPrompt: options.importPrompt, runner: importRunner },
+    });
+    registerVisualRoutes(app, {
+      auth: options.auth,
+      db: handle.db,
+      credentialsKey: options.credentials.key,
+      visuals: options.visuals,
     });
   }
 
@@ -181,6 +194,9 @@ export const LOG_REDACT_PATHS = [
   'body.answer',
   'conversation',
   '*.conversation',
+  // An image prompt quotes the record's appearance and fields (F2.3).
+  'prompt',
+  '*.prompt',
 ];
 
 /**

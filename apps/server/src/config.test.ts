@@ -32,6 +32,8 @@ describe('loadConfig', () => {
       databaseUrl: REQUIRED.DATABASE_URL,
       webDistDir: undefined,
       promptsDir: undefined,
+      styleBibleDir: undefined,
+      assetsDir: undefined,
       publicUrl: 'http://localhost:5173',
       trustProxy: false,
       credentialsKey: Buffer.alloc(32, 7),
@@ -61,6 +63,8 @@ describe('loadConfig', () => {
       DATABASE_URL: 'postgres://user:pass@postgres:5432/stagehand',
       WEB_DIST_DIR: '/app/web',
       PROMPTS_DIR: '/app/prompts',
+      STYLE_BIBLE_DIR: '/app/style-bible',
+      ASSETS_DIR: '/app/data/assets',
       PUBLIC_URL: 'https://stagehand.example',
     });
 
@@ -72,8 +76,17 @@ describe('loadConfig', () => {
       databaseUrl: 'postgres://user:pass@postgres:5432/stagehand',
       webDistDir: '/app/web',
       promptsDir: '/app/prompts',
+      styleBibleDir: '/app/style-bible',
+      assetsDir: '/app/data/assets',
       publicUrl: 'https://stagehand.example',
     });
+  });
+
+  it('requires ASSETS_DIR in production only', () => {
+    expect(() => loadConfig({ ...REQUIRED, NODE_ENV: 'production' })).toThrow(
+      'ASSETS_DIR: is required when NODE_ENV=production',
+    );
+    expect(loadConfig(REQUIRED).assetsDir).toBeUndefined();
   });
 
   it('normalises PUBLIC_URL to an origin', () => {

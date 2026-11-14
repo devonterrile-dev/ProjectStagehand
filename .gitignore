@@ -27,6 +27,9 @@ Thumbs.db
 !.vscode/settings.json
 !.vscode/extensions.json
 
+# Images made by Generate visual in dev (F2.3).
+apps/server/var/
+
 # AI import eval (F1.9b): the GM's real notes and paid-run results stay on this machine.
 apps/server/eval/import/local/
 apps/server/eval/results/

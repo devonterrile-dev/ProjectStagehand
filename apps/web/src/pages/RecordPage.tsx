@@ -1,4 +1,4 @@
-import { RECORD_TYPE_LABELS } from '@stagehand/shared';
+import { isVisualSubject, RECORD_TYPE_LABELS } from '@stagehand/shared';
 import { SparklesIcon } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -9,6 +9,7 @@ import { RecordNavigationProvider } from '@/components/records/RecordNavigationP
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { VisualCard } from '@/components/visuals/VisualCard';
 import { importPath } from '@/lib/ai-import';
 import { useCampaign, useRecord, useRecords } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
@@ -17,8 +18,8 @@ import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
  * `/campaigns/:campaignId/records/:recordId`: one record, autosaving as the GM edits, with
- * its backlinks in a side column (stacked below on narrow screens). The app shell widens
- * this page (`AppShell`).
+ * its visual (NPCs, Props, Items and Spots, F2.3) and backlinks in a side column (stacked
+ * below on narrow screens). The app shell widens this page (`AppShell`).
  */
 export function RecordPage() {
   const { campaignId = '', recordId = '' } = useParams();
@@ -106,7 +107,17 @@ export function RecordPage() {
               />
             </CardContent>
           </Card>
-          <aside className="lg:sticky lg:top-6">
+          <aside className="space-y-6 lg:sticky lg:top-6">
+            {isVisualSubject(record.type) && (
+              <VisualCard
+                key={`visual-${record.id}`}
+                campaignId={campaign.id}
+                owner={{ recordId: record.id }}
+                name={record.name}
+                subject={record.type}
+                readOnly={campaign.archivedAt !== null}
+              />
+            )}
             <BacklinksPanel
               key={record.id}
               campaignId={campaign.id}
