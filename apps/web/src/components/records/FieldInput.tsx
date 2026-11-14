@@ -3,7 +3,6 @@ import {
   isEmptyRichText,
   TEXT_FIELD_MAX,
   type ValueFieldSpec,
-  type PointOfInterest,
   type RichText,
 } from '@stagehand/shared';
 import { useState } from 'react';
@@ -14,7 +13,6 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { enumLabel } from '@/lib/records';
 
-import { PointsOfInterestEditor } from './PointsOfInterestEditor';
 import { RichTextEditor } from './RichTextEditor';
 
 interface FieldInputProps {
@@ -67,24 +65,6 @@ export function FieldInput({
           editable={!disabled}
           onChange={(doc) => {
             onCommit(isEmptyRichText(doc) ? null : doc, false);
-          }}
-          onBlur={onBlur}
-        />
-        {errorLine}
-      </div>
-    );
-  }
-
-  if (spec.kind === 'list') {
-    return (
-      <div className="space-y-2">
-        <Label>{spec.label}</Label>
-        <PointsOfInterestEditor
-          id={id}
-          value={(initial as PointOfInterest[] | undefined) ?? []}
-          disabled={disabled}
-          onChange={(rows, now) => {
-            onCommit(rows.length === 0 ? null : rows, now);
           }}
           onBlur={onBlur}
         />

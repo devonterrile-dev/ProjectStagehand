@@ -24,7 +24,7 @@ describe('importPath', () => {
 });
 
 describe('groupProposals', () => {
-  it('puts Areas, then Spots, then other new records first, keeping the model order', () => {
+  it('puts Areas, then Spots, then their Props, then other new records, keeping the model order', () => {
     const vex = record({ type: 'npc', name: 'Captain Vex' });
     const proposals = [
       linkProposal(
@@ -37,9 +37,17 @@ describe('groupProposals', () => {
       createProposal({ type: 'faction', name: 'Fleet' }, { position: 4 }),
       createProposal({ type: 'area', name: 'Pier' }, { position: 5 }),
       createProposal({ type: 'npc', name: 'A' }, { position: 6 }),
+      createProposal({ type: 'prop', name: 'Well' }, { position: 7 }),
     ];
     const groups = groupProposals(proposals);
-    expect(groups.creates.map((p) => p.payload.name)).toEqual(['Pier', 'Den', 'B', 'A', 'Fleet']);
+    expect(groups.creates.map((p) => p.payload.name)).toEqual([
+      'Pier',
+      'Den',
+      'Well',
+      'B',
+      'A',
+      'Fleet',
+    ]);
     expect(groups.updates.map((p) => p.position)).toEqual([3]);
     expect(groups.links.map((p) => p.position)).toEqual([0]);
   });

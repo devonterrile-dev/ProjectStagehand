@@ -13,6 +13,7 @@ export const IDS = {
   harborWatch: 'a0000000-0000-4000-8000-000000000004',
   tidecallers: 'a0000000-0000-4000-8000-000000000005',
   brassKey: 'a0000000-0000-4000-8000-000000000006',
+  barrel: 'a0000000-0000-4000-8000-000000000007',
 } as const;
 
 export const doc = (text: string): RichText => ({
@@ -35,9 +36,10 @@ export function full(overrides: Partial<ContextRecordFull> = {}): ContextRecordF
 /**
  * Saltmarsh (E1, area, summary), The Drowned Rat (E2, spot in E1, index only), Captain Voss
  * (E3, npc, full), the Harbor Watch (E4, faction, summary), the Tidecallers (E5, faction,
- * index only) and a brass key (E6, item, full).
+ * index only) and a brass key (E6, item, full). `withProp` adds a rain barrel (E7, prop, at E2,
+ * index only; F1.10).
  */
-export function harborPack(): ContextPack {
+export function harborPack(options: { withProp?: boolean } = {}): ContextPack {
   const records: ContextRecord[] = [
     {
       id: IDS.saltmarsh,
@@ -116,6 +118,18 @@ export function harborPack(): ContextPack {
       full: full({ fields: { kind: 'Key' }, links: { currentHolder: [IDS.voss] } }),
     },
   ];
+  if (options.withProp === true) {
+    records.push({
+      id: IDS.barrel,
+      ref: 'E7',
+      type: 'prop',
+      name: 'Rain barrel',
+      parentId: null,
+      placeId: IDS.drownedRat,
+      summary: null,
+      full: null,
+    });
+  }
   return { records, fillTargetId: null };
 }
 
@@ -129,7 +143,7 @@ type WireCreate = ImportWireOutput['creates'][number];
 export function wireCreate(
   create: Pick<WireCreate, 'id' | 'type' | 'name'> & Partial<WireCreate>,
 ): WireCreate {
-  return { area: '', tags: [], fields: [], pointsOfInterest: [], ...create };
+  return { area: '', tags: [], fields: [], ...create };
 }
 
 /** Ids for proposed records: b…0001, b…0002, … */

@@ -361,6 +361,68 @@ It isn't evil, just hungry, and it hoards shiny ore. The miners leave it offerin
     ],
   },
   {
+    id: 'props',
+    title: 'Things to look at in a square, and one thing to carry (F1.10)',
+    style: 'Prose about places and the things in them',
+    campaign: ASHFORD,
+    steps: [
+      {
+        mode: 'add',
+        notes: `Ashford's market square, in the middle of town. Cobbles, pigeons and the smell of the bakery.
+
+In the middle stands the old stone well. Its bucket rope has been cut clean through and nobody will say who did it.
+
+By the well is a statue of the town's founder, Aldric Moss, green with age. A brass key is hidden under its base.
+
+The notice board on the corner is covered in posters: miners wanted, a lost goat, and a reward for news of missing ore carts.
+
+Hanging from a hook beside the board is a brass lantern. Whoever takes it will find it never runs out of oil.
+
+Over at the Black Anvil, the great forge bellows are carved with old union marks that the Copper Company would love to see burned.`,
+        answer: 'File everything the way the notes suggest.',
+        expect: {
+          creates: [
+            { type: 'spot', name: /market square/i },
+            { type: 'prop', name: /well/i, linkedTo: { field: 'spot', to: /market square/i } },
+            {
+              type: 'prop',
+              name: /statue|aldric/i,
+              linkedTo: { field: 'spot', to: /market square/i },
+            },
+            {
+              type: 'prop',
+              name: /notice board/i,
+              linkedTo: { field: 'spot', to: /market square/i },
+            },
+            {
+              type: 'prop',
+              name: /bellows|forge/i,
+              linkedTo: { field: 'spot', to: /black anvil/i },
+            },
+            { type: 'item', name: /lantern/i },
+          ],
+          atMost: [
+            { type: 'prop', name: /lantern/i, max: 0 },
+            { type: 'item', name: /well|statue|notice/i, max: 0 },
+            { type: 'prop', name: /cobble|pigeon|bakery|bread/i, max: 0 },
+            { type: 'spot', name: /black anvil/i, max: 0 },
+          ],
+          secrets: [/key\b.*\b(hidden|under)/i, /never runs out/i],
+        },
+      },
+      {
+        mode: 'add',
+        notes:
+          'More on the old well in the market square: villagers say a wedding ring was dropped down it last spring, and the owner still comes to stare into it.',
+        answer: 'Add it to the well we already have.',
+        expect: {
+          updates: [/well/i],
+          atMost: [{ type: 'prop', name: /well/i, max: 0 }],
+        },
+      },
+    ],
+  },
+  {
     id: 'type-filter',
     title: 'Notes about a person and a place, limited to NPCs',
     style: 'Short prose with a type filter',

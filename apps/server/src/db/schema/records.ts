@@ -1,8 +1,9 @@
 /**
- * Narrative records (F1.3, governance §8): NPCs, areas, spots, factions, lore, story beats,
- * items and session notes in one table. The common columns are here; the type-specific
- * fields are a JSON column validated by the type's Zod schema in `@stagehand/shared`, so a
- * new type is a schema change, not a migration.
+ * Narrative records (F1.3, governance §8): NPCs, areas, spots, props, factions, lore, story
+ * beats, items and session notes in one table. The common columns are here; the
+ * type-specific fields are a JSON column validated by the type's Zod schema in
+ * `@stagehand/shared`. `type` is a Postgres enum built from `RECORD_TYPES`, so a new type
+ * also needs a migration that rebuilds the enum (see 0011, which added `prop`; D-41).
  *
  * Deferred column: `visual_asset_id` arrives with assets (F2.x). `revealed_at` exists now, but nothing sets it until the reveal flow
  * (F3.5); every record route is GM-only until then.

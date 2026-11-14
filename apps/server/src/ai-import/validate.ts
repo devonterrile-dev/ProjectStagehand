@@ -18,6 +18,7 @@ import {
   emptyRichText,
   fieldsSchemaFor,
   LINK_LABEL_MAX,
+  inverseLinkFieldsOf,
   linkFieldsOf,
   linkFieldSpec,
   linkProposalPayloadSchema,
@@ -184,7 +185,6 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
   function convertFields(
     type: RecordType,
     wireFields: ImportWireOutput['creates'][number]['fields'],
-    points: ImportWireOutput['creates'][number]['pointsOfInterest'],
     where: string,
     allowName: boolean,
   ): ConvertedFields {
@@ -240,9 +240,6 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
             `${where}: ${key} is a link field. Put it in links, as { from: this record, to: the other record, field: "${key}" }`,
           );
           break;
-        case 'list':
-          issues.push(`${where}: ${key} goes in the record's pointsOfInterest list, not in fields`);
-          break;
         case 'rich': {
           const doc = rich(key, field.value);
           if (doc !== null) converted.fields[key] = doc;
@@ -278,16 +275,6 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
       }
     }
 
-    if (type === 'spot') {
-      const list = points
-        .map((point) => ({
-          name: point.name.trim(),
-          detail: mentionsToNames(point.detail, resolveMention).trim(),
-        }))
-        .filter((point) => point.name !== '');
-      if (list.length > 0) converted.fields['pointsOfInterest'] = list;
-    }
-
     const parsed = fieldsSchemaFor(type).safeParse(converted.fields);
     if (parsed.success) converted.fields = parsed.data;
     else for (const issue of zodIssues(parsed.error)) issues.push(`${where}: field ${issue}`);
@@ -310,7 +297,7 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
         payload.parentId = area.id;
       }
     }
-    const converted = convertFields(wire.type, wire.fields, wire.pointsOfInterest, where, false);
+    const converted = convertFields(wire.type, wire.fields, where, false);
     if (converted.publicDescription !== undefined)
       payload.publicDescription = converted.publicDescription;
     if (converted.gmNotes !== undefined) payload.gmNotes = converted.gmNotes;
@@ -340,7 +327,7 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
       const replaced = update.fields.filter(
         (field) => field.value.trim() !== '' && squash(field.key) !== squash(WIRE_NAME_KEY),
       );
-      if (replaced.length > 0 || update.pointsOfInterest.length > 0) {
+      if (replaced.length > 0) {
         issues.push(
           `${where}: this record was not shown in full, so its fields can't be replaced; only its name and tags can change. Link to it, or ask a question`,
         );
@@ -357,7 +344,7 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
         return;
       }
       updatedRefs.add(ref);
-      const { name } = convertFields(record.type, update.fields, [], where, true);
+      const { name } = convertFields(record.type, update.fields, where, true);
       const payload: UpdateProposalPayload = { recordId: record.id, type: record.type };
       if (name !== undefined && name !== record.name) {
         if (name === '' || name.length > RECORD_NAME_MAX) {
@@ -385,13 +372,7 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
     updatedRefs.add(ref);
 
     const full = record.full;
-    const converted = convertFields(
-      record.type,
-      update.fields,
-      update.pointsOfInterest,
-      where,
-      true,
-    );
+    const converted = convertFields(record.type, update.fields, where, true);
     const payload: UpdateProposalPayload = { recordId: record.id, type: record.type };
 
     // A value that says what the record already says is no change. Fill mode may rewrite a
@@ -450,8 +431,8 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
 
   output.links.forEach((link, index) => {
     const where = `links[${String(index)}] (${link.from.trim()} → ${link.to.trim()})`;
-    const from = lookup(link.from);
-    const to = lookup(link.to);
+    let from = lookup(link.from);
+    let to = lookup(link.to);
     if (from === null || to === null) {
       const missing = [from === null ? link.from : null, to === null ? link.to : null]
         .filter((ref) => ref !== null)
@@ -466,12 +447,24 @@ export function validateImportOutput(input: ValidationInput): ValidationResult {
       issues.push(`${where}: a record can't link to itself`);
       return;
     }
-    if (mode === 'fill' && from.id !== pack.fillTargetId) {
+    // A list one record shows but others store (D-41): a Spot's "Props here" is each Prop's
+    // `spot` link, so a Spot → Prop link under that name is turned around, not refused.
+    const asked = squash(link.field);
+    const inverse = inverseLinkFieldsOf(from.type).find(
+      ([key, spec]) =>
+        spec.from === to?.type &&
+        [key, spec.label, `${spec.from}s`].some((name) => squash(name) === asked),
+    )?.[1];
+    /** The record the GM sees the link on: the one fill mode may change. */
+    const shownOn = from;
+    if (inverse !== undefined) [from, to] = [to, from];
+
+    if (mode === 'fill' && shownOn.id !== pack.fillTargetId) {
       issues.push(`${where}: fill mode adds links only from the record named in the task`);
       return;
     }
 
-    const fieldName = link.field.trim();
+    const fieldName = inverse?.field ?? link.field.trim();
     if (fieldName === '') {
       const label = link.label.trim().replace(/\s+/g, ' ').slice(0, LINK_LABEL_MAX).trim();
       const other = { recordId: to.id, label: label === '' ? null : label };

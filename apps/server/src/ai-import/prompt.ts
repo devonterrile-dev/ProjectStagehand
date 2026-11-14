@@ -11,13 +11,13 @@
  * Everything here is pure text building; `providers/anthropic.ts` makes the call.
  */
 import {
+  inverseLinkFieldsOf,
   RECORD_TYPE_LABELS,
   RECORD_TYPES,
   type FieldSpec,
   type ImportMode,
   type ImportPhase,
   type ImportRound,
-  type PointOfInterest,
   type RecordType,
   type RichText,
 } from '@stagehand/shared';
@@ -33,7 +33,7 @@ import {
 } from './context';
 import { richTextToMarkdown, type MentionRef } from './markdown';
 
-const KIND_LABELS: Record<Exclude<FieldSpec['kind'], 'links' | 'list' | 'enum'>, string> = {
+const KIND_LABELS: Record<Exclude<FieldSpec['kind'], 'links' | 'enum'>, string> = {
   text: 'plain text',
   rich: 'rich text',
   number: 'number',
@@ -48,10 +48,7 @@ function linkTargets(spec: Extract<FieldSpec, { kind: 'links' }>): string {
     : `any number of ${types} records`;
 }
 
-/**
- * One type's fields and link fields as the prompt lists them, in display order. Points of
- * interest are left out: they travel in their own list, which the prompt file explains.
- */
+/** One type's fields and link fields as the prompt lists them, in display order. */
 export function fieldReference(type: RecordType): string {
   const fields: string[] = [];
   const links: string[] = [];
@@ -60,7 +57,7 @@ export function fieldReference(type: RecordType): string {
       links.push(`- \`${key}\` (${linkTargets(spec)}): ${spec.label}`);
     } else if (spec.kind === 'enum') {
       fields.push(`- \`${key}\` (choice: ${(spec.options ?? []).join(', ')}): ${spec.label}`);
-    } else if (spec.kind !== 'list') {
+    } else {
       fields.push(`- \`${key}\` (${KIND_LABELS[spec.kind]}): ${spec.label}`);
     }
   }
@@ -107,8 +104,12 @@ const attribute = (value: string) => guard(value).replace(/"/g, "'").replace(/\s
 
 function indexLine(record: ContextRecord, refOf: MentionRef): string {
   const area = record.parentId === null ? null : refOf(record.parentId);
+  const place =
+    record.placeId === undefined || record.placeId === null ? null : refOf(record.placeId);
   const line = `${record.ref} | ${record.type} | ${record.name.replace(/\s+/g, ' ')}`;
-  return guard(area === null ? line : `${line} | in ${area}`);
+  if (area !== null) return guard(`${line} | in ${area}`);
+  // A Prop says which Spot it is at, so the model doesn't propose it there again (D-41).
+  return guard(place === null ? line : `${line} | at ${place}`);
 }
 
 function fieldBlock(key: string, value: string): string {
@@ -117,13 +118,6 @@ function fieldBlock(key: string, value: string): string {
 
 function valueText(spec: FieldSpec, value: unknown, refOf: MentionRef): string {
   if (spec.kind === 'rich') return richTextToMarkdown(value as RichText, refOf);
-  if (spec.kind === 'list') {
-    return (value as PointOfInterest[])
-      .map((point) =>
-        point.detail === '' ? `- ${point.name}` : `- ${point.name}: ${point.detail}`,
-      )
-      .join('\n');
-  }
   return String(value);
 }
 
@@ -144,6 +138,11 @@ function fullRecordBlock(record: ContextRecord, refOf: MentionRef): string {
     } else if (!isEmptyValue(full.fields[key])) {
       lines.push(fieldBlock(key, valueText(spec, full.fields[key], refOf)));
     }
+  }
+  // Lists stored on other records, such as a Spot's Props (D-41).
+  for (const [key] of inverseLinkFieldsOf(record.type)) {
+    const refs = (full.inverseLinks?.[key] ?? []).flatMap((id) => refOf(id) ?? []);
+    if (refs.length > 0) linkLines.push(`${key}: ${refs.join(', ')}`);
   }
   const gmNotes = richTextToMarkdown(full.gmNotes, refOf);
   if (gmNotes !== '') lines.push(fieldBlock('gmNotes', gmNotes));

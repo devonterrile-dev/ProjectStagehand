@@ -87,7 +87,8 @@ export interface ProposalGroups {
 export function groupProposals(proposals: readonly ImportProposal[]): ProposalGroups {
   const byPosition = [...proposals].sort((a, b) => a.position - b.position);
   const typeRank = (type: (typeof RECORD_TYPES)[number]) =>
-    type === 'area' ? -2 : type === 'spot' ? -1 : RECORD_TYPES.indexOf(type);
+    // Places first, then the Props at them (F1.10), then everything else in type order.
+    type === 'area' ? -3 : type === 'spot' ? -2 : type === 'prop' ? -1 : RECORD_TYPES.indexOf(type);
   const creates = byPosition
     .filter((p): p is CreateProposal => p.action === 'create')
     .sort((a, b) => typeRank(a.payload.type) - typeRank(b.payload.type));

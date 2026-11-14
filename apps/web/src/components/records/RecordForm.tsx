@@ -1,5 +1,6 @@
 import {
   emptyRichText,
+  inverseLinkFieldsOf,
   isEmptyRichText,
   RECORD_FIELD_SPECS,
   RECORD_NAME_MAX,
@@ -32,6 +33,7 @@ import { mergeRecordPatch, useAutosave, type SendPatch } from '@/lib/useAutosave
 
 import { AreaSelect } from './AreaSelect';
 import { FieldInput } from './FieldInput';
+import { InverseLinksField } from './InverseLinksField';
 import { LinkFieldInput, type LinkedRecord } from './LinkFieldInput';
 import { OtherLinksEditor, type OtherLinkRow } from './OtherLinksEditor';
 import { RichTextEditor } from './RichTextEditor';
@@ -323,6 +325,19 @@ export function RecordForm({ campaign, record, records, onDeleted }: RecordFormP
             />
           ),
         )}
+
+        {inverseLinkFieldsOf(record.type).map(([key, inverse]) => (
+          <InverseLinksField
+            key={key}
+            campaignId={campaign.id}
+            recordId={record.id}
+            recordType={record.type}
+            fieldKey={key}
+            inverse={inverse}
+            records={records}
+            disabled={readOnly}
+          />
+        ))}
 
         <div className="space-y-2">
           <Label>GM notes</Label>

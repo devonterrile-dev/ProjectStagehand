@@ -30,6 +30,11 @@ export interface ContextRecordFull {
   /** Link field → ids of the records it links. */
   links: Record<string, string[]>;
   otherLinks: { recordId: string; label: string | null }[];
+  /**
+   * Lists shown on this record but stored on others (D-41): a Spot's `propsHere` is the ids
+   * of the Props whose `spot` link points at it. Keyed like `INVERSE_LINK_FIELDS`.
+   */
+  inverseLinks?: Record<string, string[]>;
 }
 
 export interface ContextRecord {
@@ -41,6 +46,8 @@ export interface ContextRecord {
   name: string;
   /** A Spot's Area. */
   parentId: string | null;
+  /** A Prop's Spot, from its `spot` link (D-41), so the index can say where it is. */
+  placeId?: string | null;
   /** One line about the record, when the pack carries one. */
   summary: string | null;
   /** Present when the record is shown in full. */

@@ -509,6 +509,19 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
           gmNotes: input.gmNotes ?? emptyRichText(),
           parentId,
         });
+        // Links sent with the record (AI import, a Spot's "New prop here"), like the server.
+        const refusal = linkRefusal(created, input.links, undefined);
+        if (refusal !== null) return refusal;
+        for (const [key, ids] of Object.entries(input.links ?? {})) {
+          if (ids === undefined) continue;
+          created.links = {
+            ...created.links,
+            [key]: ids.flatMap((id) => {
+              const target = byId(id);
+              return target === undefined ? [] : [refOf(target)];
+            }),
+          };
+        }
         d.records.push(created);
         return Response.json(present(created), { status: 201 });
       }

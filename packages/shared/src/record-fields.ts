@@ -9,7 +9,8 @@
  *   accept and whether they hold one or many; they are `record_links` rows (D-24), not part
  *   of `fields`.
  *
- * Adding a type means adding both here (and a fixture in the server tests), not a migration.
+ * Adding a type means adding both here, a fixture in the server tests, and a migration:
+ * `records.type` is a Postgres enum built from `RECORD_TYPES` (F1.10 added `prop`, D-41).
  */
 import { z } from 'zod';
 
@@ -19,6 +20,7 @@ export const RECORD_TYPES = [
   'npc',
   'area',
   'spot',
+  'prop',
   'faction',
   'lore',
   'story_beat',
@@ -32,6 +34,7 @@ export const RECORD_TYPE_LABELS: Record<RecordType, string> = {
   npc: 'NPC',
   area: 'Area',
   spot: 'Spot',
+  prop: 'Prop',
   faction: 'Faction',
   lore: 'Lore',
   story_beat: 'Story beat',
@@ -50,18 +53,6 @@ export const npcStatusSchema = z.enum(['alive', 'dead', 'missing', 'unknown']);
 export type NpcStatus = z.infer<typeof npcStatusSchema>;
 export const storyBeatStatusSchema = z.enum(['planned', 'active', 'done', 'skipped']);
 export type StoryBeatStatus = z.infer<typeof storyBeatStatusSchema>;
-
-/** A Spot's points of interest become clickable prompts on stage (F3.1). */
-export const POINTS_OF_INTEREST_MAX = 50;
-const pointOfInterestSchema = z.strictObject({
-  name: z
-    .string()
-    .trim()
-    .min(1, 'A point of interest needs a name')
-    .max(120, 'A point of interest name must be 120 characters or fewer'),
-  detail: textField,
-});
-export type PointOfInterest = z.infer<typeof pointOfInterestSchema>;
 
 // Shapes list every field as required; `.partial()` below makes them all optional
 // ("all are optional except name"), and `patchOf` makes them nullable for PATCH.
@@ -86,11 +77,16 @@ const AREA_SHAPE = {
 };
 const SPOT_SHAPE = {
   readAloud: richTextSchema,
-  pointsOfInterest: z
-    .array(pointOfInterestSchema)
-    .max(POINTS_OF_INTEREST_MAX, `At most ${String(POINTS_OF_INTEREST_MAX)} points of interest`),
   hiddenDetails: richTextSchema,
   backdropNotes: textField,
+};
+/**
+ * Something to see at a Spot (F1.10, D-37): the well, the statue, the notice board. Its public
+ * description is what the inspect stage shows; its Spot is a link field.
+ */
+const PROP_SHAPE = {
+  appearance: textField,
+  hiddenDetails: richTextSchema,
 };
 const FACTION_SHAPE = {
   goals: richTextSchema,
@@ -134,6 +130,8 @@ export const areaFieldsSchema = z.strictObject(AREA_SHAPE).partial();
 export type AreaFields = z.infer<typeof areaFieldsSchema>;
 export const spotFieldsSchema = z.strictObject(SPOT_SHAPE).partial();
 export type SpotFields = z.infer<typeof spotFieldsSchema>;
+export const propFieldsSchema = z.strictObject(PROP_SHAPE).partial();
+export type PropFields = z.infer<typeof propFieldsSchema>;
 export const factionFieldsSchema = z.strictObject(FACTION_SHAPE).partial();
 export type FactionFields = z.infer<typeof factionFieldsSchema>;
 export const loreFieldsSchema = z.strictObject(LORE_SHAPE).partial();
@@ -150,6 +148,7 @@ export const recordFieldsSchemas = {
   npc: npcFieldsSchema,
   area: areaFieldsSchema,
   spot: spotFieldsSchema,
+  prop: propFieldsSchema,
   faction: factionFieldsSchema,
   lore: loreFieldsSchema,
   story_beat: storyBeatFieldsSchema,
@@ -179,6 +178,7 @@ const fieldsPatchSchemas: Record<RecordType, z.ZodType<Record<string, unknown>>>
   npc: patchOf(NPC_SHAPE),
   area: patchOf(AREA_SHAPE),
   spot: patchOf(SPOT_SHAPE),
+  prop: patchOf(PROP_SHAPE),
   faction: patchOf(FACTION_SHAPE),
   lore: patchOf(LORE_SHAPE),
   story_beat: patchOf(STORY_BEAT_SHAPE),
@@ -210,7 +210,7 @@ export function applyFieldsPatch(
   );
 }
 
-export type FieldKind = 'text' | 'rich' | 'enum' | 'number' | 'date' | 'list' | 'links';
+export type FieldKind = 'text' | 'rich' | 'enum' | 'number' | 'date' | 'links';
 
 /** How a value field (one stored in `fields`) is shown. */
 export interface ValueFieldSpec {
@@ -270,7 +270,6 @@ export const RECORD_FIELD_SPECS = {
   } satisfies Record<keyof AreaFields | 'factionsPresent', FieldSpec>,
   spot: {
     readAloud: { kind: 'rich', label: 'Description to read out' },
-    pointsOfInterest: { kind: 'list', label: 'Points of interest' },
     npcsHere: {
       kind: 'links',
       label: 'NPCs usually here',
@@ -281,6 +280,11 @@ export const RECORD_FIELD_SPECS = {
     hiddenDetails: { kind: 'rich', label: 'Hidden details' },
     backdropNotes: { kind: 'text', label: 'Backdrop notes' },
   } satisfies Record<keyof SpotFields | 'npcsHere' | 'itemsHere', FieldSpec>,
+  prop: {
+    appearance: { kind: 'text', label: 'Appearance' },
+    hiddenDetails: { kind: 'rich', label: 'Hidden details' },
+    spot: { kind: 'links', label: 'Spot', targets: ['spot'], cardinality: 'one' },
+  } satisfies Record<keyof PropFields | 'spot', FieldSpec>,
   faction: {
     goals: { kind: 'rich', label: 'Goals' },
     leaders: { kind: 'links', label: 'Leaders', targets: ['npc'], cardinality: 'many' },
@@ -314,8 +318,8 @@ export const RECORD_FIELD_SPECS = {
     trigger: { kind: 'rich', label: 'Trigger or conditions' },
     involved: {
       kind: 'links',
-      label: 'NPCs, places and items involved',
-      targets: ['npc', 'area', 'spot', 'item'],
+      label: 'NPCs, places, props and items involved',
+      targets: ['npc', 'area', 'spot', 'prop', 'item'],
       cardinality: 'many',
     },
     possibleOutcomes: { kind: 'rich', label: 'Possible outcomes' },
@@ -329,7 +333,7 @@ export const RECORD_FIELD_SPECS = {
     currentHolder: {
       kind: 'links',
       label: 'Current holder or location',
-      targets: ['npc', 'spot', 'area'],
+      targets: ['npc', 'spot', 'prop', 'area'],
       cardinality: 'one',
     },
     history: { kind: 'rich', label: 'History' },

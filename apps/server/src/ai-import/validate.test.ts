@@ -173,29 +173,14 @@ describe('creates', () => {
       wire({
         creates: [
           wireCreate({ id: 'N1', type: 'spot', name: 'Fish market', area: 'E1' }),
-          wireCreate({
-            id: 'N2',
-            type: 'spot',
-            name: 'Lighthouse stair',
-            area: 'N3',
-            pointsOfInterest: [
-              { name: ' Lamp room ', detail: 'Still warm. [[E3]] was here.' },
-              { name: '', detail: 'dropped' },
-            ],
-          }),
+          wireCreate({ id: 'N2', type: 'spot', name: 'Lighthouse stair', area: 'N3' }),
           wireCreate({ id: 'N3', type: 'area', name: 'Gull Point', area: 'E1' }),
         ],
       }),
     );
     expect(proposals.map((proposal) => proposal.payload)).toMatchObject([
       { name: 'Fish market', parentId: IDS.saltmarsh },
-      {
-        name: 'Lighthouse stair',
-        parentId: newId(3),
-        fields: {
-          pointsOfInterest: [{ name: 'Lamp room', detail: 'Still warm. Captain Voss was here.' }],
-        },
-      },
+      { name: 'Lighthouse stair', parentId: newId(3) },
       // An area's own `area` is ignored.
       { name: 'Gull Point', parentId: null },
     ]);
@@ -296,7 +281,7 @@ describe('creates', () => {
     ]);
   });
 
-  it('points link fields and points of interest to where they belong', () => {
+  it('points link fields to where they belong, and knows no points of interest', () => {
     const issues = issuesOf(
       wire({
         creates: [
@@ -318,8 +303,112 @@ describe('creates', () => {
     );
     expect(issues).toEqual([
       expect.stringContaining('factions is a link field. Put it in links'),
-      expect.stringContaining("pointsOfInterest goes in the record's pointsOfInterest list"),
+      expect.stringContaining('Spot records have no field "pointsOfInterest"'),
     ]);
+  });
+
+  describe('props (F1.10, D-41)', () => {
+    it('puts a new Prop at a new Spot or an existing one through its spot link', () => {
+      const proposals = proposalsOf(
+        wire({
+          creates: [
+            wireCreate({ id: 'N1', type: 'spot', name: 'Village square', area: 'E1' }),
+            wireCreate({
+              id: 'N2',
+              type: 'prop',
+              name: 'Old well',
+              fields: [
+                { key: 'publicDescription', value: 'A mossy stone well.' },
+                { key: 'appearance', value: 'Round, grey stones, a little wooden roof' },
+                { key: 'hiddenDetails', value: 'A rope ladder hangs inside.' },
+              ],
+            }),
+            wireCreate({ id: 'N3', type: 'prop', name: 'Dartboard' }),
+          ],
+          links: [
+            { from: 'N2', to: 'N1', field: 'spot', label: '' },
+            { from: 'N3', to: 'E2', field: 'spot', label: '' },
+          ],
+        }),
+      );
+      expect(proposals.map((proposal) => proposal.payload)).toMatchObject([
+        { type: 'spot', name: 'Village square' },
+        {
+          type: 'prop',
+          name: 'Old well',
+          parentId: null,
+          fields: { appearance: 'Round, grey stones, a little wooden roof' },
+          links: { spot: [newId(1)] },
+        },
+        { type: 'prop', name: 'Dartboard', links: { spot: [IDS.drownedRat] } },
+      ]);
+    });
+
+    it("turns a Spot's propsHere link around into the Prop's spot link", () => {
+      const proposals = proposalsOf(
+        wire({
+          creates: [
+            wireCreate({ id: 'N1', type: 'prop', name: 'Notice board' }),
+            wireCreate({ id: 'N2', type: 'prop', name: 'Statue' }),
+          ],
+          links: [
+            { from: 'E2', to: 'N1', field: 'propsHere', label: '' },
+            { from: 'E2', to: 'N2', field: 'Props here', label: '' },
+          ],
+        }),
+      );
+      expect(proposals.map((proposal) => proposal.payload)).toMatchObject([
+        { name: 'Notice board', links: { spot: [IDS.drownedRat] } },
+        { name: 'Statue', links: { spot: [IDS.drownedRat] } },
+      ]);
+    });
+
+    it('proposes a link from an existing Prop to its Spot, turned around if need be', () => {
+      const proposals = proposalsOf(
+        wire({
+          creates: [wireCreate({ id: 'N1', type: 'spot', name: 'Cellar', area: 'E1' })],
+          links: [{ from: 'N1', to: 'E7', field: 'propsHere', label: '' }],
+        }),
+        { pack: harborPack({ withProp: true }) },
+      );
+      expect(proposals.map((proposal) => proposal.payload)).toMatchObject([
+        { type: 'spot', name: 'Cellar' },
+        { fromId: IDS.barrel, fromType: 'prop', toId: newId(1), fieldKey: 'spot' },
+      ]);
+    });
+
+    it('gives a Prop one Spot only, and refuses a Prop as a Spot', () => {
+      const issues = issuesOf(
+        wire({
+          creates: [
+            wireCreate({ id: 'N1', type: 'prop', name: 'Well' }),
+            wireCreate({ id: 'N2', type: 'spot', name: 'Yard', area: 'E1' }),
+          ],
+          links: [
+            { from: 'N1', to: 'E2', field: 'spot', label: '' },
+            { from: 'N1', to: 'N2', field: 'spot', label: '' },
+            { from: 'N1', to: 'E3', field: 'spot', label: '' },
+          ],
+        }),
+      );
+      expect(issues).toEqual([
+        expect.stringContaining('spot holds one record, and this record already has one'),
+        expect.stringContaining('spot can only link records of type spot'),
+      ]);
+    });
+
+    it('lets an Item be held by a Prop', () => {
+      const proposals = proposalsOf(
+        wire({
+          creates: [
+            wireCreate({ id: 'N1', type: 'prop', name: 'Statue' }),
+            wireCreate({ id: 'N2', type: 'item', name: 'Silver key' }),
+          ],
+          links: [{ from: 'N2', to: 'N1', field: 'currentHolder', label: '' }],
+        }),
+      );
+      expect(proposals[1]?.payload).toMatchObject({ links: { currentHolder: [newId(1)] } });
+    });
   });
 
   it('refuses a mention of a record nobody has', () => {
@@ -390,7 +479,6 @@ describe('updates', () => {
               { key: 'name', value: 'Commander Voss' },
             ],
             addTags: ['harbor', 'missing'],
-            pointsOfInterest: [],
           },
         ],
       }),
@@ -419,7 +507,6 @@ describe('updates', () => {
             id: 'E3',
             fields: [{ key: 'status', value: 'alive' }],
             addTags: ['harbor'],
-            pointsOfInterest: [],
           },
         ],
         questions: ['Is Voss still captain?'],
@@ -434,11 +521,11 @@ describe('updates', () => {
       wire({
         creates: [wireCreate({ id: 'N1', type: 'npc', name: 'Mira' })],
         updates: [
-          { id: 'E1', fields: field, addTags: [], pointsOfInterest: [] },
-          { id: 'E77', fields: field, addTags: [], pointsOfInterest: [] },
-          { id: 'N1', fields: field, addTags: [], pointsOfInterest: [] },
-          { id: 'E3', fields: field, addTags: [], pointsOfInterest: [] },
-          { id: 'E3', fields: field, addTags: [], pointsOfInterest: [] },
+          { id: 'E1', fields: field, addTags: [] },
+          { id: 'E77', fields: field, addTags: [] },
+          { id: 'N1', fields: field, addTags: [] },
+          { id: 'E3', fields: field, addTags: [] },
+          { id: 'E3', fields: field, addTags: [] },
         ],
       }),
     );
@@ -458,14 +545,12 @@ describe('updates', () => {
             id: 'E1',
             fields: [{ key: 'name', value: '  Saltmarsh   Harbour ' }],
             addTags: ['coast'],
-            pointsOfInterest: [],
           },
           // Only a name that says what the record already says: no change at all.
           {
             id: 'E5',
             fields: [{ key: 'name', value: 'Tidecallers' }],
             addTags: [],
-            pointsOfInterest: [],
           },
         ],
       }),
@@ -492,7 +577,6 @@ describe('updates', () => {
               { key: 'overview', value: 'Rewritten.' },
             ],
             addTags: [],
-            pointsOfInterest: [],
           },
         ],
       }),
@@ -511,7 +595,6 @@ describe('updates', () => {
               id: 'E6',
               fields: [{ key: 'status', value: 'alive' }],
               addTags: [],
-              pointsOfInterest: [],
             },
           ],
         }),
@@ -521,10 +604,10 @@ describe('updates', () => {
 
   it('refuses any update on an empty campaign', () => {
     expect(
-      issuesOf(
-        wire({ updates: [{ id: 'E1', fields: [], addTags: ['x'], pointsOfInterest: [] }] }),
-        { mode: 'bootstrap', pack: emptyContextPack() },
-      ),
+      issuesOf(wire({ updates: [{ id: 'E1', fields: [], addTags: ['x'] }] }), {
+        mode: 'bootstrap',
+        pack: emptyContextPack(),
+      }),
     ).toEqual([expect.stringContaining('no existing record "E1"')]);
   });
 });
@@ -707,7 +790,6 @@ describe('fill mode', () => {
               { key: 'name', value: 'Someone else' },
             ],
             addTags: [],
-            pointsOfInterest: [],
           },
         ],
         links: [{ from: 'E3', to: 'E2', field: 'homeSpot', label: '' }],
@@ -740,7 +822,6 @@ describe('fill mode', () => {
             id: 'E6',
             fields: [{ key: 'value', value: 'High' }],
             addTags: [],
-            pointsOfInterest: [],
           },
         ],
         links: [{ from: 'E6', to: 'E2', field: '', label: 'lost in' }],

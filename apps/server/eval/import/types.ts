@@ -33,6 +33,8 @@ export interface ExpectedCreate {
   notName?: RegExp;
   /** These fields must have a value. */
   fields?: string[];
+  /** A link field of the new record must hold a record (new or existing) whose name matches. */
+  linkedTo?: { field: string; to: RegExp };
 }
 
 export interface Expectations {

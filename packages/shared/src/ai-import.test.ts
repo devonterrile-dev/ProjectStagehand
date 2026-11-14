@@ -40,10 +40,9 @@ describe('importWireSchema', () => {
           area: '',
           tags: ['harbor'],
           fields: [{ key: 'status', value: 'alive' }],
-          pointsOfInterest: [],
         },
       ],
-      updates: [{ id: 'E1', fields: [], addTags: ['met'], pointsOfInterest: [] }],
+      updates: [{ id: 'E1', fields: [], addTags: ['met'] }],
       links: [{ from: 'N1', to: 'E1', field: 'factions', label: '' }],
       questions: ['Is Mira a member or a hireling?'],
     };

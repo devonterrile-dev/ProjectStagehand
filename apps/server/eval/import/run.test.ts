@@ -29,7 +29,6 @@ const update = (id: string, fields: { key: string; value: string }[]) => ({
   id,
   fields,
   addTags: [],
-  pointsOfInterest: [],
 });
 
 interface Answers {
@@ -206,6 +205,65 @@ const ORACLE: Record<string, Answers[]> = {
         }),
     },
   ],
+  props: [
+    {
+      records: (ref) =>
+        wire({
+          creates: [
+            wireCreate({ id: 'N1', type: 'spot', name: 'Market Square', area: ref('Ashford') }),
+            wireCreate({
+              id: 'N2',
+              type: 'prop',
+              name: 'Old well',
+              fields: [field('publicDescription', 'Its bucket rope has been cut clean through.')],
+            }),
+            wireCreate({
+              id: 'N3',
+              type: 'prop',
+              name: 'Statue of Aldric Moss',
+              fields: [
+                field('publicDescription', 'The founder of Ashford, green with age.'),
+                field('hiddenDetails', 'A brass key is hidden under its base.'),
+              ],
+            }),
+            wireCreate({ id: 'N4', type: 'prop', name: 'Notice board' }),
+            wireCreate({
+              id: 'N5',
+              type: 'prop',
+              name: 'Forge bellows',
+              fields: [field('hiddenDetails', 'Carved with old union marks.')],
+            }),
+            wireCreate({
+              id: 'N6',
+              type: 'item',
+              name: 'Brass lantern',
+              fields: [field('effect', 'Never runs out of oil.')],
+            }),
+          ],
+          links: [
+            { from: 'N2', to: 'N1', field: 'spot', label: '' },
+            { from: 'N3', to: 'N1', field: 'spot', label: '' },
+            // Written from the Spot's side; the validator turns it around (D-41).
+            { from: 'N1', to: 'N4', field: 'propsHere', label: '' },
+            { from: 'N5', to: ref('The Black Anvil'), field: 'spot', label: '' },
+            { from: 'N1', to: 'N6', field: 'itemsHere', label: '' },
+          ],
+        }),
+    },
+    {
+      records: (ref) =>
+        wire({
+          updates: [
+            update(ref('Old well'), [
+              field(
+                'hiddenDetails',
+                'A wedding ring was dropped down it last spring; its owner still comes to stare into it.',
+              ),
+            ]),
+          ],
+        }),
+    },
+  ],
   'type-filter': [
     {
       records: () =>
@@ -272,7 +330,7 @@ describe('the eval grader', () => {
       steps += runs.length;
       passed += runs.filter((run) => run.grade?.pass === true).length;
     }
-    expect(steps).toBe(13);
+    expect(steps).toBe(15);
     expect(passed).toBe(0);
   });
 

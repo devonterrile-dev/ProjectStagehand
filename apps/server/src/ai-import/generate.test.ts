@@ -181,7 +181,6 @@ describe('generateImport', () => {
             id: 'E3',
             fields: [{ key: 'personality', value: 'Dour.' }],
             addTags: [],
-            pointsOfInterest: [],
           },
         ],
       }),

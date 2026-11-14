@@ -248,8 +248,8 @@ describe('createAnthropicProvider().generateImport', () => {
     };
     visit(schema);
 
-    // The answer itself, a create, an update, a link, a field and a point of interest.
-    expect(objects).toHaveLength(6);
+    // The answer itself, a create, an update, a link and a field.
+    expect(objects).toHaveLength(5);
     for (const object of objects) {
       expect(object.required).toEqual(Object.keys(object.properties ?? {}));
     }

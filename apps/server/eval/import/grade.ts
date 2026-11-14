@@ -75,15 +75,7 @@ const squash = (text: string) => text.toLowerCase().replace(/\s+/g, ' ');
 function valueText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
-  if (Array.isArray(value)) {
-    return value
-      .map((item: unknown) => {
-        if (typeof item !== 'object' || item === null || !('name' in item)) return valueText(item);
-        const point = item as { name: unknown; detail?: unknown };
-        return `${valueText(point.name)}: ${valueText(point.detail)}`;
-      })
-      .join('\n');
-  }
+  if (Array.isArray(value)) return value.map((item: unknown) => valueText(item)).join('\n');
   if (typeof value === 'object' && value !== null && 'type' in value) {
     return richTextToPlainText(value as RichText);
   }
@@ -177,7 +169,13 @@ export function gradeStep(input: GradeInput): StepGrade {
 
   const creates = input.proposals.flatMap((p) => (p.action === 'create' ? [p.payload] : []));
   const updates = input.proposals.flatMap((p) => (p.action === 'update' ? [p.payload] : []));
-  const nameOf = new Map(input.existing.map((record) => [record.id, record.name]));
+  const nameOf = new Map([
+    ...input.existing.map((record) => [record.id, record.name] as const),
+    ...creates.map((create) => [create.id, create.name] as const),
+  ]);
+  /** Whether a new record's link field holds a record whose name matches (F1.10). */
+  const linksTo = (create: (typeof creates)[number], want: { field: string; to: RegExp }) =>
+    (create.links[want.field] ?? []).some((id) => want.to.test(nameOf.get(id) ?? ''));
   const updated = (name: RegExp) =>
     updates.filter((update) => name.test(nameOf.get(update.recordId) ?? ''));
 
@@ -196,13 +194,15 @@ export function gradeStep(input: GradeInput): StepGrade {
           create.type === want.type &&
           (want.name === undefined || want.name.test(create.name)) &&
           !(want.notName?.test(create.name) ?? false) &&
-          (want.fields ?? []).every((key) => !isBlank(create.fields[key])),
+          (want.fields ?? []).every((key) => !isBlank(create.fields[key])) &&
+          (want.linkedTo === undefined || linksTo(create, want.linkedTo)),
       );
       if (found === undefined) {
         const what = [
           want.name === undefined ? 'any name' : String(want.name),
           want.notName === undefined ? '' : `not ${String(want.notName)}`,
           want.fields === undefined ? '' : `with ${want.fields.join(', ')}`,
+          want.linkedTo === undefined ? '' : `${want.linkedTo.field} → ${String(want.linkedTo.to)}`,
         ].filter((part) => part !== '');
         fail('expected', `no new ${want.type} (${what.join(', ')})`);
       }

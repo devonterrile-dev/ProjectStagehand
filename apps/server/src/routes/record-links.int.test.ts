@@ -250,6 +250,46 @@ describe('Record links API', () => {
     });
   });
 
+  describe('props (F1.10, D-41)', () => {
+    it("put a Prop at one Spot, shown as the Spot's backlink, and let Items and beats point at it", async () => {
+      const square = await make('spot', 'Square');
+      const well = await created({ type: 'prop', name: 'Well', links: { spot: [square.id] } });
+      expect(well.links).toEqual({ spot: [ref(square)] });
+      expect(well.parentId).toBeNull();
+
+      const other = await make('spot', 'Mill');
+      const two = await patch(well.id, { links: { spot: [square.id, other.id] } });
+      expect(two.statusCode).toBe(400);
+      const npc = await make('npc', 'Bucket boy');
+      const wrong = await patch(well.id, { links: { spot: [npc.id] } });
+      expect(wrong.statusCode).toBe(400);
+      expect(wrong.json<{ message: string }>().message).toContain('Spot can only link Spots');
+
+      const key = await created({
+        type: 'item',
+        name: 'Iron key',
+        links: { currentHolder: [well.id] },
+      });
+      expect(key.links).toMatchObject({ currentHolder: [ref(well)] });
+      const beat = await created({
+        type: 'story_beat',
+        name: 'Down the well',
+        links: { involved: [well.id] },
+      });
+      expect(beat.links).toMatchObject({ involved: [ref(well)] });
+
+      // The Spot shows its Props from the Props' own links: one row, read from both ends.
+      expect((await backlinks(square.id)).links).toEqual([
+        expect.objectContaining({
+          kind: 'field',
+          fieldKey: 'spot',
+          record: expect.objectContaining({ id: well.id, type: 'prop' }) as unknown,
+        }),
+      ]);
+      expect(Object.keys((await read(square.id)).links)).not.toContain('propsHere');
+    });
+  });
+
   describe('other links', () => {
     it('link any record with an optional label, replacing the whole list', async () => {
       const npc = await make('npc', 'Talla');

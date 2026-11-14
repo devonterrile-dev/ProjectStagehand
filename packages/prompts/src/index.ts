@@ -19,7 +19,7 @@ export const PROMPT_TASKS = ['import'] as const;
 export type PromptTask = (typeof PROMPT_TASKS)[number];
 
 /** The import prompt the server uses. Recorded on every import (`ai_imports.prompt_version`). */
-export const IMPORT_PROMPT_VERSION = 4;
+export const IMPORT_PROMPT_VERSION = 5;
 
 /** This package's folder: where the prompt files are when running from source. */
 export const DEFAULT_PROMPTS_DIR = fileURLToPath(new URL('..', import.meta.url));

@@ -397,6 +397,87 @@ describe('Editing a record', () => {
   });
 });
 
+describe('Props (F1.10)', () => {
+  /** The world plus a Prop at the Fish Market. */
+  function withProp() {
+    const coast = campaign({ name: 'Prop Coast' });
+    const harbor = record({ type: 'area', name: 'Harbor District' });
+    const market = record({ type: 'spot', name: 'Fish Market', parentId: harbor.id });
+    const well = record({
+      type: 'prop',
+      name: 'Old Well',
+      links: { spot: [{ id: market.id, name: market.name, type: 'spot' }] },
+    });
+    const fetchMock = mockApi(MIRA, [coast], {
+      campaignData: { [coast.id]: { records: [harbor, market, well] } },
+    });
+    return { coast, market, well, fetchMock };
+  }
+
+  it('shows a Prop its fields and its one Spot', async () => {
+    const { coast, well } = withProp();
+    renderAt(recordUrl(coast, well));
+
+    await screen.findByRole('textbox', { name: 'Name' });
+    const labels = screen
+      .getAllByText(/^(Appearance|Hidden details|Spot)$/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual(['Appearance', 'Hidden details', 'Spot']);
+    expect(
+      within(screen.getByRole('list', { name: 'Spot' })).getByText('Fish Market'),
+    ).toBeDefined();
+  });
+
+  it("lists a Spot's Props from their own links, once, not again under backlinks", async () => {
+    const { coast, market } = withProp();
+    renderAt(recordUrl(coast, market));
+
+    const props = await screen.findByRole('list', { name: 'Props here' });
+    expect(within(props).getByText('Old Well')).toBeDefined();
+    const backlinks = screen.getByRole('generic', { name: 'Backlinks' });
+    await waitFor(() => {
+      expect(within(backlinks).getByText('Nothing links here yet.')).toBeDefined();
+    });
+  });
+
+  it('creates a Prop already placed at the Spot, then opens it', async () => {
+    const { coast, market, fetchMock } = withProp();
+    renderAt(recordUrl(coast, market));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New prop here' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText('It goes at Fish Market. Everything else is filled in on its page.'),
+    ).toBeDefined();
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Notice board' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create record' }));
+
+    await waitFor(() => {
+      expect(bodiesOf(fetchMock, 'POST')).toEqual([
+        { type: 'prop', name: 'Notice board', links: { spot: [market.id] } },
+      ]);
+    });
+    // The new Prop's own page opens.
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Notice board');
+    });
+    expect(
+      within(screen.getByRole('list', { name: 'Spot' })).getByText('Fish Market'),
+    ).toBeDefined();
+  });
+
+  it('has no "New prop here" while the campaign is archived', async () => {
+    const coast = campaign({ name: 'Old Coast', archivedAt: '2026-11-01T00:00:00.000Z' });
+    const harbor = record({ type: 'area', name: 'Harbor' });
+    const market = record({ type: 'spot', name: 'Market', parentId: harbor.id });
+    mockApi(MIRA, [coast], { campaignData: { [coast.id]: { records: [harbor, market] } } });
+    renderAt(recordUrl(coast, market));
+
+    expect(await screen.findByText(/None yet/)).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'New prop here' })).toBeNull();
+  });
+});
+
 describe('Search and filters', () => {
   const doc = (text: string) => ({
     type: 'doc' as const,

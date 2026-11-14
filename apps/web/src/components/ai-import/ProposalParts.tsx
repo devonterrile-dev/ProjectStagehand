@@ -1,9 +1,4 @@
-import {
-  isEmptyRichText,
-  type PointOfInterest,
-  type RichText,
-  type ValueFieldSpec,
-} from '@stagehand/shared';
+import { isEmptyRichText, type RichText, type ValueFieldSpec } from '@stagehand/shared';
 import { XIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -70,17 +65,6 @@ export function FieldValue({ spec, value }: { spec: ValueFieldSpec; value: unkno
   switch (spec.kind) {
     case 'rich':
       return <RichTextView value={value as RichText} />;
-    case 'list':
-      return (
-        <ul className="list-disc space-y-1 pl-6">
-          {(value as PointOfInterest[]).map((row, index) => (
-            <li key={index}>
-              <span className="font-medium">{row.name}</span>
-              {row.detail !== '' && <>: {row.detail}</>}
-            </li>
-          ))}
-        </ul>
-      );
     case 'enum':
       return <span>{enumLabel(String(value))}</span>;
     default:

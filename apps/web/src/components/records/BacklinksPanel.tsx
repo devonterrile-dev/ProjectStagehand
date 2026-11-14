@@ -1,8 +1,10 @@
 import {
+  inverseLinkFieldsOf,
   RECORD_FIELD_SPECS,
   type Backlink,
   type FieldSpec,
   type RecordRef,
+  type RecordType,
 } from '@stagehand/shared';
 import type { MouseEvent, ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -65,14 +67,34 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** Links the record's own form already lists, such as a Spot's "Props here" (D-41). */
+function shownOnForm(type: RecordType, link: Backlink): boolean {
+  return inverseLinkFieldsOf(type).some(
+    ([, inverse]) =>
+      link.kind === 'field' && link.fieldKey === inverse.field && link.record.type === inverse.from,
+  );
+}
+
 /** Everything pointing at the record (D-24): links, mentions, and PCs carrying an Item. */
-export function BacklinksPanel({ campaignId, recordId }: { campaignId: string; recordId: string }) {
-  const { data, isPending, isError } = useBacklinks(campaignId, recordId, true);
+export function BacklinksPanel({
+  campaignId,
+  recordId,
+  recordType,
+}: {
+  campaignId: string;
+  recordId: string;
+  recordType: RecordType;
+}) {
+  const { data: loaded, isPending, isError } = useBacklinks(campaignId, recordId, true);
+  const data =
+    loaded === undefined || loaded === null
+      ? loaded
+      : { ...loaded, links: loaded.links.filter((link) => !shownOnForm(recordType, link)) };
 
   let body: ReactNode;
   if (isPending) {
     body = <p className="text-sm text-muted-foreground">Loading…</p>;
-  } else if (isError || data === null) {
+  } else if (isError || data === null || data === undefined) {
     body = <p className="text-sm text-muted-foreground">Could not load backlinks.</p>;
   } else if (
     data.links.length === 0 &&

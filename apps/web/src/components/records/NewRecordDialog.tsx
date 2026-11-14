@@ -8,7 +8,7 @@ import {
   type RecordSummary,
   type RecordType,
 } from '@stagehand/shared';
-import { useState, type SubmitEvent } from 'react';
+import { useId, useState, type SubmitEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -34,6 +34,13 @@ interface NewRecordDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (record: CampaignRecord) => void;
+  /**
+   * Links the new record starts with, e.g. a Prop's `spot` from a Spot's "New prop here"
+   * (F1.10). The type is then fixed to `initialType`.
+   */
+  initialLinks?: Partial<Record<string, string[]>>;
+  /** Where those links place it, for the dialog's text. */
+  placedAt?: string;
 }
 
 /** GM: a type and a name. Everything else is filled in on the record's own page. */
@@ -59,8 +66,12 @@ function NewRecordForm({
   records,
   onCreated,
   onDone,
+  initialLinks,
+  placedAt,
 }: Omit<NewRecordDialogProps, 'open' | 'onOpenChange'> & { onDone: () => void }) {
   const create = useCreateRecord(campaignId);
+  // Unique ids: the dialog can open on a record page that has its own Name field.
+  const ids = useId();
   const areas = records.filter((record) => record.type === 'area');
   const [type, setType] = useState<RecordType>(initialType);
   const [name, setName] = useState('');
@@ -73,9 +84,12 @@ function NewRecordForm({
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     setError(null);
-    const parsed = createRecordRequestSchema.safeParse(
-      needsArea ? { type, name, parentId } : { type, name },
-    );
+    const parsed = createRecordRequestSchema.safeParse({
+      type,
+      name,
+      ...(needsArea ? { parentId } : {}),
+      ...(initialLinks === undefined ? {} : { links: initialLinks }),
+    });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Check the form');
       return;
@@ -92,16 +106,22 @@ function NewRecordForm({
   return (
     <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)} noValidate>
       <DialogHeader>
-        <DialogTitle>New record</DialogTitle>
+        <DialogTitle>
+          {initialLinks === undefined
+            ? 'New record'
+            : `New ${RECORD_TYPE_LABELS[type].toLowerCase()}`}
+        </DialogTitle>
         <DialogDescription>
-          Pick a type and a name. Everything else is filled in on the record&apos;s page.
+          {initialLinks === undefined
+            ? "Pick a type and a name. Everything else is filled in on the record's page."
+            : `It goes at ${placedAt ?? 'this record'}. Everything else is filled in on its page.`}
         </DialogDescription>
       </DialogHeader>
 
-      <div className="space-y-2">
-        <Label htmlFor="record-type">Type</Label>
+      <div className="space-y-2" hidden={initialLinks !== undefined}>
+        <Label htmlFor={`${ids}-type`}>Type</Label>
         <NativeSelect
-          id="record-type"
+          id={`${ids}-type`}
           value={type}
           onChange={(event) => {
             setType(recordTypeSchema.parse(event.target.value));
@@ -116,9 +136,9 @@ function NewRecordForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="record-name">Name</Label>
+        <Label htmlFor={`${ids}-name`}>Name</Label>
         <Input
-          id="record-name"
+          id={`${ids}-name`}
           value={name}
           maxLength={RECORD_NAME_MAX}
           autoFocus
@@ -131,14 +151,14 @@ function NewRecordForm({
 
       {needsArea && (
         <div className="space-y-2">
-          <Label htmlFor="record-area">Area</Label>
+          <Label htmlFor={`${ids}-area`}>Area</Label>
           {noAreas ? (
             <p className="text-sm text-muted-foreground">
               Create an Area first. Every Spot belongs to one.
             </p>
           ) : (
             <AreaSelect
-              id="record-area"
+              id={`${ids}-area`}
               areas={areas}
               value={parentId}
               placeholder="Choose an area…"

@@ -107,7 +107,12 @@ export function RecordPage() {
             </CardContent>
           </Card>
           <aside className="lg:sticky lg:top-6">
-            <BacklinksPanel key={record.id} campaignId={campaign.id} recordId={record.id} />
+            <BacklinksPanel
+              key={record.id}
+              campaignId={campaign.id}
+              recordId={record.id}
+              recordType={record.type}
+            />
           </aside>
         </div>
       </RecordNavigationProvider>

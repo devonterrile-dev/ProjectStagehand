@@ -37,6 +37,7 @@ describe('loadPrompt', () => {
       'fields_npc',
       'fields_area',
       'fields_spot',
+      'fields_prop',
       'fields_faction',
       'fields_lore',
       'fields_story_beat',

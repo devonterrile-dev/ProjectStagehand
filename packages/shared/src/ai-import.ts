@@ -185,11 +185,6 @@ const wireFieldSchema = z.object({
     .describe('The field value. Markdown for rich text fields, plain text otherwise.'),
 });
 
-const wirePointOfInterestSchema = z.object({
-  name: z.string().describe('Short name of the point of interest.'),
-  detail: z.string().describe('What the party finds or learns there. Plain text.'),
-});
-
 const wireCreateSchema = z.object({
   id: z.string().describe('A temporary id for this new record: N1, N2, N3…'),
   type: recordTypeSchema,
@@ -201,9 +196,6 @@ const wireCreateSchema = z.object({
   fields: z
     .array(wireFieldSchema)
     .describe('Only the fields the notes give content for. Leave out anything unknown.'),
-  pointsOfInterest: z
-    .array(wirePointOfInterestSchema)
-    .describe('Spots only: things the party can examine. Empty otherwise.'),
 });
 
 const wireUpdateSchema = z.object({
@@ -212,9 +204,6 @@ const wireUpdateSchema = z.object({
     .array(wireFieldSchema)
     .describe('Only the fields to change, each with its complete new value.'),
   addTags: z.array(z.string()).describe('Tags to add. May be empty.'),
-  pointsOfInterest: z
-    .array(wirePointOfInterestSchema)
-    .describe('Spots only: the complete new list, or empty to leave the list as it is.'),
 });
 
 const wireLinkSchema = z.object({

@@ -15,6 +15,8 @@
  */
 import {
   AI_IMPORT_LIMITS,
+  INVERSE_LINK_FIELDS,
+  inverseLinkFieldsOf,
   isEmptyRichText,
   RECORD_TYPES,
   richTextToPlainText,
@@ -150,7 +152,18 @@ export function summaryOf(record: PackSourceRecord): string | null {
   return null;
 }
 
-function fullOf(record: PackSourceRecord, links: readonly PackSourceLink[]): ContextRecordFull {
+/** True when `key` of a `type` record is the stored side of another type's inverse list. */
+function storesInverse(type: RecordType, key: string): boolean {
+  return Object.values(INVERSE_LINK_FIELDS).some((fields) =>
+    Object.values(fields).some((inverse) => inverse.from === type && inverse.field === key),
+  );
+}
+
+function fullOf(
+  record: PackSourceRecord,
+  links: readonly PackSourceLink[],
+  typeOf: (id: string) => RecordType | undefined,
+): ContextRecordFull {
   const fieldLinks: Record<string, string[]> = {};
   for (const [key, spec] of Object.entries(fieldSpecsOf(record.type))) {
     if (spec.kind === 'links') fieldLinks[key] = [];
@@ -161,6 +174,17 @@ function fullOf(record: PackSourceRecord, links: readonly PackSourceLink[]): Con
     if (link.fieldKey === null) otherLinks.push({ recordId: link.toId, label: link.label });
     else fieldLinks[link.fieldKey]?.push(link.toId);
   }
+  const inverseLinks: Record<string, string[]> = {};
+  for (const [key, inverse] of inverseLinkFieldsOf(record.type)) {
+    inverseLinks[key] = links
+      .filter(
+        (link) =>
+          link.toId === record.id &&
+          link.fieldKey === inverse.field &&
+          typeOf(link.fromId) === inverse.from,
+      )
+      .map((link) => link.fromId);
+  }
   return {
     tags: record.tags,
     publicDescription: record.publicDescription,
@@ -168,6 +192,7 @@ function fullOf(record: PackSourceRecord, links: readonly PackSourceLink[]): Con
     fields: record.fields,
     links: fieldLinks,
     otherLinks,
+    ...(Object.keys(inverseLinks).length === 0 ? {} : { inverseLinks }),
   };
 }
 
@@ -183,12 +208,22 @@ export function buildContextPack(input: BuildPackInput): BuiltPack {
       a.id.localeCompare(b.id),
   );
   const sourceById = new Map(sources.map((record) => [record.id, record]));
+  const typeOf = (id: string) => sourceById.get(id)?.type;
+  /** A Prop's Spot: the stored side of an inverse list (D-41). */
+  const placeOf = new Map<string, string>();
+  for (const link of input.links) {
+    const type = typeOf(link.fromId);
+    if (type !== undefined && link.fieldKey !== null && storesInverse(type, link.fieldKey)) {
+      placeOf.set(link.fromId, link.toId);
+    }
+  }
   const records: ContextRecord[] = sources.map((record, index) => ({
     id: record.id,
     ref: existingRef(index),
     type: record.type,
     name: record.name,
     parentId: record.parentId,
+    ...(placeOf.has(record.id) ? { placeId: placeOf.get(record.id) ?? null } : {}),
     summary: null,
     full: null,
   }));
@@ -206,7 +241,7 @@ export function buildContextPack(input: BuildPackInput): BuiltPack {
     if (record.full !== null || (level === 'summary' && record.summary !== null)) return true;
 
     const before = { summary: record.summary, full: record.full };
-    if (level === 'full') record.full = fullOf(source, input.links);
+    if (level === 'full') record.full = fullOf(source, input.links, typeOf);
     else record.summary = summaryOf(source);
     if (record.full === null && record.summary === null) return true; // Nothing to say.
 

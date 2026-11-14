@@ -42,9 +42,12 @@ const FULL_FIELDS: Record<RecordType, Record<string, unknown>> = {
   },
   spot: {
     readAloud: rich('Stalls bob on barrels'),
-    pointsOfInterest: [{ name: 'Fishmonger', detail: 'Sells more than fish' }],
     hiddenDetails: rich('A trapdoor under the fish crates'),
     backdropNotes: 'Wide dock at dusk',
+  },
+  prop: {
+    appearance: 'A barnacled bell on a post',
+    hiddenDetails: rich('The clapper is a key'),
   },
   faction: {
     goals: rich('Control the harbour'),
@@ -84,11 +87,12 @@ const FULL_FIELDS: Record<RecordType, Record<string, unknown>> = {
 };
 
 describe('record types', () => {
-  it('lists the eight types in governance order, each with a label and a spec', () => {
+  it('lists the nine types in governance order, each with a label and a spec', () => {
     expect(recordTypeSchema.options).toEqual([
       'npc',
       'area',
       'spot',
+      'prop',
       'faction',
       'lore',
       'story_beat',
@@ -146,9 +150,6 @@ describe.each(RECORD_TYPES)('%s fields', (type) => {
         case 'number':
           expect(inner, key).toBeInstanceOf(z.ZodNumber);
           break;
-        case 'list':
-          expect(inner, key).toBeInstanceOf(z.ZodArray);
-          break;
         default:
           throw new Error(`unexpected kind ${field.kind} on ${key}`);
       }
@@ -193,13 +194,22 @@ describe('field validation details', () => {
     expect(fieldsSchemaFor('npc').safeParse({ personality: emptyRichText() }).success).toBe(true);
   });
 
-  it('checks points of interest', () => {
-    const spot = fieldsSchemaFor('spot');
-    expect(spot.safeParse({ pointsOfInterest: [{ name: '', detail: 'x' }] }).success).toBe(false);
+  it('no longer knows points of interest: a Prop record replaced them (F1.10)', () => {
     expect(
-      spot.safeParse({ pointsOfInterest: [{ name: 'Well', detail: 'x', secret: true }] }).success,
+      fieldsSchemaFor('spot').safeParse({ pointsOfInterest: [{ name: 'Well', detail: 'x' }] })
+        .success,
     ).toBe(false);
-    expect(spot.safeParse({ pointsOfInterest: [{ name: 'Well', detail: '' }] }).success).toBe(true);
+  });
+
+  it('links a Prop to one Spot, and lets Items and story beats point at Props', () => {
+    expect(RECORD_FIELD_SPECS.prop.spot).toEqual({
+      kind: 'links',
+      label: 'Spot',
+      targets: ['spot'],
+      cardinality: 'one',
+    });
+    expect(RECORD_FIELD_SPECS.item.currentHolder.targets).toContain('prop');
+    expect(RECORD_FIELD_SPECS.story_beat.involved.targets).toContain('prop');
   });
 });
 

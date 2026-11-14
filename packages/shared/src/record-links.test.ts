@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { RECORD_TYPES } from './record-fields';
 import {
   emptyLinksFor,
+  INVERSE_LINK_FIELDS,
+  inverseLinkFieldsOf,
   LINK_LABEL_MAX,
   linkFieldSpec,
   linkFieldsOf,
@@ -143,5 +145,26 @@ describe('mentionIdsOfRecord', () => {
   it('skips missing or empty values', () => {
     expect(mentionIdsOfRecord('lore', { publicDescription: emptyRichText() })).toEqual([]);
     expect(mentionIdsOfRecord('spot', { fields: { readAloud: null } })).toEqual([]);
+  });
+});
+
+describe('inverse link fields (F1.10)', () => {
+  it("shows a Spot's Props from each Prop's one Spot link", () => {
+    expect(inverseLinkFieldsOf('spot')).toEqual([
+      ['propsHere', { label: 'Props here', from: 'prop', field: 'spot' }],
+    ]);
+    expect(inverseLinkFieldsOf('npc')).toEqual([]);
+  });
+
+  it('points every inverse list at a real link field that targets the showing type', () => {
+    for (const [type, fields] of Object.entries(INVERSE_LINK_FIELDS)) {
+      for (const [key, inverse] of Object.entries(fields)) {
+        const spec = linkFieldSpec(inverse.from, inverse.field);
+        expect(spec, key).toBeDefined();
+        expect(spec?.targets, key).toContain(type);
+        // Never also a stored link field of the showing type: one fact, one row.
+        expect(linkFieldSpec(type as never, key), key).toBeUndefined();
+      }
+    }
   });
 });

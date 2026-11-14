@@ -31,9 +31,12 @@ export const FULL_FIELDS: Record<RecordType, Record<string, unknown>> = {
   },
   spot: {
     readAloud: richText('Stalls bob on barrels'),
-    pointsOfInterest: [{ name: 'Fishmonger', detail: 'Sells more than fish' }],
     hiddenDetails: richText('A trapdoor under the fish crates'),
     backdropNotes: 'Wide dock at dusk',
+  },
+  prop: {
+    appearance: 'A barnacled bell on a post',
+    hiddenDetails: richText('The clapper is a key'),
   },
   faction: {
     goals: richText('Control the harbour'),
@@ -77,6 +80,7 @@ export const FOREIGN_FIELD: Record<RecordType, Record<string, unknown>> = {
   npc: { goals: richText('x') },
   area: { status: 'alive' },
   spot: { kindOfPlace: 'x' },
+  prop: { readAloud: richText('x') },
   faction: { readAloud: richText('x') },
   lore: { goals: richText('x') },
   story_beat: { category: 'x' },

@@ -49,6 +49,28 @@ export function linkFieldSpec(type: RecordType, key: string): LinkFieldSpec | un
   return spec?.kind === 'links' ? spec : undefined;
 }
 
+/**
+ * A list shown on one record but stored on others (F1.10, D-41): a Spot's "Props here" is
+ * every Prop whose `spot` link points at it. Only the Prop's link is a `record_links` row,
+ * so the two sides can never disagree. Keyed by the type that shows the list.
+ */
+export interface InverseLinkField {
+  label: string;
+  /** The type whose link field stores it. */
+  from: RecordType;
+  /** That link field. */
+  field: string;
+}
+
+export const INVERSE_LINK_FIELDS: Partial<Record<RecordType, Record<string, InverseLinkField>>> = {
+  spot: { propsHere: { label: 'Props here', from: 'prop', field: 'spot' } },
+};
+
+/** The lists a type shows from other records' links, in display order. */
+export function inverseLinkFieldsOf(type: RecordType): [string, InverseLinkField][] {
+  return Object.entries(INVERSE_LINK_FIELDS[type] ?? {});
+}
+
 /** "Spots", "NPCs or Factions", "NPCs, Areas, Spots or Items". */
 export function linkTargetsLabel(targets: readonly RecordType[]): string {
   const plurals = targets.map((type) =>

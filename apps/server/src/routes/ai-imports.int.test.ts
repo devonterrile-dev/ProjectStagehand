@@ -258,7 +258,6 @@ describe('AI import API', () => {
           name: 'The Drowned Rat',
           area: 'N1',
           fields: [field('readAloud', 'Smoke and **salt**.')],
-          pointsOfInterest: [{ name: 'Back room', detail: 'Dice games.' }],
         }),
         wireCreate({
           id: 'N3',
@@ -329,7 +328,7 @@ describe('AI import API', () => {
         mode: 'bootstrap',
         status: 'running',
         model: 'claude-sonnet-5-5',
-        promptVersion: 4,
+        promptVersion: 5,
         phase: 'questions',
         steps: 1,
         attempts: 0,
@@ -396,7 +395,7 @@ describe('AI import API', () => {
       expect(rat.payload).toMatchObject({
         type: 'spot',
         parentId: saltmarsh.payload.id,
-        fields: { pointsOfInterest: [{ name: 'Back room', detail: 'Dice games.' }] },
+        fields: { readAloud: expect.anything() as unknown },
       });
       // Links between proposals already use the ids the records will get.
       expect(voss.payload).toMatchObject({
@@ -655,7 +654,6 @@ describe('AI import API', () => {
                   field('appearance', 'Salt-white beard.'),
                 ],
                 addTags: ['missing', 'missing'],
-                pointsOfInterest: [],
               },
             ],
             links: [
@@ -833,6 +831,81 @@ describe('AI import API', () => {
     });
   });
 
+  describe('props (F1.10, D-41)', () => {
+    let world: Awaited<ReturnType<typeof harborCampaign>>;
+
+    beforeAll(async () => {
+      world = await harborCampaign('Prop Campaign');
+      calls.length = 0;
+    });
+
+    it("saves new Props at their Spots, new or existing, through each Prop's spot link", async () => {
+      scripts = [
+        (_input, ref) =>
+          wire({
+            creates: [
+              wireCreate({
+                id: 'N1',
+                type: 'prop',
+                name: 'Notice board',
+                fields: [
+                  field('publicDescription', 'Pinned with job offers.'),
+                  field('hiddenDetails', 'A map is tucked behind the posters.'),
+                ],
+              }),
+              wireCreate({ id: 'N2', type: 'spot', name: 'Fish market', area: ref('Saltmarsh') }),
+              wireCreate({ id: 'N3', type: 'prop', name: 'Old well' }),
+            ],
+            links: [
+              { from: 'N1', to: ref('The Drowned Rat'), field: 'spot', label: '' },
+              // Written from the Spot's side: turned around into the Prop's own link.
+              { from: 'N2', to: 'N3', field: 'propsHere', label: '' },
+            ],
+          }),
+      ];
+      const detail = await runImport(world.campaign, {
+        mode: 'add',
+        text: 'The Drowned Rat has a notice board. The new fish market has an old well.',
+      });
+      expect(detail.status).toBe('ready');
+      expect(detail.proposalCounts).toEqual({ create: 3, update: 0, link: 0 });
+      expect(createNamed(detail, 'Old well').payload.links).toEqual({
+        spot: [createNamed(detail, 'Fish market').payload.id],
+      });
+
+      await call('POST', `${importsUrl(world.campaign)}/${detail.id}/accept-all`, gm);
+      const { created } = await commit(world.campaign, detail);
+      const id = (name: string) => created.find((r) => r.name === name)?.id ?? '';
+
+      const board = await readRecord(world.campaign, id('Notice board'));
+      expect(board).toMatchObject({
+        type: 'prop',
+        parentId: null,
+        revealedAt: null,
+        links: { spot: [{ id: world.rat, name: 'The Drowned Rat' }] },
+      });
+      expect(JSON.stringify(board.fields)).toContain('A map is tucked behind the posters.');
+      const well = await readRecord(world.campaign, id('Old well'));
+      expect(well.links).toMatchObject({ spot: [{ name: 'Fish market' }] });
+    });
+
+    it("tells the model which Spot each Prop is at, and lists a Spot's Props", async () => {
+      scripts = [() => wire()];
+      calls.length = 0;
+      await runImport(world.campaign, {
+        mode: 'add',
+        text: 'The Drowned Rat repaints its sign.',
+      });
+
+      const user = calls[0] === undefined ? '' : userMessageText(calls[0].user);
+      const ratRef = /(E\d+) \| spot \| The Drowned Rat/.exec(user)?.[1];
+      expect(ratRef).toBeDefined();
+      expect(user).toContain(`| prop | Notice board | at ${ratRef ?? ''}`);
+      expect(user).toMatch(/<record id="E\d+" type="spot" name="The Drowned Rat" detail="full">/);
+      expect(user).toMatch(/propsHere: E\d+/);
+    });
+  });
+
   describe('what a commit refuses, skips and rolls back', () => {
     it('refuses to save a spot whose area was left out, naming both', async () => {
       const campaign = await newCampaign('Rejected Area');
@@ -889,13 +962,11 @@ describe('AI import API', () => {
                 id: ref('Captain Voss'),
                 fields: [field('status', 'dead')],
                 addTags: [],
-                pointsOfInterest: [],
               },
               {
                 id: ref('Mira'),
                 fields: [field('status', 'alive')],
                 addTags: [],
-                pointsOfInterest: [],
               },
             ],
             links: [
@@ -946,7 +1017,6 @@ describe('AI import API', () => {
                 id: ref('Captain Voss'),
                 fields: [field('status', 'dead')],
                 addTags: [],
-                pointsOfInterest: [],
               },
             ],
           }),
@@ -997,7 +1067,6 @@ describe('AI import API', () => {
                   field('status', 'dead'),
                 ],
                 addTags: [],
-                pointsOfInterest: [],
               },
             ],
           }),

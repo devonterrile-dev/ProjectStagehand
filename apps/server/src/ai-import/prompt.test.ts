@@ -69,7 +69,7 @@ describe('fieldReference', () => {
         '- `history` (rich text): History',
         '',
         'Link fields, for `links` entries from a record of this type:',
-        '- `currentHolder` (one record of type `npc` or `spot` or `area`): Current holder or location',
+        '- `currentHolder` (one record of type `npc` or `spot` or `prop` or `area`): Current holder or location',
       ].join('\n'),
     );
   });
@@ -85,8 +85,18 @@ describe('fieldReference', () => {
     );
   });
 
-  it('leaves points of interest to their own list', () => {
+  it('lists a Prop with its one Spot, and no points of interest on a Spot (F1.10)', () => {
     expect(fieldReference('spot')).not.toContain('pointsOfInterest');
+    expect(fieldReference('prop')).toBe(
+      [
+        'Fields:',
+        '- `appearance` (plain text): Appearance',
+        '- `hiddenDetails` (rich text): Hidden details',
+        '',
+        'Link fields, for `links` entries from a record of this type:',
+        '- `spot` (one record of type `spot`): Spot',
+      ].join('\n'),
+    );
   });
 });
 
