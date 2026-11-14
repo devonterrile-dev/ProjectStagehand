@@ -12,10 +12,15 @@ const ALPHA_TEST = 0.5;
 /** The drop shadow: a dark copy of the cutout, a little behind, across and below it. */
 const SHADOW = { opacity: 0.3, offset: [0.045, -0.035, -0.02] } as const;
 
-/** A puppet's stick and a prop's post both run down from the cutout into the void. */
-const ROD_LENGTH = 1.5;
-/** How far the rod reaches up behind the cutout, so the two visibly join. */
-const ROD_OVERLAP = 0.12;
+/** A puppet's stick and a prop's post both run this far down from the cutout, into the void. */
+const ROD_DROP = 1.4;
+/**
+ * How far up behind the cutout the rod reaches, as a share of the cutout's height, so the two
+ * visibly join. A stick goes up to the middle: a puppet with a gap at its bottom center (a
+ * spider's legs) would otherwise float above its stick. A prop sits on its base, so its post
+ * only needs to reach it.
+ */
+const ROD_REACH = { stick: 0.5, stand: 0.08 } as const;
 const STICK = { width: 0.04, depth: 0.02 } as const;
 const POST = { width: 0.022, depth: 0.02 } as const;
 const BASE = { height: 0.03, depth: 0.1, share: 0.55 } as const;
@@ -95,6 +100,8 @@ export function Cutout({
   const [x, y, z] = position;
   const mirror = flipped ? -1 : 1;
   const rod = mount === 'stick' ? STICK : POST;
+  const rodTop = h * ROD_REACH[mount];
+  const rodLength = rodTop + ROD_DROP;
 
   return (
     <group ref={pivot} position={[x, y - SWAY.pivotDrop, z]}>
@@ -118,8 +125,8 @@ export function Cutout({
           <meshBasicMaterial map={map} alphaTest={ALPHA_TEST} toneMapped={false} />
         </mesh>
         {/* The rod sits just behind the image, so it shows only below it. */}
-        <mesh position={[0, ROD_OVERLAP - ROD_LENGTH / 2, -rod.depth / 2 - 0.002]}>
-          <boxGeometry args={[rod.width, ROD_LENGTH, rod.depth]} />
+        <mesh position={[0, rodTop - rodLength / 2, -rod.depth / 2 - 0.002]}>
+          <boxGeometry args={[rod.width, rodLength, rod.depth]} />
           <meshLambertMaterial
             color={mount === 'stick' ? STAGE_COLORS.stick : STAGE_COLORS.stand}
           />
