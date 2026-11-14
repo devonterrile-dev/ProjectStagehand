@@ -19,7 +19,7 @@ import { ConfigError, loadConfig } from './config';
 import { createDb } from './db/client';
 import { createAnthropicProvider } from './providers/anthropic';
 import { createOpenRouterProvider } from './providers/openrouter';
-import { processVisualJob } from './visuals/job';
+import { processStoredVisual, processVisualJob, queueStaleProcessing } from './visuals/job';
 import { createPgBossQueue } from './visuals/queue';
 import { loadReferences, type ReferencesByKind } from './visuals/references';
 import { createDiskStorage } from './visuals/storage';
@@ -91,6 +91,12 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
   // Image jobs (F2.3) run in this process, from a pg-boss queue in the same database (D-42).
   // Only the kind of an error is logged: a job's prompt is private campaign text.
   const credentialsKey = config.credentialsKey;
+  const onVisualError = (assetId: string, errorName: string, stage: 'generate' | 'process') => {
+    app.log.error(
+      { assetId, errorName },
+      stage === 'generate' ? 'visual job failed' : 'visual post-processing failed',
+    );
+  };
   const visualQueue =
     db === undefined || config.databaseUrl === undefined || credentialsKey === undefined
       ? undefined
@@ -104,13 +110,13 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
                 openrouter,
                 storage,
                 references,
-                onError: (id, errorName) => {
-                  app.log.error({ assetId: id, errorName }, 'visual job failed');
-                },
+                onError: onVisualError,
               },
               assetId,
               signal,
             ),
+          reprocess: (assetId) =>
+            processStoredVisual({ db: db.db, storage, onError: onVisualError }, assetId),
           onError: (error) => {
             app.log.error(
               { errorName: error instanceof Error ? error.name : 'unknown' },
@@ -167,7 +173,11 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
               app.log.warn({ interrupted: imports }, 'marked interrupted ai imports failed');
             if (visuals > 0)
               app.log.warn({ interrupted: visuals }, 'marked interrupted visuals failed');
-            await visualQueue?.start();
+            if (visualQueue === undefined) return;
+            await visualQueue.start();
+            // Images stored before post-processing (F2.4), or by an older version of it.
+            const stale = await queueStaleProcessing(db.db, visualQueue);
+            if (stale > 0) app.log.info({ queued: stale }, 'queued visuals for post-processing');
           },
         );
 

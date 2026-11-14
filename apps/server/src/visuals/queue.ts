@@ -7,17 +7,24 @@
  * upgraded by `start()`; our Drizzle migrations never touch it. A job queued when the stack
  * stops is still there at the next start. Retries are ours, not pg-boss's: a failed image is
  * shown to the GM, who decides whether to pay for another.
+ *
+ * A second queue, `process-visual` (F2.4, D-43), remakes the stage's version of images stored
+ * before post-processing existed or by an older version of it. It costs nothing, so one worker
+ * is plenty; the startup backfill fills it.
  */
 import { PgBoss } from 'pg-boss';
 
 export interface VisualQueue {
   /** Queues the image for an asset already stored as `generating`. */
   enqueue(assetId: string): Promise<void>;
+  /** Queues post-processing again for an asset that already has its original. */
+  enqueueProcessing(assetId: string): Promise<void>;
   /** Stops taking jobs and waits (briefly) for running ones. */
   stop(): Promise<void>;
 }
 
 export const VISUAL_QUEUE = 'generate-visual';
+export const PROCESS_QUEUE = 'process-visual';
 
 /** Images being made at once by this server. */
 export const VISUAL_WORKERS = 2;
@@ -33,6 +40,8 @@ interface JobData {
 export function createPgBossQueue(options: {
   databaseUrl: string;
   process: (assetId: string, signal: AbortSignal) => Promise<void>;
+  /** The backfill: post-process an asset's stored original again. */
+  reprocess: (assetId: string) => Promise<void>;
   onError: (error: unknown) => void;
 }): VisualQueue & { start(): Promise<void> } {
   // A small pool of its own: the app's pool stays for requests.
@@ -57,9 +66,24 @@ export function createPgBossQueue(options: {
           for (const job of jobs) await options.process(job.data.assetId, stopping.signal);
         },
       );
+      await boss.createQueue(PROCESS_QUEUE, {
+        retryLimit: 0,
+        expireInSeconds: 5 * 60,
+        deleteAfterSeconds: 24 * 60 * 60,
+      });
+      await boss.work<JobData>(
+        PROCESS_QUEUE,
+        { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2 },
+        async (jobs) => {
+          for (const job of jobs) await options.reprocess(job.data.assetId);
+        },
+      );
     },
     async enqueue(assetId) {
       await boss.send(VISUAL_QUEUE, { assetId } satisfies JobData);
+    },
+    async enqueueProcessing(assetId) {
+      await boss.send(PROCESS_QUEUE, { assetId } satisfies JobData);
     },
     async stop() {
       // Cancel image calls in flight, so they record themselves as interrupted.
@@ -75,14 +99,21 @@ export function createPgBossQueue(options: {
  */
 export function createInlineQueue(
   process: (assetId: string, signal: AbortSignal) => Promise<void>,
+  reprocess: (assetId: string) => Promise<void> = () => Promise.resolve(),
 ): VisualQueue & { settled(): Promise<void> } {
   const running = new Set<Promise<void>>();
   const stopping = new AbortController();
+  const track = (work: Promise<void>) => {
+    const job = work.finally(() => running.delete(job));
+    running.add(job);
+    return Promise.resolve();
+  };
   return {
     enqueue(assetId) {
-      const job = process(assetId, stopping.signal).finally(() => running.delete(job));
-      running.add(job);
-      return Promise.resolve();
+      return track(process(assetId, stopping.signal));
+    },
+    enqueueProcessing(assetId) {
+      return track(reprocess(assetId));
     },
     async stop() {
       stopping.abort();

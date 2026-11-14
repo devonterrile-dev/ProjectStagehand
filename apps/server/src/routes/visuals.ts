@@ -9,13 +9,15 @@
  * GET  /api/campaigns/:campaignId/characters/:characterId/visuals  (the same for a PC)
  * POST /api/campaigns/:campaignId/characters/:characterId/visuals
  * PUT  /api/campaigns/:campaignId/characters/:characterId/visual
- * GET  /api/campaigns/:campaignId/assets/:assetId/image            the image file
+ * GET  /api/campaigns/:campaignId/assets/:assetId/image            the stage's version (F2.4),
+ *      ?v=original for the model's own                              or the original until made
  *
  * The image is made in the background (`visuals/queue.ts`); the browser polls the list while a
  * try is `generating`. The prompt is built here from the record and the style bible, stored
  * with the asset, and never logged.
  */
 import {
+  assetImageQuerySchema,
   generateVisualRequestSchema,
   IMAGE_MODEL,
   useVisualRequestSchema,
@@ -165,19 +167,24 @@ export function registerVisualRoutes(
       const scope = campaignOf(request);
       assertGm(scope);
       const assetId = uuidParam(request, 'assetId', 'Image not found');
-      const { key, mediaType } = await assetImageOf(db, scope, assetId);
+      const query = assetImageQuerySchema.safeParse(request.query);
+      if (!query.success) return sendValidationError(reply, query.error);
+      const { key, mediaType } = await assetImageOf(db, scope, assetId, query.data.v);
       const stream = await visuals.storage.open(key);
       if (stream === null) {
         return reply
           .code(404)
           .send({ statusCode: 404, error: 'Not Found', message: 'Image not found' });
       }
-      // An asset's original never changes, so the browser may keep it; `private` keeps it out
-      // of shared caches (Cloudflare), since only the GM may see it.
-      return reply
-        .header('content-type', mediaType)
-        .header('cache-control', 'private, max-age=31536000, immutable')
-        .send(stream);
+      // An asset's files never change under a URL: a remade processed image comes with a new
+      // `?p=<version>`. So the browser may keep them; `private` keeps them out of shared caches
+      // (Cloudflare), since only the GM may see them. The unversioned URL may fall back to the
+      // original before processing, so it is not kept.
+      const cache =
+        query.data.v === 'original' || query.data.p !== undefined
+          ? 'private, max-age=31536000, immutable'
+          : 'private, no-cache';
+      return reply.header('content-type', mediaType).header('cache-control', cache).send(stream);
     },
   );
 }

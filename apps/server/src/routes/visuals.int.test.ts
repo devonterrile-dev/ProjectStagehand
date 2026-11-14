@@ -1,7 +1,8 @@
 /**
  * Generate visual (F2.3, governance §11, D-42), against a real Postgres with OpenRouter faked
  * and the queue run inline: the prompt and anchors per record type and kind, the image file
- * and its route, "Use this one", every failure, the cost guardrails, archived campaigns, and
+ * and its route, post-processing and its startup backfill (F2.4, D-43), "Use this one", every
+ * failure, the cost guardrails, archived campaigns, and
  * the two §14 checks (no prompt or key in logs, no key in responses). Route-level isolation
  * (outsiders 404, players 403) is in the table in `campaigns.int.test.ts`.
  */
@@ -20,6 +21,7 @@ import { IMAGE_MODEL, VISUAL_LIMITS } from '@stagehand/shared';
 import { anchorsFor, loadStyleBible } from '@stagehand/style-bible';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -35,7 +37,9 @@ import { saveProviderKey } from '../credentials/store';
 import type { DbHandle } from '../db/client';
 import { assets, campaignMembers, users } from '../db/schema';
 import type { ImageCallInput, ImageCallResult } from '../providers/openrouter';
-import { processVisualJob } from '../visuals/job';
+import { processVisualJob, queueStaleProcessing } from '../visuals/job';
+import { BACKDROP_SIZE, PROCESSING_VERSION } from '../visuals/process';
+import type { VisualQueue } from '../visuals/queue';
 import { loadReferences } from '../visuals/references';
 import type { AssetStorage } from '../visuals/storage';
 
@@ -51,7 +55,21 @@ interface Person {
 const GM_KEY = 'sk-or-v1-VisualGmVisualGmVisualGm0123456789abcdefvis1';
 /** Marks a record's private appearance, to look for in logs. */
 const APPEARANCE_MARK = 'PERIWINKLEGANTRY';
+/** Not an image at all: the call "succeeds" but post-processing can't read it. */
 const IMAGE = Buffer.from('not really a png, but bytes all the same');
+
+/** A real cutout as the model draws one: an orange box on its magenta key color. */
+async function keyedPng(): Promise<Buffer> {
+  const box = await sharp({
+    create: { width: 120, height: 200, channels: 3, background: '#EB7814' },
+  })
+    .png()
+    .toBuffer();
+  return sharp({ create: { width: 300, height: 400, channels: 3, background: '#F203EC' } })
+    .composite([{ input: box, left: 90, top: 100 }])
+    .png()
+    .toBuffer();
+}
 
 type Script = (input: ImageCallInput) => ImageCallResult | Promise<ImageCallResult>;
 
@@ -64,6 +82,7 @@ describe('Visuals API', () => {
   let handle: DbHandle;
   let settled: () => Promise<void>;
   let storage: AssetStorage;
+  let visualQueue: VisualQueue;
   let gm: Person;
   let player: Person;
   let keyless: Person;
@@ -93,6 +112,7 @@ describe('Visuals API', () => {
       handle,
       storage,
       visualsSettled: settled,
+      visualQueue,
     } = await buildTestApp({
       logger: { level: 'trace', stream: logStream },
       openrouter: { generateImage },
@@ -253,11 +273,18 @@ describe('Visuals API', () => {
       const asset = await started(recordBase(prop));
       await settled();
 
+      // These bytes can't be post-processed, so the try keeps only its original: served on
+      // the plain URL until a stage version exists (so not cached), and on ?v=original.
       const response = await call('GET', imageUrl(asset.id), gm);
       expect(response.statusCode).toBe(200);
       expect(response.headers['content-type']).toBe('image/png');
-      expect(response.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+      expect(response.headers['cache-control']).toBe('private, no-cache');
       expect(response.rawPayload).toEqual(IMAGE);
+      const original = await call('GET', `${imageUrl(asset.id)}?v=original`, gm);
+      expect(original.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+      expect(original.rawPayload).toEqual(IMAGE);
+      expect((await visuals(recordBase(prop))).assets[0]?.processed).toBeNull();
+      expect(logLines.join('')).toContain('"stage":"process"');
 
       const [row] = await handle.db.select().from(assets).where(eq(assets.id, asset.id));
       expect(row).toMatchObject({
@@ -387,6 +414,102 @@ describe('Visuals API', () => {
         name: 'Bog Troll',
       });
       expect((await generate(recordBase(block.json<{ id: string }>()), {})).statusCode).toBe(404);
+    });
+  });
+
+  describe('post-processing (F2.4)', () => {
+    it('stores a cut-out stage version beside the original and serves it by default', async () => {
+      const prop = await aProp('Copper Kettle');
+      const png = await keyedPng();
+      scripts = [() => ({ status: 'ok', image: png, mediaType: 'image/png', costUsd: 0.07 })];
+      const asset = await started(recordBase(prop));
+      await settled();
+
+      const [summary] = (await visuals(recordBase(prop))).assets;
+      expect(summary?.status).toBe('pending');
+      expect(summary?.processed).toEqual({
+        width: expect.any(Number) as number,
+        height: 1024,
+        version: PROCESSING_VERSION,
+      });
+
+      const response = await call(
+        'GET',
+        `${imageUrl(asset.id)}?p=${String(PROCESSING_VERSION)}`,
+        gm,
+      );
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('image/webp');
+      expect(response.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+      const meta = await sharp(response.rawPayload).metadata();
+      expect([meta.format, meta.width, meta.height, meta.hasAlpha]).toEqual([
+        'webp',
+        summary?.processed?.width,
+        1024,
+        true,
+      ]);
+
+      const original = await call('GET', `${imageUrl(asset.id)}?v=original`, gm);
+      expect(original.headers['content-type']).toBe('image/png');
+      expect(original.rawPayload).toEqual(png);
+
+      const [row] = await handle.db.select().from(assets).where(eq(assets.id, asset.id));
+      expect(row?.processedPath).toBe(`campaigns/${campaign.id}/processed/${asset.id}.webp`);
+    });
+
+    it('sizes a backdrop to the stage', async () => {
+      const area = await makeRecord({ type: 'area', name: 'Gull Point' });
+      const spot = await makeRecord({ type: 'spot', name: 'Lighthouse Steps', parentId: area.id });
+      const png = await sharp({
+        create: { width: 320, height: 180, channels: 3, background: '#21B0E8' },
+      })
+        .png()
+        .toBuffer();
+      scripts = [() => ({ status: 'ok', image: png, mediaType: 'image/png', costUsd: 0.04 })];
+      await started(recordBase(spot));
+      await settled();
+
+      expect((await visuals(recordBase(spot))).assets[0]?.processed).toMatchObject({
+        width: BACKDROP_SIZE.width,
+        height: BACKDROP_SIZE.height,
+      });
+    });
+
+    it('refuses an unknown image variant', async () => {
+      const prop = await aProp('Rope Coil');
+      const asset = await started(recordBase(prop));
+      await settled();
+      expect((await call('GET', `${imageUrl(asset.id)}?v=thumbnail`, gm)).statusCode).toBe(400);
+    });
+
+    it('makes stage versions at startup for images without one or from an older version', async () => {
+      const prop = await aProp('Ship in a Bottle');
+      const asset = await started(recordBase(prop));
+      await settled();
+      expect((await visuals(recordBase(prop))).assets[0]?.processed).toBeNull();
+
+      // The original becomes a real image (as if made before post-processing existed).
+      const [row] = await handle.db.select().from(assets).where(eq(assets.id, asset.id));
+      await storage.put(row?.originalPath ?? '', await keyedPng());
+      expect(await queueStaleProcessing(handle.db, visualQueue)).toBeGreaterThan(0);
+      await settled();
+      expect((await visuals(recordBase(prop))).assets[0]?.processed?.version).toBe(
+        PROCESSING_VERSION,
+      );
+
+      // An older version is made again; one already current is left alone.
+      await handle.db
+        .update(assets)
+        .set({ processingVersion: PROCESSING_VERSION - 1 })
+        .where(eq(assets.id, asset.id));
+      const stale = await queueStaleProcessing(handle.db, visualQueue);
+      await settled();
+      expect((await visuals(recordBase(prop))).assets[0]?.processed?.version).toBe(
+        PROCESSING_VERSION,
+      );
+      const again = await queueStaleProcessing(handle.db, visualQueue);
+      await settled();
+      expect(again).toBe(stale - 1);
     });
   });
 

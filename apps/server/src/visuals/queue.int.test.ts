@@ -11,12 +11,17 @@ import { createPgBossQueue } from './queue';
 
 describe('pg-boss visual queue', () => {
   const seen: string[] = [];
+  const reprocessed: string[] = [];
   let signalOf: AbortSignal | null = null;
   const queue = createPgBossQueue({
     databaseUrl: inject('databaseUrl'),
     process: (assetId, signal) => {
       seen.push(assetId);
       signalOf = signal;
+      return Promise.resolve();
+    },
+    reprocess: (assetId) => {
+      reprocessed.push(assetId);
       return Promise.resolve();
     },
     onError: (error) => {
@@ -49,10 +54,19 @@ describe('pg-boss visual queue', () => {
     expect(signalOf?.aborted).toBe(false);
   });
 
+  it('runs each asset queued for post-processing on its own queue', async () => {
+    const id = randomUUID();
+    await queue.enqueueProcessing(id);
+
+    await until(() => reprocessed.includes(id));
+    expect(seen).not.toContain(id);
+  });
+
   it('starts again on an existing install', async () => {
     const again = createPgBossQueue({
       databaseUrl: inject('databaseUrl'),
       process: () => Promise.resolve(),
+      reprocess: () => Promise.resolve(),
       onError: () => undefined,
     });
     await again.start();

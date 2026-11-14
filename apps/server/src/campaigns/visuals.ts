@@ -3,7 +3,9 @@
  * only code that sets a record's or PC's `visual_asset_id`.
  *
  * Routes start a try (`startVisual`, a `generating` row), the queue's worker makes the image
- * (`claimVisual` → `finishVisual`), and the GM lists the tries and picks one (`useVisual`).
+ * (`claimVisual` → `finishVisual`, with its post-processed version), and the GM lists the
+ * tries and picks one (`useVisual`). Images made before post-processing existed, or by an
+ * older version of it, are processed again at startup (`assetsToProcess` → `saveProcessed`).
  * Every function that takes a scope stays inside its campaign; the worker's functions take
  * only an asset id, which it got from a row we inserted.
  */
@@ -12,6 +14,7 @@ import {
   isVisualSubject,
   VISUAL_LIMITS,
   visualsResponseSchema,
+  type AssetImageVariant,
   type AssetKind,
   type AssetSummary,
   type ImageAspectRatio,
@@ -19,11 +22,25 @@ import {
   type VisualErrorCode,
   type VisualsResponse,
 } from '@stagehand/shared';
-import { and, count, desc, eq, gt, isNotNull, lt, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type { Database } from '../db/client';
 import { assets, characters, records } from '../db/schema';
 import { httpError } from '../http/errors';
+import { PROCESSED_MEDIA_TYPE } from '../visuals/process';
 import type { VisualSource } from '../visuals/prompt';
 
 import type { CampaignScope } from './scope';
@@ -44,6 +61,17 @@ function toSummary(row: AssetRow): AssetSummary {
     status: row.status,
     errorCode: row.errorCode,
     costUsd: row.costUsd,
+    processed:
+      row.processedPath === null ||
+      row.processedWidth === null ||
+      row.processedHeight === null ||
+      row.processingVersion === null
+        ? null
+        : {
+            width: row.processedWidth,
+            height: row.processedHeight,
+            version: row.processingVersion,
+          },
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt?.toISOString() ?? null,
   });
@@ -262,18 +290,32 @@ export async function useVisual(
   return listVisuals(db, scope, owner);
 }
 
-/** Where an asset's image is stored. 404 for another campaign's asset or one with no image yet. */
+/**
+ * Where an asset's image is stored: the processed one unless the original is asked for, or
+ * the original while nothing has been processed. 404 for another campaign's asset or one with
+ * no image yet.
+ */
 export async function assetImageOf(
   db: Database,
   scope: CampaignScope,
   assetId: string,
+  variant: AssetImageVariant = 'processed',
 ): Promise<{ key: string; mediaType: string }> {
   const [row] = await db
-    .select({ key: assets.originalPath, mediaType: assets.mediaType })
+    .select({
+      original: assets.originalPath,
+      mediaType: assets.mediaType,
+      processed: assets.processedPath,
+    })
     .from(assets)
     .where(and(eq(assets.id, assetId), eq(assets.campaignId, scope.campaignId)));
-  if (row?.key === null || row?.key === undefined) throw httpError(404, ASSET_NOT_FOUND);
-  return { key: row.key, mediaType: row.mediaType ?? 'image/png' };
+  if (row?.original === null || row?.original === undefined) {
+    throw httpError(404, ASSET_NOT_FOUND);
+  }
+  if (variant === 'processed' && row.processed !== null) {
+    return { key: row.processed, mediaType: PROCESSED_MEDIA_TYPE };
+  }
+  return { key: row.original, mediaType: row.mediaType ?? 'image/png' };
 }
 
 // --- The worker's side ------------------------------------------------------------------
@@ -318,9 +360,33 @@ export async function claimVisual(db: Database, assetId: string): Promise<Claime
   return row ?? null;
 }
 
+/** A stored post-processed image (F2.4). */
+export interface ProcessedFile {
+  key: string;
+  width: number;
+  height: number;
+  version: number;
+}
+
 export type VisualOutcome =
-  | { ok: true; key: string; mediaType: string; costUsd: number | null }
+  | {
+      ok: true;
+      key: string;
+      mediaType: string;
+      costUsd: number | null;
+      /** Null when post-processing failed: the try still counts, with its original only. */
+      processed: ProcessedFile | null;
+    }
   | { ok: false; errorCode: VisualErrorCode };
+
+function processedColumns(processed: ProcessedFile) {
+  return {
+    processedPath: processed.key,
+    processedWidth: processed.width,
+    processedHeight: processed.height,
+    processingVersion: processed.version,
+  };
+}
 
 /** Stores how a started try ended. Only a try still `generating` is changed. */
 export async function finishVisual(
@@ -337,6 +403,7 @@ export async function finishVisual(
             originalPath: outcome.key,
             mediaType: outcome.mediaType,
             costUsd: outcome.costUsd,
+            ...(outcome.processed === null ? {} : processedColumns(outcome.processed)),
             finishedAt: new Date(),
           }
         : { status: 'failed', errorCode: outcome.errorCode, finishedAt: new Date() },
@@ -355,4 +422,76 @@ export async function failInterruptedVisuals(db: Database): Promise<number> {
     .where(and(eq(assets.status, 'generating'), isNotNull(assets.startedAt)))
     .returning({ id: assets.id });
   return rows.length;
+}
+
+/** An image whose stage version is missing or was made by an older post-processing version. */
+export interface UnprocessedVisual {
+  id: string;
+  campaignId: string;
+  kind: AssetKind;
+  originalPath: string;
+}
+
+/** Every finished image that still needs (re)processing; at startup they are queued. */
+export async function assetsToProcess(db: Database, version: number): Promise<UnprocessedVisual[]> {
+  const rows = await db
+    .select({
+      id: assets.id,
+      campaignId: assets.campaignId,
+      kind: assets.kind,
+      originalPath: assets.originalPath,
+    })
+    .from(assets)
+    .where(
+      and(
+        inArray(assets.status, ['pending', 'approved', 'rejected']),
+        isNotNull(assets.originalPath),
+        or(isNull(assets.processingVersion), lt(assets.processingVersion, version)),
+      ),
+    )
+    .orderBy(desc(assets.createdAt));
+  return rows.flatMap((row) =>
+    row.originalPath === null ? [] : [{ ...row, originalPath: row.originalPath }],
+  );
+}
+
+/** One image to (re)process, or null if it has no original (yet) or is already at `version`. */
+export async function unprocessedVisual(
+  db: Database,
+  assetId: string,
+  version: number,
+): Promise<UnprocessedVisual | null> {
+  const [row] = await db
+    .select({
+      id: assets.id,
+      campaignId: assets.campaignId,
+      kind: assets.kind,
+      originalPath: assets.originalPath,
+    })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.id, assetId),
+        or(isNull(assets.processingVersion), lt(assets.processingVersion, version)),
+      ),
+    );
+  if (row?.originalPath === null || row?.originalPath === undefined) return null;
+  return { ...row, originalPath: row.originalPath };
+}
+
+/** Stores a (re)processed image. A newer version already stored is never replaced by an older. */
+export async function saveProcessed(
+  db: Database,
+  assetId: string,
+  processed: ProcessedFile,
+): Promise<void> {
+  await db
+    .update(assets)
+    .set(processedColumns(processed))
+    .where(
+      and(
+        eq(assets.id, assetId),
+        or(isNull(assets.processingVersion), lt(assets.processingVersion, processed.version)),
+      ),
+    );
 }

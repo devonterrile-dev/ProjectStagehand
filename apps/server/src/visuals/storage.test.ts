@@ -5,7 +5,7 @@ import type { Readable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
-import { createDiskStorage, extensionOf, originalKey } from './storage';
+import { createDiskStorage, extensionOf, originalKey, processedKey } from './storage';
 
 async function bytesOf(stream: Readable | null): Promise<Buffer | null> {
   if (stream === null) return null;
@@ -25,8 +25,10 @@ describe('disk asset storage', () => {
   it('stores, reads and removes a file, creating its folders', async () => {
     await storage.put(key, Buffer.from('image'));
     expect(await bytesOf(await storage.open(key))).toEqual(Buffer.from('image'));
+    expect(await storage.read(key)).toEqual(Buffer.from('image'));
     await storage.remove(key);
     expect(await storage.open(key)).toBeNull();
+    expect(await storage.read(key)).toBeNull();
     await storage.remove(key);
   });
 
@@ -44,6 +46,18 @@ describe('disk asset storage', () => {
     ]) {
       await expect(storage.put(bad, Buffer.from('x')), bad).rejects.toThrow('invalid');
     }
+  });
+
+  it('keeps processed images in their own folder, under a key it accepts', async () => {
+    const processed = processedKey(
+      '0b6c2a4e-1f00-4c2b-9d7e-111111111111',
+      '5d0e7c1a-2b00-4f3c-8e9a-222222222222',
+    );
+    expect(processed).toBe(
+      'campaigns/0b6c2a4e-1f00-4c2b-9d7e-111111111111/processed/5d0e7c1a-2b00-4f3c-8e9a-222222222222.webp',
+    );
+    await storage.put(processed, Buffer.from('webp'));
+    expect(await storage.read(processed)).toEqual(Buffer.from('webp'));
   });
 
   it('names files by media type', () => {

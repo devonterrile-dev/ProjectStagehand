@@ -20,6 +20,10 @@ export const NO_OPENROUTER_KEY_MESSAGE =
 export const FAIL_VISUAL_WORD = 'Cursed';
 /** What every finished try cost. */
 export const VISUAL_COST = 0.0612;
+/** A record or PC whose name contains this word gets a try that isn't post-processed (yet). */
+export const UNPROCESSED_VISUAL_WORD = 'Raw';
+/** The stage version every other finished try gets (F2.4). */
+export const PROCESSED_VISUAL = { width: 683, height: 1024, version: 1 } as const;
 
 export interface VisualsWorldOptions {
   /** Tries already made, by record or PC id, newest first. */
@@ -46,6 +50,7 @@ export function assetSummary(overrides: Partial<AssetSummary> = {}): AssetSummar
     status: 'pending',
     errorCode: null,
     costUsd: VISUAL_COST,
+    processed: { ...PROCESSED_VISUAL },
     createdAt: '2026-11-13T09:00:00.000Z',
     finishedAt: '2026-11-13T09:01:00.000Z',
     ...overrides,
@@ -70,7 +75,15 @@ export function visualsWorld(options: VisualsWorldOptions, ctx: Ctx) {
       }
       list[index] = owner.name.includes(FAIL_VISUAL_WORD)
         ? { ...asset, status: 'failed', errorCode: 'bad_request', finishedAt: asset.createdAt }
-        : { ...asset, status: 'pending', costUsd: VISUAL_COST, finishedAt: asset.createdAt };
+        : {
+            ...asset,
+            status: 'pending',
+            costUsd: VISUAL_COST,
+            processed: owner.name.includes(UNPROCESSED_VISUAL_WORD)
+              ? null
+              : { ...PROCESSED_VISUAL },
+            finishedAt: asset.createdAt,
+          };
     }
   }
 
@@ -127,6 +140,7 @@ export function visualsWorld(options: VisualsWorldOptions, ctx: Ctx) {
           kind,
           status: 'generating',
           costUsd: null,
+          processed: null,
           createdAt: new Date().toISOString(),
           finishedAt: null,
         });

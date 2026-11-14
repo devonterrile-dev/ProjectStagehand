@@ -70,8 +70,13 @@ export const assets = pgTable(
     revisionNotes: text('revision_notes'),
     /** Storage key of the image exactly as the model sent it. Set once it is `pending`. */
     originalPath: text('original_path'),
-    /** Storage key of the post-processed image (F2.4). */
+    /** Storage key of the post-processed image, always WebP (F2.4, D-43). */
     processedPath: text('processed_path'),
+    /** Its size: a cutout's stick or stand is fixed at its bottom center. */
+    processedWidth: integer('processed_width'),
+    processedHeight: integer('processed_height'),
+    /** The post-processing version that made it; older ones are made again at startup. */
+    processingVersion: integer('processing_version'),
     mediaType: text('media_type'),
     /** What OpenRouter charged, in USD, when it said. */
     costUsd: doublePrecision('cost_usd'),
@@ -101,6 +106,10 @@ export const assets = pgTable(
     check(
       'assets_image_once_made',
       sql`${table.status} in ('generating', 'failed') or ${table.originalPath} is not null`,
+    ),
+    check(
+      'assets_processed_complete',
+      sql`num_nonnulls(${table.processedPath}, ${table.processedWidth}, ${table.processedHeight}, ${table.processingVersion}) in (0, 4)`,
     ),
   ],
 );

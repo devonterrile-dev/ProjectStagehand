@@ -18,8 +18,8 @@ import { createDb, type DbHandle } from '../src/db/client';
 import type { AnthropicProvider } from '../src/providers/anthropic';
 import type { OpenRouterProvider } from '../src/providers/openrouter';
 import type { CredentialDeps } from '../src/routes/provider-credentials';
-import { processVisualJob } from '../src/visuals/job';
-import { createInlineQueue } from '../src/visuals/queue';
+import { processStoredVisual, processVisualJob, type ImageProcessor } from '../src/visuals/job';
+import { createInlineQueue, type VisualQueue } from '../src/visuals/queue';
 import { loadReferences } from '../src/visuals/references';
 import { createDiskStorage, type AssetStorage } from '../src/visuals/storage';
 
@@ -52,12 +52,16 @@ export async function buildTestApp(
   options: Pick<BuildAppOptions, 'logger'> & {
     anthropic?: Partial<AnthropicProvider>;
     openrouter?: Partial<CredentialDeps['openrouter'] & Pick<OpenRouterProvider, 'generateImage'>>;
+    /** Post-processing; the real `processImage` unless a test swaps it. */
+    processImage?: ImageProcessor;
   } = {},
 ): Promise<{
   app: FastifyInstance;
   handle: DbHandle;
   storage: AssetStorage;
   visualsSettled: () => Promise<void>;
+  /** The inline queue, e.g. to queue the startup backfill by hand. */
+  visualQueue: VisualQueue;
 }> {
   const handle = createDb(inject('databaseUrl'), { max: 2 });
   const auth = createAuth({
@@ -67,27 +71,41 @@ export async function buildTestApp(
     discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' },
   });
   const storage = createDiskStorage(mkdtempSync(join(tmpdir(), 'stagehand-assets-')));
-  const queue = createInlineQueue((assetId, signal) =>
-    processVisualJob(
-      {
-        db: handle.db,
-        credentialsKey: TEST_CREDENTIALS_KEY,
-        // No test may reach OpenRouter: an image call a test didn't provide finds it down.
-        openrouter: {
-          generateImage:
-            options.openrouter?.generateImage ?? (() => Promise.resolve({ status: 'unreachable' })),
+  // As in index.ts: only the kind of an error.
+  const onError = (id: string, errorName: string, stage: string) => {
+    app.log.error({ assetId: id, errorName, stage }, 'visual job failed');
+  };
+  const queue = createInlineQueue(
+    (assetId, signal) =>
+      processVisualJob(
+        {
+          db: handle.db,
+          credentialsKey: TEST_CREDENTIALS_KEY,
+          // No test may reach OpenRouter: an image call a test didn't provide finds it down.
+          openrouter: {
+            generateImage:
+              options.openrouter?.generateImage ??
+              (() => Promise.resolve({ status: 'unreachable' })),
+          },
+          storage,
+          references: REFERENCES,
+          rateLimitPauseMs: 0,
+          ...(options.processImage === undefined ? {} : { processImage: options.processImage }),
+          onError,
         },
-        storage,
-        references: REFERENCES,
-        rateLimitPauseMs: 0,
-        // As in index.ts: only the kind of an error.
-        onError: (id, errorName) => {
-          app.log.error({ assetId: id, errorName }, 'visual job failed');
+        assetId,
+        signal,
+      ),
+    (assetId) =>
+      processStoredVisual(
+        {
+          db: handle.db,
+          storage,
+          ...(options.processImage === undefined ? {} : { processImage: options.processImage }),
+          onError,
         },
-      },
-      assetId,
-      signal,
-    ),
+        assetId,
+      ),
   );
   const app = buildApp({
     db: handle,
@@ -114,7 +132,7 @@ export async function buildTestApp(
     visuals: { queue, storage, bible: STYLE_BIBLE },
   });
   await app.ready();
-  return { app, handle, storage, visualsSettled: () => queue.settled() };
+  return { app, handle, storage, visualsSettled: () => queue.settled(), visualQueue: queue };
 }
 
 export function discordUser(overrides: Partial<FakeDiscordUser> & { id: string }): FakeDiscordUser {

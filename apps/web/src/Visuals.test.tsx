@@ -12,7 +12,12 @@ import {
   renderAt,
   type FakeWorld,
 } from '@/test/app-harness';
-import { assetSummary, FAIL_VISUAL_WORD, NO_OPENROUTER_KEY_MESSAGE } from '@/test/visuals-world';
+import {
+  assetSummary,
+  FAIL_VISUAL_WORD,
+  NO_OPENROUTER_KEY_MESSAGE,
+  UNPROCESSED_VISUAL_WORD,
+} from '@/test/visuals-world';
 
 type FetchMock = ReturnType<typeof mockApi>;
 
@@ -72,14 +77,49 @@ describe('Generate visual', () => {
     expect(await within(card).findByText('Making the image…')).toBeDefined();
     expect(bodiesTo(fetchMock, `/records/${bell.id}/visuals`, 'POST')).toEqual([{}]);
 
+    // The stage version, with its post-processing version in the URL (F2.4).
     const image = await within(card).findByRole('img', { name: 'Harbour Bell, prop visual' });
-    expect(image.getAttribute('src')).toMatch(/\/api\/campaigns\/.+\/assets\/.+\/image$/);
+    expect(image.getAttribute('src')).toMatch(/\/api\/campaigns\/.+\/assets\/.+\/image\?p=1$/);
     expect(within(card).getByText('Cost $0.06')).toBeDefined();
-    expect(within(card).getByText(/background is removed later/)).toBeDefined();
     expect(within(card).getByRole('button', { name: 'Generate another' })).toHaveProperty(
       'disabled',
       false,
     );
+  });
+
+  it('switches between the stage version and the original', async () => {
+    const bell = record({ type: 'prop', name: 'Harbour Bell' });
+    const { coast } = world([bell], { visuals: { [bell.id]: [assetSummary({ kind: 'prop' })] } });
+    renderAt(recordPath(coast, bell));
+
+    const card = await visualCard();
+    await within(card).findByRole('img', { name: 'Harbour Bell, prop visual' });
+    fireEvent.click(within(card).getByRole('button', { name: 'Show the original' }));
+
+    const original = await within(card).findByRole('img', {
+      name: 'Harbour Bell, prop visual, original',
+    });
+    expect(original.getAttribute('src')).toMatch(/\/image\?v=original$/);
+    fireEvent.click(within(card).getByRole('button', { name: 'Show the stage version' }));
+    expect(
+      (await within(card).findByRole('img', { name: 'Harbour Bell, prop visual' })).getAttribute(
+        'src',
+      ),
+    ).toMatch(/\/image\?p=1$/);
+  });
+
+  it('says when an image is not ready for the stage yet, and shows the original', async () => {
+    const lamp = record({ type: 'item', name: `${UNPROCESSED_VISUAL_WORD} Lamp` });
+    const { coast } = world([lamp]);
+    renderAt(recordPath(coast, lamp));
+
+    const card = await visualCard();
+    fireEvent.click(await within(card).findByRole('button', { name: 'Generate visual' }));
+
+    const image = await within(card).findByRole('img', { name: 'Raw Lamp, prop visual' });
+    expect(image.getAttribute('src')).toMatch(/\/image$/);
+    expect(within(card).getByText(/Not ready for the stage yet/)).toBeDefined();
+    expect(within(card).queryByRole('button', { name: 'Show the original' })).toBeNull();
   });
 
   it('asks whether an NPC is a humanoid or a monster, and sends the choice', async () => {

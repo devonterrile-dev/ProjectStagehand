@@ -5,7 +5,7 @@
  * later means another `AssetStorage`.
  */
 import { createReadStream } from 'node:fs';
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -14,6 +14,8 @@ export interface AssetStorage {
   put(key: string, data: Buffer): Promise<void>;
   /** The stored bytes as a stream, or null if there is nothing under `key`. */
   open(key: string): Promise<Readable | null>;
+  /** The stored bytes whole, or null if there is nothing under `key`. */
+  read(key: string): Promise<Buffer | null>;
   /** Removes `key`; nothing happens if it isn't there. */
   remove(key: string): Promise<void>;
 }
@@ -23,6 +25,11 @@ const KEY = /^[a-z0-9-]+(\/[a-z0-9-]+)*\.[a-z0-9]+$/;
 /** The storage key of an asset's untouched original. */
 export function originalKey(campaignId: string, assetId: string, extension: string): string {
   return `campaigns/${campaignId}/${assetId}.${extension}`;
+}
+
+/** The storage key of an asset's post-processed image (F2.4), always WebP. */
+export function processedKey(campaignId: string, assetId: string): string {
+  return `campaigns/${campaignId}/processed/${assetId}.webp`;
 }
 
 /** The file extension for an image media type. */
@@ -61,6 +68,15 @@ export function createDiskStorage(root: string): AssetStorage {
         return null;
       }
       return createReadStream(path);
+    },
+    async read(key) {
+      const path = pathOf(key);
+      try {
+        return await readFile(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw error;
+      }
     },
     async remove(key) {
       await rm(pathOf(key), { force: true });

@@ -27,6 +27,11 @@ import {
 
 import { VisualKindDialog } from './VisualKindDialog';
 
+/** Behind a cutout, so its transparency shows: a checkerboard in the theme's muted color. */
+const CHECKERBOARD = {
+  background: 'repeating-conic-gradient(var(--muted) 0 25%, transparent 0 50%) 0 0 / 16px 16px',
+};
+
 const KIND_LABELS: Record<AssetKind, string> = {
   character: 'Humanoid',
   monster: 'Monster',
@@ -52,8 +57,9 @@ interface VisualCardProps {
 /**
  * Generate visual (F2.3, governance §11): the record's or PC's tries at an image, newest
  * first, with the one in use marked. Generate starts a new try in the background (an NPC
- * asks humanoid or monster first); the card polls until it is ready. Images are shown as
- * the model made them until post-processing arrives (F2.4).
+ * asks humanoid or monster first); the card polls until it is ready. Images are shown as the
+ * stage will use them (F2.4: cutouts on a checkerboard, so their transparency shows), with the
+ * model's original a click away.
  */
 export function VisualCard({
   campaignId,
@@ -110,6 +116,7 @@ export function VisualCard({
           </p>
         ) : (
           <SelectedTry
+            key={selected.id}
             campaignId={campaignId}
             asset={selected}
             name={name}
@@ -132,19 +139,26 @@ export function VisualCard({
                   aria-label={`Try ${String(assets.length - index)}${asset.id === inUse ? ', in use' : ''}`}
                   aria-pressed={asset.id === selected?.id}
                   className={cn(
-                    'flex size-14 items-center justify-center overflow-hidden rounded-md border bg-muted text-xs text-muted-foreground',
+                    'flex size-14 items-center justify-center overflow-hidden rounded-md border text-xs text-muted-foreground',
+                    asset.status !== 'pending' && asset.status !== 'approved' && 'bg-muted',
                     asset.id === selected?.id && 'ring-2 ring-ring',
                   )}
+                  style={
+                    (asset.status === 'pending' || asset.status === 'approved') &&
+                    isCutoutKind(asset.kind)
+                      ? CHECKERBOARD
+                      : undefined
+                  }
                   onClick={() => {
                     setSelectedId(asset.id);
                   }}
                 >
                   {asset.status === 'pending' || asset.status === 'approved' ? (
                     <img
-                      src={assetImagePath(campaignId, asset.id)}
+                      src={assetImagePath(campaignId, asset.id, { processed: asset.processed })}
                       alt=""
                       loading="lazy"
-                      className="size-full object-cover"
+                      className="size-full object-contain"
                     />
                   ) : asset.status === 'generating' ? (
                     '…'
@@ -236,6 +250,7 @@ function SelectedTry({
   choosing: boolean;
   onChoose: () => void;
 }) {
+  const [showOriginal, setShowOriginal] = useState(false);
   if (asset.status === 'generating') return <Generating asset={asset} />;
   if (asset.status === 'failed' || asset.status === 'rejected') {
     return (
@@ -246,18 +261,43 @@ function SelectedTry({
       </p>
     );
   }
+  const processed = asset.processed !== null && !showOriginal;
+  const label = KIND_LABELS[asset.kind].toLowerCase();
   return (
     <figure className="space-y-2">
-      <img
-        src={assetImagePath(campaignId, asset.id)}
-        alt={`${name}, ${KIND_LABELS[asset.kind].toLowerCase()} visual`}
-        className="max-h-80 w-full rounded-md border object-contain"
-      />
+      <div
+        className="overflow-hidden rounded-md border"
+        style={processed && isCutoutKind(asset.kind) ? CHECKERBOARD : undefined}
+      >
+        <img
+          src={assetImagePath(campaignId, asset.id, {
+            variant: showOriginal ? 'original' : 'processed',
+            processed: asset.processed,
+          })}
+          alt={`${name}, ${label} visual${showOriginal ? ', original' : ''}`}
+          className="max-h-80 w-full object-contain"
+        />
+      </div>
       <figcaption className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Badge variant="secondary">{KIND_LABELS[asset.kind]}</Badge>
         {inUse && <Badge>In use</Badge>}
         <span>Cost {formatUsd(asset.costUsd)}</span>
-        {isCutoutKind(asset.kind) && <span>Unprocessed: the background is removed later.</span>}
+        {asset.processed === null ? (
+          <span>Not ready for the stage yet: this is the model&apos;s original.</span>
+        ) : (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs"
+            aria-pressed={showOriginal}
+            onClick={() => {
+              setShowOriginal((shown) => !shown);
+            }}
+          >
+            {showOriginal ? 'Show the stage version' : 'Show the original'}
+          </Button>
+        )}
       </figcaption>
       {!readOnly && !inUse && (
         <Button type="button" size="sm" disabled={choosing} onClick={onChoose}>

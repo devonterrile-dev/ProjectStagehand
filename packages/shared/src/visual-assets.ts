@@ -139,6 +139,18 @@ export const assetSummarySchema = z.object({
   errorCode: visualErrorCodeSchema.nullable(),
   /** What OpenRouter charged, when it said; null while generating or after a failure. */
   costUsd: z.number().nonnegative().nullable(),
+  /**
+   * The stage's version of the image (F2.4, D-43): cut out, bordered and sized for cutouts,
+   * sized for backdrops. Null until it has been made; the original is shown meanwhile.
+   */
+  processed: z
+    .object({
+      width: z.int().positive(),
+      height: z.int().positive(),
+      /** The post-processing version; part of the image URL, so a remake isn't cached. */
+      version: z.int().positive(),
+    })
+    .nullable(),
   createdAt: timestamp,
   finishedAt: timestamp.nullable(),
 });
@@ -168,7 +180,27 @@ export const useVisualRequestSchema = z.strictObject({
 });
 export type UseVisualRequest = z.infer<typeof useVisualRequestSchema>;
 
-/** The URL a GM's browser loads an asset's image from. */
-export function assetImagePath(campaignId: string, assetId: string): string {
-  return `/api/campaigns/${campaignId}/assets/${assetId}/image`;
+/** Which file of an asset: the stage's version (the default) or the model's original. */
+export const ASSET_IMAGE_VARIANTS = ['processed', 'original'] as const;
+export type AssetImageVariant = (typeof ASSET_IMAGE_VARIANTS)[number];
+
+/** `GET …/assets/:assetId/image`: `?v=original` for the original, `p` only busts caches. */
+export const assetImageQuerySchema = z.object({
+  v: z.enum(ASSET_IMAGE_VARIANTS).default('processed'),
+  p: z.string().max(10).optional(),
+});
+
+/**
+ * The URL a GM's browser loads an asset's image from. Pass the asset's `processed` to show
+ * the stage's version: its version goes in the URL, so a remade image isn't served from cache.
+ * Without it (not made yet) the server falls back to the original.
+ */
+export function assetImagePath(
+  campaignId: string,
+  assetId: string,
+  options: { variant?: AssetImageVariant; processed?: AssetSummary['processed'] } = {},
+): string {
+  const base = `/api/campaigns/${campaignId}/assets/${assetId}/image`;
+  if (options.variant === 'original') return `${base}?v=original`;
+  return options.processed == null ? base : `${base}?p=${String(options.processed.version)}`;
 }
