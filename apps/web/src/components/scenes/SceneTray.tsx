@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 
 import { Input } from '@/components/ui/input';
 import { recordPath } from '@/lib/records';
-import { addRefusal, stageImageUrl } from '@/lib/scenes';
+import { addRefusal, RECORD_DRAG_TYPE, stageImageUrl } from '@/lib/scenes';
 
 interface SceneTrayProps {
   campaignId: string;
@@ -45,8 +45,13 @@ function TrayItem({
         <span className="min-w-0 flex-1">
           <span className="block truncate">{record.name}</span>
           <span className="block text-xs">
-            {type} · no image yet ·{' '}
-            <Link to={recordPath(campaignId, record.id)} className="underline">
+            {type} · no image yet · {/* In a new tab, so the builder stays open behind it. */}
+            <Link
+              to={recordPath(campaignId, record.id)}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
               Open {record.name}
             </Link>
           </span>
@@ -57,19 +62,33 @@ function TrayItem({
 
   return (
     <li>
-      <button
-        type="button"
+      {/* Not a <button>: some browsers won't start a drag from one. */}
+      <div
+        role="button"
+        tabIndex={refusal === null ? 0 : -1}
         aria-label={`Add ${record.name}`}
-        disabled={refusal !== null}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+        aria-disabled={refusal !== null}
+        draggable={refusal === null}
+        className="flex w-full cursor-grab items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
         onClick={() => {
+          if (refusal === null) onAdd(entry);
+        }}
+        onKeyDown={(event) => {
+          if (refusal !== null || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
           onAdd(entry);
+        }}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(RECORD_DRAG_TYPE, record.id);
+          event.dataTransfer.effectAllowed = 'copy';
         }}
       >
         <img
           src={stageImageUrl(campaignId, image)}
           alt=""
           loading="lazy"
+          // The row is what is dragged, not the picture alone.
+          draggable={false}
           className="size-10 shrink-0 object-contain"
         />
         <span className="min-w-0 flex-1">
@@ -80,14 +99,15 @@ function TrayItem({
             {refusal === 'full' || refusal === 'already-placed' ? ` · ${REFUSALS[refusal]}` : ''}
           </span>
         </span>
-      </button>
+      </div>
     </li>
   );
 }
 
 /**
  * The scene builder's side tray (F3.2, governance §12 "Scene builder" step 2): records with an
- * image, ready to go in the theater. Props and Items become props, NPCs become puppets. The
+ * image, ready to go in the theater by a click or by dragging one in (F3.2c). Props and Items
+ * become props, NPCs become puppets. The
  * scene's Spot suggests its own first; one with no image yet is listed with a link to draw it.
  */
 export function SceneTray({
@@ -134,6 +154,7 @@ export function SceneTray({
 
       <section aria-label="All records with an image" className="space-y-2">
         <h2 className="font-semibold">All records with an image</h2>
+        <p className="text-xs text-muted-foreground">Click one to add it, or drag it in.</p>
         <Input
           type="search"
           aria-label="Search the tray"

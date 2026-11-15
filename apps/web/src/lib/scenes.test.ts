@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addRefusal,
   changeObject,
+  keyAction,
   NEW_DEPTH_TICK,
   placeRecord,
   stageCutouts,
@@ -172,5 +173,35 @@ describe('stageCutouts', () => {
       [id(10), false, false],
       [id(12), false, true],
     ]);
+  });
+});
+
+describe('keyAction', () => {
+  const well = changeObject(placeRecord([], WELL, id(10)), { across: 0.5, up: 0.5 });
+
+  it('nudges with the arrows, further with Shift', () => {
+    expect(keyAction(well, 'ArrowRight', false)).toEqual({ change: { across: 0.51 } });
+    expect(keyAction(well, 'ArrowLeft', false)).toEqual({ change: { across: 0.49 } });
+    expect(keyAction(well, 'ArrowUp', false)).toEqual({ change: { up: 0.51 } });
+    expect(keyAction(well, 'ArrowDown', true)).toEqual({ change: { up: 0.45 } });
+    expect(keyAction(well, 'ArrowRight', true)).toEqual({ change: { across: 0.55 } });
+  });
+
+  it('steps forward with [ and back with ], stopping at the ends once applied', () => {
+    expect(keyAction(well, '[', false)).toEqual({ change: { depthTick: NEW_DEPTH_TICK - 1 } });
+    expect(keyAction(well, ']', false)).toEqual({ change: { depthTick: NEW_DEPTH_TICK + 1 } });
+    const front = changeObject(well, { depthTick: 0 });
+    const action = keyAction(front, '[', false);
+    expect(action).toEqual({ change: { depthTick: -1 } });
+    expect(changeObject(front, { depthTick: -1 }).depthTick).toBe(0);
+  });
+
+  it('removes with Delete or Backspace, lets go with Escape, and ignores other keys', () => {
+    expect(keyAction(well, 'Delete', false)).toBe('remove');
+    expect(keyAction(well, 'Backspace', false)).toBe('remove');
+    expect(keyAction(well, 'Escape', false)).toBe('deselect');
+    for (const key of ['a', 'Enter', ' ', 'Tab', 'PageUp']) {
+      expect(keyAction(well, key, false)).toBeNull();
+    }
   });
 });

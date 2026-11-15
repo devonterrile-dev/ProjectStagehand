@@ -111,6 +111,47 @@ export function toObjectInput(object: SceneObject): SceneObjectInput {
   };
 }
 
+/** What a tray record carries while it is dragged into the theater: its record id (F3.2c). */
+export const RECORD_DRAG_TYPE = 'application/x-stagehand-record';
+
+/** How far an arrow key moves the selected object, as a share of the opening; Shift moves more. */
+export const NUDGE = { step: 0.01, big: 0.05 } as const;
+
+/** What a key does to the selected object. */
+export type KeyAction = { change: Partial<SceneObject> } | 'remove' | 'deselect';
+
+const tidy = (value: number) => Math.round(value * 10_000) / 10_000;
+
+/**
+ * The builder's keys (F3.2c): arrows nudge the selected object across and up, `[` steps it
+ * forward and `]` back, Delete or Backspace removes it, Escape lets go of it. Null for any
+ * other key.
+ */
+export function keyAction(object: SceneObject, key: string, shift: boolean): KeyAction | null {
+  const step = shift ? NUDGE.big : NUDGE.step;
+  switch (key) {
+    case 'ArrowLeft':
+      return { change: { across: tidy(object.across - step) } };
+    case 'ArrowRight':
+      return { change: { across: tidy(object.across + step) } };
+    case 'ArrowUp':
+      return { change: { up: tidy(object.up + step) } };
+    case 'ArrowDown':
+      return { change: { up: tidy(object.up - step) } };
+    case '[':
+      return { change: { depthTick: object.depthTick - 1 } };
+    case ']':
+      return { change: { depthTick: object.depthTick + 1 } };
+    case 'Delete':
+    case 'Backspace':
+      return 'remove';
+    case 'Escape':
+      return 'deselect';
+    default:
+      return null;
+  }
+}
+
 /** One cutout as the theater draws it: plain data, no Three.js. */
 export interface StageCutout {
   id: string;

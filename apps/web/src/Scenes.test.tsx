@@ -37,6 +37,9 @@ vi.mock('@/stage/SceneBuilderCanvas', () => ({
         data-backdrop={props.backdropUrl ?? ''}
         data-selected={props.selectedId ?? ''}
         data-objects={JSON.stringify(props.objects)}
+        data-editable={String(props.editable)}
+        data-look-around={String(props.lookAround)}
+        data-guide-tick={props.guideTick === null ? '' : String(props.guideTick)}
       />
     );
   },
@@ -478,10 +481,13 @@ describe('Scene builder', () => {
     expect(panel().queryByRole('button', { name: 'Hangs from the roof' })).toBeNull();
     // An NPC is in a scene once.
     for (const button of tray().getAllByRole('button', { name: 'Add Old Keeper' })) {
-      expect(button).toHaveProperty('disabled', true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
       expect(button.textContent).toContain('In the scene');
+      // And a click on it adds nothing.
+      fireEvent.click(button);
     }
 
+    expect(drawn(stage)).toHaveLength(2);
     const objects = await lastSave(fetchMock, objectsPath);
     expect(objects[1]).toMatchObject({ recordId: keeper.id });
     expect(objects[1]).not.toHaveProperty('shown');
@@ -572,8 +578,13 @@ describe('Scene builder', () => {
       `${String(SCENE_MAX_OBJECTS)} of ${String(SCENE_MAX_OBJECTS)} placed`,
     );
     const add = await tray().findByRole('button', { name: 'Add Tide Pendant' });
-    expect(add).toHaveProperty('disabled', true);
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    expect(add.getAttribute('draggable')).toBe('false');
     expect(add.textContent).toContain('The scene is full');
+    fireEvent.click(add);
+    expect(placedCount()).toBe(
+      `${String(SCENE_MAX_OBJECTS)} of ${String(SCENE_MAX_OBJECTS)} placed`,
+    );
   });
 
   it('changes the backdrop to another Spot, or to a bare wall', async () => {
@@ -672,6 +683,194 @@ describe('Scene builder', () => {
     expect(placedCount()).toBe(`2 of ${String(SCENE_MAX_OBJECTS)} placed`);
   });
 
+  it('opens records in a new tab, so the builder stays open behind them', async () => {
+    const { stage } = await openBuilder(({ well }) => [saved(well.id)]);
+    press(drawn(stage)[0]?.id ?? '');
+
+    for (const link of [
+      tray().getByRole('link', { name: 'Open Coil of Rope' }),
+      panel().getByRole('link', { name: 'Open record' }),
+    ]) {
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noreferrer');
+    }
+  });
+
+  it('opens a Spot with no backdrop in a new tab too', async () => {
+    await openBuilder(() => [], { spot: 'cellar' });
+
+    const link = screen.getByRole('link', { name: 'Open Bare Cellar' });
+    expect(link.getAttribute('target')).toBe('_blank');
+  });
+
+  it('moves a cutout that is dragged in the theater, and saves where it was left', async () => {
+    const { stage, fetchMock, objectsPath } = await openBuilder(({ well, pendant }) => [
+      saved(well.id, { depthTick: 7 }),
+      saved(pendant.id, { across: 0.2 }),
+    ]);
+    const [well] = drawn(stage);
+    expect(stage.dataset['editable']).toBe('true');
+
+    // The theater reports the drag as it goes.
+    press(well?.id ?? '');
+    act(() => {
+      canvasProps?.onMove(well?.id ?? '', { across: 0.6, up: 0.1 });
+      canvasProps?.onMove(well?.id ?? '', { across: 0.72, up: 0.33 });
+    });
+
+    expect(drawn(stage)).toEqual([
+      expect.objectContaining({ id: well?.id, across: 0.72, up: 0.33, depthTick: 7 }),
+      expect.objectContaining({ across: 0.2, up: 0 }),
+    ]);
+    expect(panel().getByLabelText<HTMLInputElement>('Left to right').value).toBe('0.72');
+    // One save, of where the drag ended.
+    expect(await lastSave(fetchMock, objectsPath)).toEqual([
+      expect.objectContaining({ id: well?.id, across: 0.72, up: 0.33 }),
+      expect.objectContaining({ across: 0.2 }),
+    ]);
+    expect(bodiesTo(fetchMock, objectsPath, 'PUT')).toHaveLength(1);
+  });
+
+  it('keeps a dragged cutout inside the opening', async () => {
+    const { stage } = await openBuilder(({ well }) => [saved(well.id)]);
+    const [well] = drawn(stage);
+
+    act(() => {
+      canvasProps?.onMove(well?.id ?? '', { across: 1.4, up: -0.3 });
+    });
+
+    expect(drawn(stage)).toEqual([expect.objectContaining({ across: 1, up: 0 })]);
+  });
+
+  it('drops a record dragged from the tray where the pointer let go of it', async () => {
+    const { pendant, keeper, stage, fetchMock, objectsPath } = await openBuilder();
+    const row = await tray().findByRole('button', { name: 'Add Tide Pendant' });
+    expect(row.getAttribute('draggable')).toBe('true');
+
+    // The row carries its record's id as it is dragged.
+    const setData = vi.fn();
+    fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: 'none' } });
+    expect(setData).toHaveBeenCalledWith('application/x-stagehand-record', pendant.id);
+
+    act(() => {
+      canvasProps?.onDropRecord(pendant.id, { across: 0.3, up: 0.45 });
+      // A puppet from the Spot's suggestions, dropped too.
+      canvasProps?.onDropRecord(keeper.id, { across: 0.8, up: 0.2 });
+    });
+
+    expect(drawn(stage)).toEqual([
+      expect.objectContaining({ across: 0.3, up: 0.45, depthTick: 5, mount: 'stand' }),
+      expect.objectContaining({ across: 0.8, up: 0.2, depthTick: 5, mount: 'stick' }),
+    ]);
+    // The last one dropped is selected.
+    expect(panel().getByRole('heading', { name: 'Old Keeper' })).toBeDefined();
+    expect(await lastSave(fetchMock, objectsPath)).toEqual([
+      expect.objectContaining({ recordId: pendant.id, across: 0.3, up: 0.45 }),
+      expect.objectContaining({ recordId: keeper.id, across: 0.8, up: 0.2 }),
+    ]);
+  });
+
+  it('puts a dropped record at the usual place when the theater cannot say where', async () => {
+    const { pendant, keeper, rope, stage } = await openBuilder(({ keeper }) => [saved(keeper.id)]);
+    await tray().findByRole('button', { name: 'Add Tide Pendant' });
+
+    act(() => {
+      canvasProps?.onDropRecord(pendant.id, null);
+      // Refused like a click would be: a puppet already placed, a record with no image, and
+      // an id that is no record of the tray.
+      canvasProps?.onDropRecord(keeper.id, { across: 0.1, up: 0.1 });
+      canvasProps?.onDropRecord(rope.id, { across: 0.1, up: 0.1 });
+      canvasProps?.onDropRecord(uuid(), { across: 0.1, up: 0.1 });
+    });
+
+    expect(drawn(stage)).toHaveLength(2);
+    expect(drawn(stage)[1]).toMatchObject({ up: 0, depthTick: 5, mount: 'stand' });
+  });
+
+  it('nudges, steps, removes and lets go of the selected object with keys', async () => {
+    const { stage, fetchMock, objectsPath } = await openBuilder(({ well, pendant }) => [
+      saved(well.id, { across: 0.5, up: 0.5 }),
+      saved(pendant.id, { across: 0.2 }),
+    ]);
+    const [well, pendant] = drawn(stage);
+    const key = (name: string, init: KeyboardEventInit = {}) =>
+      fireEvent.keyDown(document.body, { key: name, ...init });
+
+    // With nothing selected, keys do nothing.
+    key('ArrowRight');
+    expect(drawn(stage)[0]).toMatchObject({ across: 0.5 });
+
+    press(well?.id ?? '');
+    key('ArrowRight');
+    key('ArrowRight');
+    key('ArrowLeft', { shiftKey: true });
+    key('ArrowUp');
+    key('ArrowDown', { shiftKey: true });
+    key(']');
+    key(']');
+    key('[');
+    expect(drawn(stage)[0]).toMatchObject({ across: 0.47, up: 0.46, depthTick: 6 });
+    // A browser shortcut is left alone.
+    key('ArrowRight', { ctrlKey: true });
+    expect(drawn(stage)[0]).toMatchObject({ across: 0.47 });
+
+    // Typing in the tray's search moves nothing.
+    const search = tray().getByLabelText('Search the tray');
+    fireEvent.keyDown(search, { key: 'ArrowLeft' });
+    fireEvent.keyDown(search, { key: 'Backspace' });
+    expect(drawn(stage)).toHaveLength(2);
+    expect(drawn(stage)[0]).toMatchObject({ across: 0.47 });
+
+    key('Escape');
+    expect(stage.dataset['selected']).toBe('');
+
+    press(pendant?.id ?? '');
+    key('Delete');
+    expect(drawn(stage)).toEqual([expect.objectContaining({ id: well?.id })]);
+    expect(stage.dataset['selected']).toBe('');
+    expect(await lastSave(fetchMock, objectsPath)).toEqual([
+      expect.objectContaining({ id: well?.id, across: 0.47, up: 0.46, depthTick: 6 }),
+    ]);
+  });
+
+  it("lights the selected object's depth tick, and follows it as it steps", async () => {
+    const { stage } = await openBuilder(({ well }) => [saved(well.id, { depthTick: 3 })]);
+    expect(stage.dataset['guideTick']).toBe('');
+
+    press(drawn(stage)[0]?.id ?? '');
+    expect(stage.dataset['guideTick']).toBe('3');
+
+    fireEvent.click(panel().getByRole('button', { name: 'Step back' }));
+    expect(stage.dataset['guideTick']).toBe('4');
+
+    // No guides in the players' view.
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(stage.dataset['guideTick']).toBe('');
+  });
+
+  it('looks around with the editing camera, but previews from the players’ locked seat', async () => {
+    const { stage } = await openBuilder(({ well }) => [saved(well.id)]);
+    const lookAround = screen.getByRole('button', { name: 'Look around' });
+    expect(stage.dataset['lookAround']).toBe('false');
+
+    fireEvent.click(lookAround);
+    expect(stage.dataset['lookAround']).toBe('true');
+    expect(lookAround.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(stage.dataset['lookAround']).toBe('false');
+    expect(stage.dataset['editable']).toBe('false');
+    expect(lookAround).toHaveProperty('disabled', true);
+
+    // Back to building: still looking around.
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(stage.dataset['lookAround']).toBe('true');
+    expect(stage.dataset['editable']).toBe('true');
+
+    fireEvent.click(lookAround);
+    expect(stage.dataset['lookAround']).toBe('false');
+  });
+
   it('is read-only while the campaign is archived', async () => {
     const { stage } = await openBuilder(({ well }) => [saved(well.id)], {
       overrides: { archivedAt: '2026-11-14T09:00:00.000Z' },
@@ -681,6 +880,7 @@ describe('Scene builder', () => {
     expect(screen.queryByRole('complementary', { name: 'Tray' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull();
     expect(screen.getByLabelText('Backdrop')).toHaveProperty('disabled', true);
+    expect(stage.dataset['editable']).toBe('false');
 
     press(drawn(stage)[0]?.id ?? '');
     expect(panel().getByLabelText('Height')).toHaveProperty('disabled', true);

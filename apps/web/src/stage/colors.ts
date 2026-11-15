@@ -18,6 +18,8 @@ export const STAGE_COLORS = {
   string: '#2b2622',
   /** The frame around the object being edited in the scene builder (F3.2). */
   selection: '#ffd24a',
+  /** The scene builder's depth tick lines, other than the selected object's (F3.2c). */
+  guide: '#ffffff',
   /** The sheet page's stand-in on the table. */
   paper: '#f4efe2',
   /** The void: black, so nothing below the scene is seen. */

@@ -8,7 +8,7 @@ import {
   type SceneObjectInput,
   type StageRecord,
 } from '@stagehand/shared';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
@@ -29,6 +29,7 @@ import { recordPath } from '@/lib/records';
 import {
   addRefusal,
   changeObject,
+  keyAction,
   placeRecord,
   scenesPath,
   spotLabel,
@@ -37,6 +38,7 @@ import {
   toObjectInput,
 } from '@/lib/scenes';
 import { useAutosave } from '@/lib/useAutosave';
+import type { Place } from '@/stage/placement';
 import { SceneBuilderCanvas } from '@/stage/SceneBuilderCanvas';
 
 /** A message in place of the builder: loading, not found, not allowed. */
@@ -128,8 +130,11 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
   // The objects as the GM has arranged them. The cached `scene` supplies the rest (name, Spot,
   // suggestions) and follows the server.
   const [objects, setObjects] = useState<SceneObject[]>(scene.objects);
+  // The same list, for handlers that outlive a render: a drag in the theater, a key press.
+  const objectsRef = useRef(objects);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
+  const [lookAround, setLookAround] = useState(false);
   const [renaming, setRenaming] = useState(false);
 
   const archived = campaign.archivedAt !== null;
@@ -140,27 +145,89 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
   const autosave = useAutosave<ObjectsPatch>((pending, { keepalive }) =>
     saveObjects.mutateAsync({ objects: pending.objects, keepalive }),
   );
+  const { save } = autosave;
 
-  function commit(next: SceneObject[]) {
-    setObjects(next);
-    autosave.save({ objects: next.map(toObjectInput) });
-  }
+  // These are stable, so the theater isn't re-rendered each time a panel is.
+  const commit = useCallback(
+    (next: SceneObject[]) => {
+      objectsRef.current = next;
+      setObjects(next);
+      save({ objects: next.map(toObjectInput) });
+    },
+    [save],
+  );
 
-  function add(entry: StageRecord) {
-    if (addRefusal(objects, entry) !== null) return;
-    const object = placeRecord(objects, entry, crypto.randomUUID());
-    commit([...objects, object]);
-    setSelectedId(object.id);
-  }
+  /** Adds a record: at `place` when it was dropped in the theater, else at the usual spot. */
+  const add = useCallback(
+    (entry: StageRecord, place: Place | null = null) => {
+      const current = objectsRef.current;
+      if (addRefusal(current, entry) !== null) return;
+      const placed = placeRecord(current, entry, crypto.randomUUID());
+      const object = place === null ? placed : changeObject(placed, place);
+      commit([...current, object]);
+      setSelectedId(object.id);
+    },
+    [commit],
+  );
 
-  function change(id: string, changes: Partial<SceneObject>) {
-    commit(objects.map((object) => (object.id === id ? changeObject(object, changes) : object)));
-  }
+  const change = useCallback(
+    (id: string, changes: Partial<SceneObject>) => {
+      commit(
+        objectsRef.current.map((object) =>
+          object.id === id ? changeObject(object, changes) : object,
+        ),
+      );
+    },
+    [commit],
+  );
 
-  function remove(id: string) {
-    commit(objects.filter((object) => object.id !== id));
-    setSelectedId(null);
-  }
+  const remove = useCallback(
+    (id: string) => {
+      commit(objectsRef.current.filter((object) => object.id !== id));
+      setSelectedId(null);
+    },
+    [commit],
+  );
+
+  const trayRecords = stage.data?.records;
+  const dropRecord = useCallback(
+    (recordId: string, place: Place | null) => {
+      const entry = [...scene.suggestions, ...(trayRecords ?? [])].find(
+        (candidate) => candidate.record.id === recordId,
+      );
+      if (entry !== undefined) add(entry, place);
+    },
+    [scene.suggestions, trayRecords, add],
+  );
+
+  // Keys for the selected object (F3.2c). Not while typing, in a dialog or in a menu.
+  useEffect(() => {
+    if (!editable || renaming || selectedId === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+      const { target } = event;
+      if (
+        target instanceof Element &&
+        target.closest(
+          'input, select, textarea, [contenteditable], [role="dialog"], [role="alertdialog"], [role="menu"]',
+        ) !== null
+      ) {
+        return;
+      }
+      const object = objectsRef.current.find((candidate) => candidate.id === selectedId);
+      if (object === undefined) return;
+      const action = keyAction(object, event.key, event.shiftKey);
+      if (action === null) return;
+      event.preventDefault();
+      if (action === 'remove') remove(object.id);
+      else if (action === 'deselect') setSelectedId(null);
+      else change(object.id, action.change);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [editable, renaming, selectedId, change, remove]);
 
   const cutouts = useMemo(
     () => stageCutouts(campaign.id, objects, { preview }),
@@ -168,6 +235,7 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
   );
   const backdrop = scene.spot?.backdrop ?? null;
   const backdropUrl = backdrop === null ? null : stageImageUrl(campaign.id, backdrop);
+  const selected = objects.find((object) => object.id === selectedId) ?? null;
   const spots = stage.data?.spots ?? [];
   const spotOptions =
     scene.spot === null || spots.some((spot) => spot.id === scene.spot?.id)
@@ -222,17 +290,31 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
             autosave.flush();
           }}
         />
-        <Button
-          size="xs"
-          variant={preview ? 'default' : 'secondary'}
-          aria-pressed={preview}
-          className="ml-auto"
-          onClick={() => {
-            setPreview((on) => !on);
-          }}
-        >
-          Preview
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {/* Players never orbit, so the preview is always from their locked seat. */}
+          <Button
+            size="xs"
+            variant={lookAround && !preview ? 'default' : 'secondary'}
+            aria-pressed={lookAround && !preview}
+            disabled={preview}
+            title="Drag empty space to turn the theater, and scroll to zoom"
+            onClick={() => {
+              setLookAround((on) => !on);
+            }}
+          >
+            Look around
+          </Button>
+          <Button
+            size="xs"
+            variant={preview ? 'default' : 'secondary'}
+            aria-pressed={preview}
+            onClick={() => {
+              setPreview((on) => !on);
+            }}
+          >
+            Preview
+          </Button>
+        </div>
       </header>
 
       {patch.isError && (
@@ -248,7 +330,13 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
       {scene.spot !== null && backdrop === null && (
         <p className="border-b px-3 py-1.5 text-sm text-muted-foreground">
           {scene.spot.name} has no backdrop yet, so the back wall is bare.{' '}
-          <Link to={recordPath(campaign.id, scene.spot.id)} className="underline">
+          {/* In a new tab: leaving the builder to draw a backdrop would lose the GM's place. */}
+          <Link
+            to={recordPath(campaign.id, scene.spot.id)}
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
             Open {scene.spot.name}
           </Link>{' '}
           to generate one.
@@ -261,7 +349,7 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
             campaignId={campaign.id}
             spotName={scene.spot?.name ?? null}
             suggestions={scene.suggestions}
-            records={stage.data?.records}
+            records={trayRecords}
             objects={objects}
             onAdd={add}
           />
@@ -272,6 +360,11 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
             objects={cutouts}
             selectedId={preview ? null : selectedId}
             onSelect={setSelectedId}
+            editable={editable}
+            lookAround={lookAround && !preview}
+            guideTick={preview || selected === null ? null : selected.depthTick}
+            onMove={change}
+            onDropRecord={dropRecord}
           />
           {preview && (
             <p className="absolute bottom-3 left-3 max-w-md rounded-md bg-black/70 px-3 py-2 text-sm text-white">

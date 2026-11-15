@@ -24,6 +24,11 @@ export interface StageCanvasProps {
   children?: ReactNode;
   /** A press on the stage that hit nothing that listens for one (the scene builder, F3.2). */
   onPointerMissed?: () => void;
+  /**
+   * What holds the camera, in place of the locked player camera: the scene builder's editing
+   * camera (F3.2c). Players always get the locked one.
+   */
+  cameraRig?: ReactNode;
 }
 
 /** Shown instead of the stage when the browser can't start WebGL, or the scene crashes. */
@@ -60,6 +65,7 @@ export function StageCanvas({
   maxPixelRatio = MAX_PIXEL_RATIO,
   children,
   onPointerMissed,
+  cameraRig,
 }: StageCanvasProps) {
   return (
     <StageErrorBoundary>
@@ -79,7 +85,7 @@ export function StageCanvas({
         <ambientLight intensity={1.9} />
         <directionalLight position={[1.5, 3, 4]} intensity={1.6} />
 
-        <StageCamera />
+        {cameraRig ?? <StageCamera />}
         {/* Each textured piece waits for its own image, so none holds the others back. */}
         <Suspense fallback={null}>
           <Room />

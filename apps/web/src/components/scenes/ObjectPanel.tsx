@@ -115,10 +115,22 @@ function Controls({
           {isProp
             ? 'A prop: players click it to look closer.'
             : 'A puppet: it waits below the scene until you raise it. Place it where it should rise to.'}{' '}
-          <Link to={recordPath(campaignId, object.record.id)} className="underline">
+          {/* In a new tab, so the builder stays open behind it. */}
+          <Link
+            to={recordPath(campaignId, object.record.id)}
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
             Open record
           </Link>
         </p>
+        {editable && (
+          <p className="text-xs text-muted-foreground">
+            Drag it in the theater, or use the arrow keys (Shift for bigger steps). [ and ] step it
+            forward and back; Delete removes it.
+          </p>
+        )}
         {object.image === null && (
           <p role="alert" className="text-xs text-destructive">
             This record has no image for the stage any more, so it isn&apos;t drawn.
