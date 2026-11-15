@@ -56,6 +56,10 @@ export async function buildTestApp(
     processImage?: ImageProcessor;
     /** Serve the Discord Activity test (`ACTIVITY_TEST=true`). */
     activityTest?: boolean;
+    /** Serve Stagehand as a Discord Activity (`ACTIVITY=true`): sign-in in the frame. */
+    activity?: boolean;
+    /** Turn on Better Auth's rate limit, which is otherwise for production only. */
+    rateLimit?: boolean;
   } = {},
 ): Promise<{
   app: FastifyInstance;
@@ -71,6 +75,8 @@ export async function buildTestApp(
     publicUrl: PUBLIC_URL,
     secret: 'integration-test-secret-at-least-32-chars',
     discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' },
+    activity: options.activity,
+    rateLimit: options.rateLimit,
   });
   const storage = createDiskStorage(mkdtempSync(join(tmpdir(), 'stagehand-assets-')));
   // As in index.ts: only the kind of an error.
@@ -132,6 +138,7 @@ export async function buildTestApp(
     },
     importPrompt: loadImportSystemPrompt(),
     visuals: { queue, storage, bible: STYLE_BIBLE },
+    activity: options.activity === true ? { clientId: DISCORD_CLIENT_ID } : undefined,
     activityTest:
       options.activityTest === true
         ? { discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' } }

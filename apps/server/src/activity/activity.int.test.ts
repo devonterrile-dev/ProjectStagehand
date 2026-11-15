@@ -26,7 +26,8 @@ describe('Activity test, switched on', () => {
 
   it("answers its routes from Discord's proxy origin", async () => {
     const config = await app.inject({ url: '/api/activity/config', headers: FROM_DISCORD });
-    expect(config.json()).toEqual({ clientId: DISCORD_CLIENT_ID });
+    // Only the test is on: the frame gets the probes, and no sign-in.
+    expect(config.json()).toEqual({ clientId: DISCORD_CLIENT_ID, signIn: false, test: true });
 
     const probe = await app.inject({
       method: 'POST',

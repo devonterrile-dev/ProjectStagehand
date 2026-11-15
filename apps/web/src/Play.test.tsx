@@ -402,6 +402,17 @@ describe('The table, for the GM', () => {
     ).toBe(true);
   });
 
+  it('puts the desk away and brings it back, for a small window', async () => {
+    const theater = await seated(coast, stageWith(), [GM_HERE]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide desk' }));
+    expect(screen.queryByRole('complementary', { name: 'Control desk' })).toBeNull();
+    expect(theater.isConnected).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show desk' }));
+    expect(desk().getByRole('heading', { name: 'Session 3' })).toBeDefined();
+  });
+
   it('says what to do before any scene is loaded', async () => {
     await seated(
       coast,

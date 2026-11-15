@@ -1,11 +1,20 @@
 import { sep } from 'node:path';
 
 import fastifyStatic from '@fastify/static';
-import { healthResponseSchema, type HealthResponse } from '@stagehand/shared';
+import {
+  discordActivityOrigin,
+  healthResponseSchema,
+  type HealthResponse,
+} from '@stagehand/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Server } from 'socket.io';
 
-import { ACTIVITY_PREFIX, registerActivityRoutes, type ActivityDeps } from './activity/routes';
+import {
+  ACTIVITY_PREFIX,
+  registerActivityConfigRoute,
+  registerActivityRoutes,
+  type ActivityDeps,
+} from './activity/routes';
 import { registerActivitySocket } from './activity/socket';
 import { createImportRunner } from './ai-import/runner';
 import { AUTH_BASE_PATH, type Auth } from './auth/auth';
@@ -74,6 +83,12 @@ export interface BuildAppOptions {
    * echo are served. Unset everywhere but a dev machine.
    */
   activityTest?: ActivityDeps | undefined;
+  /**
+   * Stagehand runs as a Discord Activity (governance §13, `ACTIVITY`, D-51): requests and live
+   * connections from Discord's proxy for this application count as the app's own. Sign-in for
+   * the frame is part of `auth` (`createAuth({ activity: true })`).
+   */
+  activity?: { clientId: string } | undefined;
 }
 
 /**
@@ -121,17 +136,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     });
   }
 
+  // Inside Discord the app's pages are served from Discord's proxy for this application
+  // (D-48), so that address counts as our own while the Activity or its test is served.
+  const discordClientId = options.activity?.clientId ?? options.activityTest?.discord.clientId;
+  const activityOrigins =
+    discordClientId === undefined ? [] : [discordActivityOrigin(discordClientId)];
+
   // One Socket.IO server, made only when something needs it: the live room (with sign-in) or
-  // the Activity test's echo. A browser may connect from the app's own address, and from
-  // Discord's proxy when the Activity test is served (D-48).
+  // the Activity test's echo.
   let io: Server | undefined;
   const realtime = (): Server => {
     io ??= createRealtime(app, {
       allowedOrigins: [
         ...(options.publicUrl === undefined ? [] : [options.publicUrl]),
-        ...(options.activityTest === undefined
-          ? []
-          : [`https://${options.activityTest.discord.clientId}.discordsays.com`]),
+        ...activityOrigins,
       ],
     });
     return io;
@@ -165,6 +183,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // The Activity test's routes are called from Discord's proxy origin and carry no session.
     registerCsrfProtection(app, {
       publicUrl: options.publicUrl,
+      alsoOurs: options.activity === undefined ? [] : activityOrigins,
       exempt: [
         `${AUTH_BASE_PATH}/`,
         ...(options.activityTest === undefined ? [] : [ACTIVITY_PREFIX]),
@@ -200,6 +219,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerPlaySessionRoutes(app, { auth: options.auth, db: handle.db, live });
   }
 
+  if (discordClientId !== undefined) {
+    registerActivityConfigRoute(app, {
+      clientId: discordClientId,
+      signIn: options.activity !== undefined && options.auth !== undefined,
+      test: options.activityTest !== undefined,
+    });
+  }
   if (options.activityTest !== undefined) {
     registerActivityRoutes(app, options.activityTest);
     registerActivitySocket(realtime());

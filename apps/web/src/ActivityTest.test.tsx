@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ActivitySdk, SpeakingKind } from '@/activity/discord';
+import { forgetEntry } from '@/activity/enter';
 import { ACTIVITY_TEST_OFF_MESSAGE } from '@/pages/ActivityTestPage';
 import type { StageTestCanvasProps } from '@/stage/StageTestCanvas';
 import { mockApi, renderAt } from '@/test/app-harness';
@@ -110,6 +111,8 @@ afterEach(() => {
 // Before, not after: the page of the test before is unmounted after that test's own hooks,
 // and unmounting ends its speaking subscription.
 beforeEach(() => {
+  // Inside the frame the app first asks what the server serves, once per page load.
+  forgetEntry();
   discord.clientIds.length = 0;
   discord.listener = null;
   discord.stopped = 0;

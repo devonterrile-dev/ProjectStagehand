@@ -27,7 +27,13 @@ import type {
   UpdateStatBlockRequest,
   VisualsResponse,
 } from '@stagehand/shared';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import {
   acceptAllProposals,
@@ -964,5 +970,19 @@ export function useEndPlaySession(campaignId: string) {
     onSuccess: () => {
       queryClient.setQueryData<PlaySession | null>(partKey(campaignId, 'play-session'), null);
     },
+  });
+}
+
+/**
+ * The running session of each of several campaigns, in the same order (F3.3c): for a list that
+ * shows where a session is on. Shares its answers with `usePlaySession`.
+ */
+export function usePlaySessions(campaignIds: readonly string[]) {
+  return useQueries({
+    queries: campaignIds.map((campaignId) => ({
+      queryKey: partKey(campaignId, 'play-session'),
+      queryFn: () => fetchPlaySession(campaignId),
+      refetchInterval: PLAY_SESSION_REFRESH_MS,
+    })),
   });
 }

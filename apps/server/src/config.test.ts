@@ -36,6 +36,7 @@ describe('loadConfig', () => {
       assetsDir: undefined,
       publicUrl: 'http://localhost:5173',
       trustProxy: false,
+      activity: false,
       activityTest: false,
       credentialsKey: Buffer.alloc(32, 7),
       auth: {
@@ -51,6 +52,15 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...REQUIRED, TRUST_PROXY: 'false' }).trustProxy).toBe(false);
     expect(() => loadConfig({ ...REQUIRED, TRUST_PROXY: 'yes' })).toThrow(
       'TRUST_PROXY: must be "true" or "false"',
+    );
+  });
+
+  it('reads ACTIVITY as an explicit boolean, off by default', () => {
+    expect(loadConfig(REQUIRED).activity).toBe(false);
+    expect(loadConfig({ ...REQUIRED, ACTIVITY: 'true' }).activity).toBe(true);
+    expect(loadConfig({ ...REQUIRED, ACTIVITY: 'true' }).activityTest).toBe(false);
+    expect(() => loadConfig({ ...REQUIRED, ACTIVITY: 'yes' })).toThrow(
+      'ACTIVITY: must be "true" or "false"',
     );
   });
 

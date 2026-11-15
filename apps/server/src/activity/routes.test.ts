@@ -41,7 +41,12 @@ describe('Activity test routes', () => {
     const response = await app.inject({ url: '/api/activity/config' });
 
     expect(response.statusCode).toBe(200);
-    expect(activityConfigResponseSchema.parse(response.json())).toEqual({ clientId: 'client-123' });
+    expect(activityConfigResponseSchema.parse(response.json())).toEqual({
+      clientId: 'client-123',
+      // Only the test is on: nobody can sign in from the frame.
+      signIn: false,
+      test: true,
+    });
     expect(response.body).not.toContain(DISCORD.clientSecret);
   });
 

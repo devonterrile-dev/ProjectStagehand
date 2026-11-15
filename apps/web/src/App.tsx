@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from 'react';
 import { Link, Route, Routes } from 'react-router';
 
 import { isActivityFrame } from '@/activity/frame';
-import { AppShell, StageShell } from '@/components/AppShell';
+import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
@@ -32,6 +32,11 @@ const PlayPage = lazy(() =>
   import('@/pages/PlayPage').then((module) => ({ default: module.PlayPage })),
 );
 
+// Stagehand inside Discord's frame (F3.3c): it brings Discord's SDK with it.
+const ActivityApp = lazy(() =>
+  import('@/activity/ActivityApp').then((module) => ({ default: module.ActivityApp })),
+);
+
 // The Discord Activity test (governance §13) brings Discord's SDK and Socket.IO with it.
 const ActivityTestPage = lazy(() =>
   import('@/pages/ActivityTestPage').then((module) => ({ default: module.ActivityTestPage })),
@@ -41,16 +46,15 @@ const stageFallback = <p className="p-4">Loading the stage…</p>;
 
 export function App() {
   // Discord always opens an Activity at the root path, with launch parameters its SDK reads
-  // from the URL. So inside Discord's frame the whole app is the Activity test, wherever the
-  // router goes. Decided once: later navigation drops the query.
+  // from the URL. So inside Discord's frame the whole app is the Activity app, wherever the
+  // router goes: sign-in through Discord, the player's campaigns and the table (F3.3c).
+  // Decided once: later navigation drops the query.
   const [inFrame] = useState(() => isActivityFrame(window.location.search));
   if (inFrame) {
     return (
-      <StageShell>
-        <Suspense fallback={stageFallback}>
-          <ActivityTestPage inFrame />
-        </Suspense>
-      </StageShell>
+      <Suspense fallback={<p className="p-4">Loading…</p>}>
+        <ActivityApp />
+      </Suspense>
     );
   }
 
@@ -176,7 +180,7 @@ export function App() {
             </RequireAuth>
           }
         />
-        {/* Not behind RequireAuth: there is no Stagehand sign-in inside Discord yet. */}
+        {/* Not behind RequireAuth: the test's probes need no Stagehand sign-in. */}
         <Route
           path="/activity-test"
           element={

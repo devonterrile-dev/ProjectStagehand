@@ -70,7 +70,7 @@ Put it in `apps/server/.env` (dev) and `infra/.env` (stack), and keep the stack'
 ### Rules for new API routes
 
 - Routes that need a signed-in user use the `requireSession(auth)` preHandler; the user is on `request.auth`.
-- State-changing requests (POST/PUT/PATCH/DELETE) under `/api/` must come from `PUBLIC_URL`. A CSRF hook rejects any other `Origin` with 403. `fetch` from the web app sends the right header automatically.
+- State-changing requests (POST/PUT/PATCH/DELETE) under `/api/` must come from `PUBLIC_URL` (or, with `ACTIVITY=true`, from Discord's proxy for this application). A CSRF hook rejects any other `Origin` with 403. `fetch` from the web app sends the right header automatically.
 - User-editable fields go through our own routes with shared Zod schemas, never through Better Auth's generic user endpoints. Those are disabled.
 - Campaign data is only read or written through the data-access layer in `apps/server/src/campaigns/` (governance §7). Every function there takes a `CampaignScope` and filters by its campaign, so ids from another campaign are never found. The one unscoped lookup is joining by invite code (`campaigns/invites.ts`), where the code itself is the credential.
 - Routes under `/api/campaigns/:campaignId` use the `memberOnly(auth, db)` preHandlers from `campaigns/guard.ts`, so non-members get 404. Before writing, they call `assertGm` and `assertWritable`, because archived campaigns are read-only apart from actions that only remove access (D-20, D-21). Other ids in the path go through `uuidParam`. Each such route must be added to the isolation table in `campaigns.int.test.ts`, and a guard test fails if one is missing.
@@ -78,11 +78,50 @@ Put it in `apps/server/.env` (dev) and `infra/.env` (stack), and keep the stack'
 - Errors: throw `httpError(status, message)` for anything the caller should read; its words are sent and logged as they are. Every other error goes through the same handler (`registerErrorHandler` in `http/errors.ts`, D-28), which logs its type and codes but never its message, and answers a server fault with a fixed message. So never put campaign text or a secret into an `httpError` message, and never log an error object yourself.
 - Character sheet routes (`/api/campaigns/:campaignId/characters/:characterId`) are GM-only except `GET`, which also answers a player for their own PC, through the player allow-list. Anything a player may receive is built by an explicit serializer (`toPlayerCharacterSheet` in `campaigns/characters.ts`) and tested by key set. Stat block routes (`/api/campaigns/:campaignId/stat-blocks`) are GM-only.
 
+## Playing inside Discord (the Activity)
+
+Stagehand can run inside Discord as an Activity, in the voice channel the group is already in (governance §13, D-51). There a player signs in through Discord with no redirect, sees their campaigns, and sits at the table; a GM can start, run and end a session. The workshop (records, scenes, AI import) stays in the browser.
+
+It is off unless `ACTIVITY=true`. With it on:
+
+- `POST /api/auth/activity/sign-in` takes the code Discord's SDK hands the page, and answers with a Stagehand session cookie a framed page may keep (`SameSite=None; Secure; Partitioned`). It signs in existing accounts only: a new player signs in to Stagehand in a browser once and joins with their GM's invite link. It is rate limited in production, like every Better Auth route.
+- Requests and live connections from `https://<DISCORD_CLIENT_ID>.discordsays.com` (Discord's proxy for this application) count as the app's own in the CSRF check and the live room's origin check. Another application's Activity does not.
+- `GET /api/activity/config` gives the page the Discord client id.
+
+**On the live site:** add `ACTIVITY=true` to `infra/.env`, run `pnpm stack:shutdown` and `pnpm stack:up`, and in the [Discord Developer Portal](https://discord.com/developers/applications), on the application that signs users in, do steps 1 to 4 below with `projectstagehand.com` as the URL mapping, and step 6 for every player.
+
+**On a dev machine**, from a built client and through a temporary tunnel:
+
+```powershell
+pnpm --filter @stagehand/web build
+$env:WEB_DIST_DIR = '../web/dist'; $env:ACTIVITY = 'true'; $env:ACTIVITY_TEST = 'true'; pnpm --filter @stagehand/server dev
+# In a second terminal: a temporary public address for port 3000.
+docker run --rm cloudflare/cloudflared:2026.10.7 tunnel --no-autoupdate --url http://host.docker.internal:3000
+```
+
+`ACTIVITY_TEST=true` is optional: it adds a link to the test page below, for the checks that need it.
+
+1. **Activities → Settings**: enable Activities and tick the platforms to use.
+2. **Activities → URL Mappings**: prefix `/` → the host, without `https://` (the `….trycloudflare.com` host the tunnel printed, which changes each time the tunnel starts).
+3. **OAuth2 → Redirects**: add `https://127.0.0.1` (a placeholder Discord asks for; nothing is sent there).
+4. **Installation**: tick User Install and Guild Install.
+5. In Discord: join a voice channel, open the Activities launcher and pick the application.
+6. **Everyone else who plays** has to be let in by Discord first, because the Activity is unverified. Until it is verified, Discord lets only the application's owner, its team and its App Testers launch or join it, and only in a server with fewer than 25 members (or a DM). Anyone else gets "Failed to launch activity: the server does not have access to the requested activity", before Stagehand is ever asked. For each player:
+   - In the Developer Portal, open the application, choose **App Testers** and invite their Discord account (up to 50). They accept the invitation.
+   - In their own Discord: **Settings → Advanced**, turn on **Developer Mode**, then **Application Test Mode**, paste the application's ID and activate it.
+   - Play in a server with fewer than 25 members.
+
+   This comes from Discord's developer support articles ([who can play an unverified Activity](https://support-dev.discord.com/hc/en-us/articles/26576097154199-What-are-Verified-and-Unverified-Activities), [how others find and play it](https://support-dev.discord.com/hc/en-us/articles/21204493235991-How-Can-Users-Discover-and-Play-My-Activity)); check them if Discord's screens have changed.
+
+7. After a dev run, clear the `/` mapping: the temporary address is no longer yours once the tunnel stops.
+
+Whoever opens the Activity needs a Stagehand account already (made by signing in at the normal address) and, to see a campaign, to be a member of it.
+
 ## Discord Activity test
 
 A test page that finds out what works when Stagehand runs inside Discord as an Activity (governance §13): request paths, cookies, Socket.IO, sign-in without a redirect, speaking events, and the stage's frame rate. It is the stage test (`/stage-test`) with a second panel, and gives one block of text to copy.
 
-Everything it needs on the server is off unless `ACTIVITY_TEST=true`: the routes under `/api/activity` and a Socket.IO echo. The live site never sets it. The routes read and set no Stagehand session; `POST /api/activity/token` has no rate limit, which is acceptable only while the flag stays on a dev machine.
+Everything it needs on the server is off unless `ACTIVITY_TEST=true`: the routes under `/api/activity` and a Socket.IO echo. The live site never sets it. The probes read and set no Stagehand session; `POST /api/activity/token` has no rate limit, which is acceptable only while the flag stays on a dev machine. Inside Discord, the test page is what the frame shows while `ACTIVITY` is off, and a link under the campaign list while it is on.
 
 **In a normal tab** (the Discord probes are skipped): add `ACTIVITY_TEST=true` to `apps/server/.env`, restart the server, and open `http://localhost:5173/activity-test`. No sign-in is needed.
 

@@ -1,8 +1,12 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
+import { discordActivityOrigin } from '@stagehand/shared';
 import { betterAuth } from 'better-auth';
 
 import type { Database } from '../db/client';
 import * as schema from '../db/schema';
+import { createDiscordProvider } from '../providers/discord';
+
+import { activitySignIn } from './activity-plugin';
 
 export interface AuthOptions {
   db: Database;
@@ -10,6 +14,16 @@ export interface AuthOptions {
   publicUrl: string;
   secret: string;
   discord: { clientId: string; clientSecret: string };
+  /**
+   * Serve sign-in for the Discord Activity (`ACTIVITY`, F3.3c): the route in
+   * `activity-plugin.ts`, callable from Discord's proxy for this application.
+   */
+  activity?: boolean | undefined;
+  /**
+   * Better Auth limits how often its routes may be called only in production; this turns the
+   * limit on elsewhere, for the tests of it.
+   */
+  rateLimit?: boolean | undefined;
 }
 
 /** Where Better Auth's routes live. The web client and Discord redirect URI depend on it. */
@@ -28,12 +42,28 @@ const ONE_DAY = 60 * 60 * 24;
  * HTTP-only cookies. Tables are users / sessions / accounts / verifications with UUID ids.
  */
 export function createAuth(options: AuthOptions) {
+  const activity = options.activity === true;
+  // The frame Discord shows the Activity in is served from Discord's proxy (D-48).
+  const origins = [
+    options.publicUrl,
+    ...(activity ? [discordActivityOrigin(options.discord.clientId)] : []),
+  ];
   return betterAuth({
     appName: 'Stagehand',
     baseURL: options.publicUrl,
     basePath: AUTH_BASE_PATH,
     secret: options.secret,
-    trustedOrigins: [options.publicUrl],
+    trustedOrigins: origins,
+    plugins: activity
+      ? [
+          activitySignIn({
+            db: options.db,
+            discord: createDiscordProvider(options.discord),
+            basePath: AUTH_BASE_PATH,
+            origins,
+          }),
+        ]
+      : [],
 
     database: drizzleAdapter(options.db, { provider: 'pg', schema, usePlural: true }),
 
@@ -95,6 +125,7 @@ export function createAuth(options: AuthOptions) {
     rateLimit: {
       // On in production by default; memory storage is fine for one server process.
       storage: 'memory',
+      ...(options.rateLimit === true ? { enabled: true } : {}),
     },
 
     advanced: {

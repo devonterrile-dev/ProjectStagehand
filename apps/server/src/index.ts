@@ -82,6 +82,7 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
             clientId: config.auth.discordClientId,
             clientSecret: config.auth.discordClientSecret,
           },
+          activity: config.activity,
         })
       : undefined;
 
@@ -132,6 +133,10 @@ Set STYLE_BIBLE_DIR to the folder holding v<N>/.`);
     auth,
     publicUrl: config.publicUrl,
     trustProxy: config.trustProxy,
+    activity:
+      config.activity && config.auth !== undefined
+        ? { clientId: config.auth.discordClientId }
+        : undefined,
     activityTest:
       config.activityTest && config.auth !== undefined
         ? {

@@ -39,6 +39,13 @@ const envSchema = z
       .enum(['true', 'false'], { error: 'must be "true" or "false"' })
       .default('false')
       .transform((value) => value === 'true'),
+    // Running as a Discord Activity (governance §13, F3.3c): sign-in inside Discord's frame,
+    // and requests and live connections from Discord's proxy for this application. Off unless
+    // set.
+    ACTIVITY: z
+      .enum(['true', 'false'], { error: 'must be "true" or "false"' })
+      .default('false')
+      .transform((value) => value === 'true'),
     // The Discord Activity test (governance §13): its routes and its Socket.IO echo. Off
     // unless set, and never set on the live site.
     ACTIVITY_TEST: z
@@ -104,6 +111,12 @@ export interface Config {
    */
   trustProxy: boolean;
   /**
+   * Serve Stagehand as a Discord Activity (governance §13, F3.3c, D-51): players can sign in
+   * and play inside Discord's frame, and Discord's proxy for this application is an origin
+   * the server accepts.
+   */
+  activity: boolean;
+  /**
    * Serve the Discord Activity test (governance §13): `/api/activity` and a Socket.IO echo.
    * For a dev machine behind a temporary tunnel.
    */
@@ -156,6 +169,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     assetsDir: parsed.ASSETS_DIR,
     publicUrl: parsed.PUBLIC_URL,
     trustProxy: parsed.TRUST_PROXY,
+    activity: parsed.ACTIVITY,
     activityTest: parsed.ACTIVITY_TEST,
     credentialsKey: parsed.CREDENTIALS_ENCRYPTION_KEY,
     auth:

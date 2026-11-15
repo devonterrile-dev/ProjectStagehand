@@ -43,6 +43,32 @@ describe('CSRF protection', () => {
     expect(response.json()).toMatchObject({ error: 'Forbidden' });
   });
 
+  it('counts the other addresses its own pages are served from as its own', async () => {
+    const framed = Fastify();
+    registerCsrfProtection(framed, {
+      publicUrl: PUBLIC_URL,
+      alsoOurs: ['https://123.discordsays.com'],
+    });
+    framed.patch('/api/thing', () => ({ ok: true }));
+    const from = (origin: string) =>
+      framed.inject({ method: 'PATCH', url: '/api/thing', headers: { origin } });
+
+    expect((await from('https://123.discordsays.com')).statusCode).toBe(200);
+    expect((await from(PUBLIC_URL)).statusCode).toBe(200);
+    // Another Discord application's Activity is another site's page.
+    expect((await from('https://456.discordsays.com')).statusCode).toBe(403);
+    expect((await from('https://discordsays.com')).statusCode).toBe(403);
+    await framed.close();
+
+    // Without the setting, Discord's proxy is any other site.
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/thing',
+      headers: { origin: 'https://123.discordsays.com' },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
   it('blocks an unsafe request with no origin information', async () => {
     const response = await app.inject({ method: 'PATCH', url: '/api/thing' });
 

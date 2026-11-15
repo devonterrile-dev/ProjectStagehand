@@ -63,6 +63,8 @@ function Table({ campaign }: { campaign: Campaign }) {
   }, [room]);
 
   const { phase, connected, stage, view, presence } = useStore(room.store);
+  // The desk can be put away: in a small window or Activity frame the theater needs the room.
+  const [deskOpen, setDeskOpen] = useState(true);
   const start = useStartPlaySession(campaign.id);
   const end = useEndPlaySession(campaign.id);
 
@@ -187,15 +189,31 @@ function Table({ campaign }: { campaign: Campaign }) {
           </p>
         )}
         {!isGm && (
-          <div className="absolute top-3 left-3 w-56 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
-            <PresenceList presence={presence} />
+          <div className="absolute top-3 left-3 max-w-56 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
+            {/* In a narrow window the list would cover the theater: only the way out stays. */}
+            <div className="hidden w-50 sm:block">
+              <PresenceList presence={presence} />
+            </div>
             <Link to={`/campaigns/${campaign.id}`} className="block text-xs underline">
               Leave the table
             </Link>
           </div>
         )}
+        {isGm && (
+          <Button
+            size="xs"
+            variant="secondary"
+            className="absolute top-3 right-3"
+            aria-expanded={deskOpen}
+            onClick={() => {
+              setDeskOpen((open) => !open);
+            }}
+          >
+            {deskOpen ? 'Hide desk' : 'Show desk'}
+          </Button>
+        )}
       </div>
-      {stage.role === 'gm' && (
+      {stage.role === 'gm' && deskOpen && (
         <GmDesk
           campaign={campaign}
           stage={stage}

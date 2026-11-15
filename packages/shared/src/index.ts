@@ -1,10 +1,13 @@
 export {
   ACTIVITY_CODE_MAX,
+  ACTIVITY_NO_ACCOUNT,
+  ACTIVITY_SIGN_IN_PATH,
   ACTIVITY_SOCKET,
   activityConfigResponseSchema,
   activityProbeResponseSchema,
   activityTokenRequestSchema,
   activityTokenResponseSchema,
+  discordActivityOrigin,
   type ActivityConfigResponse,
   type ActivityProbeResponse,
   type ActivityTokenRequest,

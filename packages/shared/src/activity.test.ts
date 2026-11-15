@@ -2,11 +2,43 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ACTIVITY_CODE_MAX,
+  ACTIVITY_SIGN_IN_PATH,
   ACTIVITY_SOCKET,
+  activityConfigResponseSchema,
   activityProbeResponseSchema,
   activityTokenRequestSchema,
   activityTokenResponseSchema,
+  discordActivityOrigin,
 } from './activity';
+
+describe('discordActivityOrigin', () => {
+  it("is Discord's proxy for one application", () => {
+    expect(discordActivityOrigin('1234567890')).toBe('https://1234567890.discordsays.com');
+  });
+});
+
+describe('activityConfigResponseSchema', () => {
+  it('says what the frame may do, and nothing is on unless said', () => {
+    expect(activityConfigResponseSchema.parse({ clientId: 'abc' })).toEqual({
+      clientId: 'abc',
+      signIn: false,
+      test: false,
+    });
+    expect(activityConfigResponseSchema.parse({ clientId: 'abc', signIn: true })).toMatchObject({
+      signIn: true,
+      test: false,
+    });
+    expect(activityConfigResponseSchema.safeParse({ signIn: true }).success).toBe(false);
+  });
+});
+
+describe('ACTIVITY_SIGN_IN_PATH', () => {
+  it("is one of Better Auth's routes, and not one of its own sign-in paths", () => {
+    // Better Auth limits paths that start with /sign-in far more tightly than a whole table
+    // opening the Activity at once would need.
+    expect(ACTIVITY_SIGN_IN_PATH).toBe('/api/auth/activity/sign-in');
+  });
+});
 
 describe('activityTokenRequestSchema', () => {
   it('accepts a code', () => {
