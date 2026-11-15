@@ -6,6 +6,7 @@ import type {
   CharacterSheetPatch,
   CreateCharacterRequest,
   CreateRecordRequest,
+  CreateSceneRequest,
   CreateStatBlockRequest,
   GenerateVisualRequest,
   ImportDetail,
@@ -17,8 +18,11 @@ import type {
   Provider,
   ProviderCredential,
   RecordType,
+  Scene,
+  SceneObjectInput,
   UpdateMeRequest,
   UpdateRecordRequest,
+  UpdateSceneRequest,
   UpdateStatBlockRequest,
   VisualsResponse,
 } from '@stagehand/shared';
@@ -34,10 +38,12 @@ import {
   createCharacter,
   createInvite,
   createRecord,
+  createScene,
   createStatBlock,
   deleteProviderKey,
   deleteCharacter,
   deleteRecord,
+  deleteScene,
   deleteStatBlock,
   discardImport,
   estimateImport,
@@ -63,17 +69,22 @@ import {
   fetchProviderCredentials,
   fetchRecord,
   fetchRecords,
+  fetchScene,
+  fetchScenes,
+  fetchStageRecords,
   fetchStatBlock,
   fetchStatBlocks,
   fetchUsage,
   patchCharacterSheet,
   patchProposal,
   patchRecord,
+  patchScene,
   patchStatBlock,
   removeMember,
   renameCampaign,
   revokeInvite,
   saveProviderKey,
+  saveSceneObjects,
   setCampaignArchived,
   retryImport,
   startImport,
@@ -181,7 +192,15 @@ export function useSetCampaignArchived() {
   });
 }
 
-type CampaignPart = 'members' | 'characters' | 'invites' | 'records' | 'stat-blocks' | 'imports';
+type CampaignPart =
+  | 'members'
+  | 'characters'
+  | 'invites'
+  | 'records'
+  | 'stat-blocks'
+  | 'imports'
+  | 'scenes'
+  | 'stage-records';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
 
@@ -377,6 +396,7 @@ export function usePatchRecord(campaignId: string, recordId: string) {
   const refetchLists = useRefetch(campaignId, 'records');
   const refetchStatBlocks = useRefetchStatBlocks(campaignId);
   const staleBacklinks = useStaleBacklinks(campaignId);
+  const refetchStage = useRefetch(campaignId, 'scenes', 'stage-records');
   return useMutation({
     mutationFn: ({ patch, keepalive }: { patch: UpdateRecordRequest; keepalive?: boolean }) =>
       patchRecord(campaignId, recordId, patch, { keepalive }),
@@ -386,6 +406,8 @@ export function usePatchRecord(campaignId: string, recordId: string) {
       staleBacklinks();
       if (patch.statBlockId !== undefined) refetchStatBlocks();
       if (patch.name !== undefined) {
+        // Scenes and the builder's tray show record names.
+        refetchStage();
         void queryClient.invalidateQueries({
           queryKey: [...CAMPAIGNS_KEY, campaignId, 'record'],
           predicate: (query) => query.queryKey[3] !== recordId,
@@ -528,7 +550,8 @@ export function useDeleteStatBlock(campaignId: string) {
  */
 export function useDeleteRecord(campaignId: string) {
   const queryClient = useQueryClient();
-  const refetchLists = useRefetch(campaignId, 'records');
+  // A deleted record leaves every scene it was placed in.
+  const refetchLists = useRefetch(campaignId, 'records', 'scenes', 'stage-records');
   return useMutation({
     mutationFn: (recordId: string) => deleteRecord(campaignId, recordId),
     onSuccess: (_result, recordId) => {
@@ -787,6 +810,8 @@ export function useChooseVisual(campaignId: string, owner: VisualOwnerRef) {
     mutationFn: (assetId: string) => chooseVisual(campaignId, owner, assetId),
     onSuccess: (visuals) => {
       queryClient.setQueryData(visualsKey(campaignId, owner), visuals);
+      // A record with a new image can be placed in a scene (F3.2).
+      void queryClient.invalidateQueries({ queryKey: partKey(campaignId, 'stage-records') });
       const patch = <T extends { visualAssetId: string | null }>(current: T | null | undefined) =>
         current == null ? current : { ...current, visualAssetId: visuals.visualAssetId };
       if ('recordId' in owner) {
@@ -800,6 +825,102 @@ export function useChooseVisual(campaignId: string, owner: VisualOwnerRef) {
           patch,
         );
       }
+    },
+  });
+}
+
+/** Like `recordKey`: singular, so refetching the scene list never refetches the open scene. */
+const sceneKey = (campaignId: string, sceneId: string) =>
+  [...CAMPAIGNS_KEY, campaignId, 'scene', sceneId] as const;
+
+/** The campaign's scenes, by name (F3.2). GM only: pass `enabled: false` for players. */
+export function useScenes(campaignId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'scenes'),
+    queryFn: () => fetchScenes(campaignId),
+    enabled,
+  });
+}
+
+/** One scene with its Spot, objects and suggestions (`null` when not found). GM only. */
+export function useScene(campaignId: string, sceneId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: sceneKey(campaignId, sceneId),
+    queryFn: () => fetchScene(campaignId, sceneId),
+    enabled,
+  });
+}
+
+/** What the builder's tray offers: placeable records with an image, and every Spot. GM only. */
+export function useStageRecords(campaignId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'stage-records'),
+    queryFn: () => fetchStageRecords(campaignId),
+    enabled,
+  });
+}
+
+export function useCreateScene(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchList = useRefetch(campaignId, 'scenes');
+  return useMutation({
+    mutationFn: (input: CreateSceneRequest) => createScene(campaignId, input),
+    onSuccess: (scene) => {
+      queryClient.setQueryData(sceneKey(campaignId, scene.id), scene);
+      refetchList();
+    },
+  });
+}
+
+/**
+ * Renames a scene or changes its Spot. The answer's name, Spot and suggestions go into the
+ * cached scene; its objects stay as cached, since the builder saves those separately and an
+ * answer here could be older than its last save.
+ */
+export function usePatchScene(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchList = useRefetch(campaignId, 'scenes');
+  return useMutation({
+    mutationFn: ({ sceneId, patch }: { sceneId: string; patch: UpdateSceneRequest }) =>
+      patchScene(campaignId, sceneId, patch),
+    onSuccess: (scene) => {
+      queryClient.setQueryData<Scene | null>(sceneKey(campaignId, scene.id), (current) =>
+        current == null ? scene : { ...scene, objects: current.objects },
+      );
+      refetchList();
+    },
+  });
+}
+
+export function useDeleteScene(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchList = useRefetch(campaignId, 'scenes');
+  return useMutation({
+    mutationFn: (sceneId: string) => deleteScene(campaignId, sceneId),
+    onSuccess: (_result, sceneId) => {
+      queryClient.removeQueries({ queryKey: sceneKey(campaignId, sceneId) });
+      refetchList();
+    },
+  });
+}
+
+/**
+ * Saves a scene's whole list of objects (D-49). Only the objects of the answer go into the
+ * cached scene: its name and Spot are saved separately (see `usePatchScene`).
+ */
+export function useSaveSceneObjects(campaignId: string, sceneId: string) {
+  const queryClient = useQueryClient();
+  const refetchList = useRefetch(campaignId, 'scenes');
+  return useMutation({
+    mutationFn: ({ objects, keepalive }: { objects: SceneObjectInput[]; keepalive?: boolean }) =>
+      saveSceneObjects(campaignId, sceneId, objects, { keepalive }),
+    onSuccess: (scene) => {
+      queryClient.setQueryData<Scene | null>(sceneKey(campaignId, sceneId), (current) =>
+        current == null
+          ? scene
+          : { ...current, objects: scene.objects, updatedAt: scene.updatedAt },
+      );
+      refetchList();
     },
   });
 }

@@ -20,6 +20,7 @@ import {
 import { useCampaign, useRenameCampaign, useSetCampaignArchived } from '@/lib/queries';
 import { importPath } from '@/lib/ai-import';
 import { recordsPath, statBlocksPath } from '@/lib/records';
+import { scenesPath } from '@/lib/scenes';
 
 /** `/campaigns/:campaignId`. Rendered inside RequireAuth, so the user is signed in. */
 export function CampaignPage() {
@@ -154,6 +155,24 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
             </div>
             <Button asChild size="sm" variant="outline">
               <Link to={importPath(campaign.id)}>Open AI import</Link>
+            </Button>
+          </CardHeader>
+        </Card>
+      )}
+
+      {isGm && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <CardTitle>
+                <h2 className="text-xl">Scenes</h2>
+              </CardTitle>
+              <CardDescription>
+                The theater set up for a place: a backdrop, props, and NPC puppets waiting below.
+              </CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link to={scenesPath(campaign.id)}>Open scenes</Link>
             </Button>
           </CardHeader>
         </Card>

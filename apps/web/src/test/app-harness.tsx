@@ -1,6 +1,6 @@
 /**
  * Renders the whole app against a fake Stagehand API (a `fetch` spy with in-memory
- * campaigns, members, PC sheets, invites, records and stat blocks), so tests drive real
+ * campaigns, members, PC sheets, invites, records, stat blocks and scenes), so tests drive real
  * pages, routes and queries.
  */
 import {
@@ -49,6 +49,7 @@ import { vi } from 'vitest';
 import { App } from '@/App';
 
 import { importsWorld, type ImportsWorldOptions } from './imports-world';
+import { scenesWorld, type ScenesWorldOptions } from './scenes-world';
 import { visualsWorld, type VisualsWorldOptions } from './visuals-world';
 
 export const MIRA: MeResponse = {
@@ -232,7 +233,7 @@ type CampaignSeed = Partial<Omit<CampaignData, 'characters'>> & {
   characters?: Partial<CharacterSheet>[];
 };
 
-export interface FakeWorld extends ImportsWorldOptions, VisualsWorldOptions {
+export interface FakeWorld extends ImportsWorldOptions, VisualsWorldOptions, ScenesWorldOptions {
   /** Extra members, PCs, invites, records and stat blocks per campaign id. Each campaign also has `me` as a member. */
   campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
@@ -340,6 +341,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     refused,
     notFound,
   });
+  const scenes = scenesWorld(world, { refused, notFound, invalid });
 
   /** The records API, GM only, mirroring the server's rules and messages. */
   const respondRecords = (
@@ -856,6 +858,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
 
       const visual = visuals.respond(found, d, rest, method, rawBody);
       if (visual !== null) return visual;
+      const staged = scenes.respond(found, d.records, rest, method, rawBody);
+      if (staged !== null) return staged;
       const records = respondRecords(found, d, rest, method, rawBody);
       if (records !== null) return records;
       const sheet = respondCharacter(found, d, rest, method, rawBody);

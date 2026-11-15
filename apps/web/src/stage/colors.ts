@@ -14,6 +14,10 @@ export const STAGE_COLORS = {
   /** A puppet's stick: pale wood. A prop's stand: darker, so it draws less attention. */
   stick: '#d8b384',
   stand: '#6f5236',
+  /** The string a hanging prop is on: dark thread, hard to see against the roof. */
+  string: '#2b2622',
+  /** The frame around the object being edited in the scene builder (F3.2). */
+  selection: '#ffd24a',
   /** The sheet page's stand-in on the table. */
   paper: '#f4efe2',
   /** The void: black, so nothing below the scene is seen. */

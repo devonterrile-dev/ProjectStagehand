@@ -22,6 +22,8 @@ export interface StageCanvasProps {
   maxPixelRatio?: number;
   /** Extra objects in the scene: props and puppets. */
   children?: ReactNode;
+  /** A press on the stage that hit nothing that listens for one (the scene builder, F3.2). */
+  onPointerMissed?: () => void;
 }
 
 /** Shown instead of the stage when the browser can't start WebGL, or the scene crashes. */
@@ -57,6 +59,7 @@ export function StageCanvas({
   curtainOpen,
   maxPixelRatio = MAX_PIXEL_RATIO,
   children,
+  onPointerMissed,
 }: StageCanvasProps) {
   return (
     <StageErrorBoundary>
@@ -70,6 +73,7 @@ export function StageCanvas({
           position: [...INITIAL_CAMERA.position],
         }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
+        {...(onPointerMissed === undefined ? {} : { onPointerMissed })}
       >
         <color attach="background" args={[STAGE_COLORS.room]} />
         <ambientLight intensity={1.9} />

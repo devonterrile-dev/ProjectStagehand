@@ -13,6 +13,7 @@ import { JoinPage } from '@/pages/JoinPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { RecordPage } from '@/pages/RecordPage';
 import { RecordsPage } from '@/pages/RecordsPage';
+import { ScenesPage } from '@/pages/ScenesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
@@ -20,6 +21,10 @@ import { StatBlocksPage } from '@/pages/StatBlocksPage';
 // The stage brings Three.js with it, so it loads only when a stage page is opened (F3.1).
 const StageTestPage = lazy(() =>
   import('@/pages/StageTestPage').then((module) => ({ default: module.StageTestPage })),
+);
+
+const SceneBuilderPage = lazy(() =>
+  import('@/pages/SceneBuilderPage').then((module) => ({ default: module.SceneBuilderPage })),
 );
 
 // The Discord Activity test (governance §13) brings Discord's SDK and Socket.IO with it.
@@ -109,6 +114,24 @@ export function App() {
           element={
             <RequireAuth>
               <StatBlockPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/scenes"
+          element={
+            <RequireAuth>
+              <ScenesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/scenes/:sceneId"
+          element={
+            <RequireAuth>
+              <Suspense fallback={stageFallback}>
+                <SceneBuilderPage />
+              </Suspense>
             </RequireAuth>
           }
         />

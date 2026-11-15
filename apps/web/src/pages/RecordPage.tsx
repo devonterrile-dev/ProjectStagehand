@@ -1,5 +1,5 @@
 import { isVisualSubject, RECORD_TYPE_LABELS } from '@stagehand/shared';
-import { SparklesIcon } from 'lucide-react';
+import { SparklesIcon, TheaterIcon } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { BacklinksPanel } from '@/components/records/BacklinksPanel';
@@ -11,10 +11,54 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { VisualCard } from '@/components/visuals/VisualCard';
 import { importPath } from '@/lib/ai-import';
-import { useCampaign, useRecord, useRecords } from '@/lib/queries';
+import { useCampaign, useCreateScene, useRecord, useRecords } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
 import { recordsPath } from '@/lib/records';
+import { scenePath } from '@/lib/scenes';
 import { CampaignNotFound } from '@/pages/CampaignPage';
+
+/**
+ * On a Spot (F3.2, governance §12 "Scene builder" step 1): makes a scene named after the Spot,
+ * with its backdrop, and opens it in the scene builder.
+ */
+function BuildSceneButton({
+  campaignId,
+  spot,
+}: {
+  campaignId: string;
+  spot: { id: string; name: string };
+}) {
+  const create = useCreateScene(campaignId);
+  const navigate = useNavigate();
+
+  return (
+    <>
+      {create.isError && (
+        <span role="alert" className="text-sm text-destructive">
+          {create.error.message}
+        </span>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={create.isPending}
+        onClick={() => {
+          create.mutate(
+            { name: spot.name, spotId: spot.id },
+            {
+              onSuccess: (scene) => {
+                void navigate(scenePath(campaignId, scene.id));
+              },
+            },
+          );
+        }}
+      >
+        <TheaterIcon aria-hidden />
+        Build a scene here
+      </Button>
+    </>
+  );
+}
 
 /**
  * `/campaigns/:campaignId/records/:recordId`: one record, autosaving as the GM edits, with
@@ -74,6 +118,9 @@ export function RecordPage() {
       <div className="flex items-center justify-between gap-4">
         {backLink}
         <div className="flex items-center gap-2">
+          {campaign.archivedAt === null && record.type === 'spot' && (
+            <BuildSceneButton campaignId={campaign.id} spot={record} />
+          )}
           {campaign.archivedAt === null && (
             <Button asChild size="sm" variant="outline">
               <Link to={importPath(campaign.id, { mode: 'fill', record: record.id })}>

@@ -1,10 +1,10 @@
 import { useTexture } from '@react-three/drei';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import { SRGBColorSpace, Texture, type Group } from 'three';
 
 import { STAGE_COLORS } from './colors';
-import { WORLD_UNITS_PER_PIXEL, type Point3 } from './dimensions';
+import { OPENING, WORLD_UNITS_PER_PIXEL, type Point3 } from './dimensions';
 
 /** Pixels more see-through than this are not drawn: transparency is all or nothing (D-43). */
 const ALPHA_TEST = 0.5;
@@ -24,9 +24,16 @@ const ROD_REACH = { stick: 0.5, stand: 0.08 } as const;
 const STICK = { width: 0.04, depth: 0.02 } as const;
 const POST = { width: 0.022, depth: 0.02 } as const;
 const BASE = { height: 0.03, depth: 0.1, share: 0.55 } as const;
+/** A hanging prop's string: thin, and tucked a little way down behind the top of the cutout. */
+const STRING = { width: 0.008, tuck: 0.04 } as const;
 
 /** A swaying puppet turns about a point this far down its stick: the puppeteer's hand. */
 const SWAY = { pivotDrop: 1.2, angle: 0.035, speed: 1.3 } as const;
+
+/** How see-through a faded cutout is drawn. */
+const FADED_OPACITY = 0.4;
+/** The frame around a selected cutout: this far outside it, and this thick. */
+const SELECTION = { gap: 0.03, thickness: 0.012 } as const;
 
 export interface CutoutProps {
   url: string;
@@ -37,8 +44,17 @@ export interface CutoutProps {
   position: Point3;
   scale?: number;
   flipped?: boolean;
-  /** A puppet is on a stick; a prop is on a stand. Neither is part of the image (§11). */
-  mount: 'stick' | 'stand';
+  /**
+   * A puppet is on a stick. A prop is on a stand, or hangs on a string from the roof. None of
+   * them is part of the image (§11).
+   */
+  mount: 'stick' | 'stand' | 'hang';
+  /** Scene builder only: drawn see-through, for a prop that is placed but hidden. */
+  faded?: boolean;
+  /** Scene builder only: framed, as the object being edited. */
+  selected?: boolean;
+  /** Called when the image is pressed. Without it the cutout ignores the pointer. */
+  onPress?: (event: ThreeEvent<PointerEvent>) => void;
   /** Test only: a gentle sway on the stick. Real puppet motion is F3.7. */
   sway?: boolean;
   /** Where in the sway it starts, in radians. */
@@ -50,10 +66,33 @@ export interface CutoutProps {
   ownTexture?: boolean;
 }
 
+/** A bright frame around the cutout being edited, just in front of it. */
+function SelectionFrame({ width, height }: { width: number; height: number }) {
+  const w = width + 2 * SELECTION.gap;
+  const h = height + 2 * SELECTION.gap;
+  const t = SELECTION.thickness;
+  const bars: [x: number, y: number, barWidth: number, barHeight: number][] = [
+    [0, h / 2, w + t, t],
+    [0, -h / 2, w + t, t],
+    [-w / 2, 0, t, h + t],
+    [w / 2, 0, t, h + t],
+  ];
+  return (
+    <group position={[0, height / 2, 0.004]}>
+      {bars.map(([x, y, barWidth, barHeight], index) => (
+        <mesh key={index} position={[x, y, 0]}>
+          <planeGeometry args={[barWidth, barHeight]} />
+          <meshBasicMaterial color={STAGE_COLORS.selection} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /**
  * A cardboard cutout in the theater (governance §12): a flat image anchored at its bottom
- * center, with a fake drop shadow (D-46) and the stick or stand that holds it. Unlit, so it
- * keeps its drawn colors. Suspends while the image loads.
+ * center, with a fake drop shadow (D-46) and the stick, stand or string that holds it. Unlit,
+ * so it keeps its drawn colors. Suspends while the image loads.
  */
 export function Cutout({
   url,
@@ -63,6 +102,9 @@ export function Cutout({
   scale = 1,
   flipped = false,
   mount,
+  faded = false,
+  selected = false,
+  onPress,
   sway = false,
   phase = 0,
   ownTexture = false,
@@ -99,42 +141,74 @@ export function Cutout({
   const h = height * WORLD_UNITS_PER_PIXEL * scale;
   const [x, y, z] = position;
   const mirror = flipped ? -1 : 1;
-  const rod = mount === 'stick' ? STICK : POST;
-  const rodTop = h * ROD_REACH[mount];
+
+  /** A stick or a post, from behind the cutout down into the void. */
+  const rod = mount === 'hang' ? null : mount === 'stick' ? STICK : POST;
+  const rodTop = mount === 'hang' ? 0 : h * ROD_REACH[mount];
   const rodLength = rodTop + ROD_DROP;
+  /** A string, from behind the top of the cutout up to the roof. */
+  const stringBottom = h - STRING.tuck;
+  const stringLength = OPENING.height - y - stringBottom;
 
   return (
     <group ref={pivot} position={[x, y - SWAY.pivotDrop, z]}>
       {/* Everything below is placed from the cutout's bottom center. */}
       <group position={[0, SWAY.pivotDrop, 0]}>
-        <mesh position={[SHADOW.offset[0], h / 2 + SHADOW.offset[1], SHADOW.offset[2]]}>
+        {!faded && (
+          <mesh position={[SHADOW.offset[0], h / 2 + SHADOW.offset[1], SHADOW.offset[2]]}>
+            <planeGeometry args={[w, h]} />
+            <meshBasicMaterial
+              map={map}
+              color="#000000"
+              transparent
+              opacity={SHADOW.opacity}
+              // Below the shadow's own opacity, or all of it would be cut away.
+              alphaTest={SHADOW.opacity / 2}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </mesh>
+        )}
+        <mesh
+          position={[0, h / 2, 0]}
+          scale={[mirror, 1, 1]}
+          {...(onPress === undefined ? {} : { onPointerDown: onPress })}
+        >
           <planeGeometry args={[w, h]} />
-          <meshBasicMaterial
-            map={map}
-            color="#000000"
-            transparent
-            opacity={SHADOW.opacity}
-            // Below the shadow's own opacity, or all of it would be cut away.
-            alphaTest={SHADOW.opacity / 2}
-            depthWrite={false}
-            toneMapped={false}
-          />
+          {faded ? (
+            <meshBasicMaterial
+              key="faded"
+              map={map}
+              transparent
+              opacity={FADED_OPACITY}
+              // Below its own opacity, as for the shadow.
+              alphaTest={FADED_OPACITY / 2}
+              toneMapped={false}
+            />
+          ) : (
+            <meshBasicMaterial key="solid" map={map} alphaTest={ALPHA_TEST} toneMapped={false} />
+          )}
         </mesh>
-        <mesh position={[0, h / 2, 0]} scale={[mirror, 1, 1]}>
-          <planeGeometry args={[w, h]} />
-          <meshBasicMaterial map={map} alphaTest={ALPHA_TEST} toneMapped={false} />
-        </mesh>
-        {/* The rod sits just behind the image, so it shows only below it. */}
-        <mesh position={[0, rodTop - rodLength / 2, -rod.depth / 2 - 0.002]}>
-          <boxGeometry args={[rod.width, rodLength, rod.depth]} />
-          <meshLambertMaterial
-            color={mount === 'stick' ? STAGE_COLORS.stick : STAGE_COLORS.stand}
-          />
-        </mesh>
+        {selected && <SelectionFrame width={w} height={h} />}
+        {rod !== null && (
+          // The rod sits just behind the image, so it shows only below it.
+          <mesh position={[0, rodTop - rodLength / 2, -rod.depth / 2 - 0.002]}>
+            <boxGeometry args={[rod.width, rodLength, rod.depth]} />
+            <meshLambertMaterial
+              color={mount === 'stick' ? STAGE_COLORS.stick : STAGE_COLORS.stand}
+            />
+          </mesh>
+        )}
         {mount === 'stand' && (
           <mesh position={[0, -BASE.height / 2, 0]}>
             <boxGeometry args={[w * BASE.share, BASE.height, BASE.depth]} />
             <meshLambertMaterial color={STAGE_COLORS.stand} />
+          </mesh>
+        )}
+        {mount === 'hang' && stringLength > 0 && (
+          <mesh position={[0, stringBottom + stringLength / 2, -STRING.width]}>
+            <boxGeometry args={[STRING.width, stringLength, STRING.width]} />
+            <meshLambertMaterial color={STAGE_COLORS.string} />
           </mesh>
         )}
       </group>

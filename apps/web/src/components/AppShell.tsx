@@ -12,6 +12,8 @@ const WIDE_PAGE = '/campaigns/:campaignId/records/:recordId';
 /** Pages that are all stage: they fill the window, with no header (F3.1). */
 const STAGE_PAGE = '/stage-test';
 const ACTIVITY_PAGE = '/activity-test';
+/** The scene builder (F3.2): the theater with its tray and panel. */
+const SCENE_PAGE = '/campaigns/:campaignId/scenes/:sceneId';
 
 /** The whole window for the stage: black, no header, nothing scrolls. */
 export function StageShell({ children }: { children: ReactNode }) {
@@ -23,8 +25,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const width = useMatch(WIDE_PAGE) === null ? 'max-w-3xl' : 'max-w-6xl';
   const stageTest = useMatch(STAGE_PAGE) !== null;
   const activityTest = useMatch(ACTIVITY_PAGE) !== null;
+  const sceneBuilder = useMatch(SCENE_PAGE) !== null;
 
-  if (stageTest || activityTest) return <StageShell>{children}</StageShell>;
+  if (stageTest || activityTest || sceneBuilder) return <StageShell>{children}</StageShell>;
 
   return (
     <div className="min-h-svh bg-background text-foreground">

@@ -24,6 +24,9 @@ import {
   providerCredentialsResponseSchema,
   recordListResponseSchema,
   recordSchema,
+  sceneListResponseSchema,
+  sceneSchema,
+  stageRecordsResponseSchema,
   statBlockListResponseSchema,
   statBlockSchema,
   visualsResponseSchema,
@@ -60,6 +63,12 @@ import {
   type ProviderCredential,
   type RecordListItem,
   type RecordType,
+  type CreateSceneRequest,
+  type Scene,
+  type SceneObjectInput,
+  type SceneSummary,
+  type StageRecordsResponse,
+  type UpdateSceneRequest,
   type StatBlock,
   type StatBlockSummary,
   type UpdateMeRequest,
@@ -623,4 +632,67 @@ export async function discardVisual(
     'DELETE',
   );
   return visualsResponseSchema.parse(await response.json());
+}
+
+const scenesPath = (campaignId: string, sceneId?: string) =>
+  campaignPath(
+    campaignId,
+    sceneId === undefined ? '/scenes' : `/scenes/${encodeURIComponent(sceneId)}`,
+  );
+
+/** The campaign's scenes, by name (F3.2). GM only. */
+export async function fetchScenes(campaignId: string): Promise<SceneSummary[]> {
+  return sceneListResponseSchema.parse(await getJson(scenesPath(campaignId))).scenes;
+}
+
+/** One scene with its Spot, objects and suggestions, or null when it isn't in this campaign. */
+export async function fetchScene(campaignId: string, sceneId: string): Promise<Scene | null> {
+  return getOrNull(scenesPath(campaignId, sceneId), (body) => sceneSchema.parse(body));
+}
+
+/** Creates an empty scene, with a Spot's backdrop when one is given. */
+export async function createScene(campaignId: string, input: CreateSceneRequest): Promise<Scene> {
+  const response = await send(scenesPath(campaignId), 'POST', input);
+  return sceneSchema.parse(await response.json());
+}
+
+/** Renames a scene, or changes or clears its Spot. */
+export async function patchScene(
+  campaignId: string,
+  sceneId: string,
+  patch: UpdateSceneRequest,
+): Promise<Scene> {
+  const response = await send(scenesPath(campaignId, sceneId), 'PATCH', patch);
+  return sceneSchema.parse(await response.json());
+}
+
+/** Deletes a scene and everything placed in it; the records stay. */
+export async function deleteScene(campaignId: string, sceneId: string): Promise<void> {
+  await send(scenesPath(campaignId, sceneId), 'DELETE');
+}
+
+/**
+ * Saves a scene's whole list of props and puppets, in order (D-49): objects left out are
+ * removed. `keepalive` lets a last save go out while the page unloads.
+ */
+export async function saveSceneObjects(
+  campaignId: string,
+  sceneId: string,
+  objects: readonly SceneObjectInput[],
+  init: { keepalive?: boolean } = {},
+): Promise<Scene> {
+  const response = await send(
+    `${scenesPath(campaignId, sceneId)}/objects`,
+    'PUT',
+    { objects },
+    init,
+  );
+  return sceneSchema.parse(await response.json());
+}
+
+/** What the scene builder's tray offers: placeable records with an image, and every Spot. */
+export async function fetchStageRecords(campaignId: string): Promise<StageRecordsResponse> {
+  return stageRecordsResponseSchema.parse(
+    await getJson(campaignPath(campaignId, '/stage-records')),
+  );
 }
