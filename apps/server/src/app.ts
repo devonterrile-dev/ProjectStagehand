@@ -3,6 +3,7 @@ import { sep } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import { healthResponseSchema, type HealthResponse } from '@stagehand/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import type { Server } from 'socket.io';
 
 import { ACTIVITY_PREFIX, registerActivityRoutes, type ActivityDeps } from './activity/routes';
 import { registerActivitySocket } from './activity/socket';
@@ -13,6 +14,8 @@ import type { Database, DbHandle } from './db/client';
 import { registerCsrfProtection } from './http/csrf';
 import { registerErrorHandler } from './http/errors';
 import { serializeRequest } from './http/log';
+import { registerPlaySocket } from './play/socket';
+import { createRealtime } from './realtime/io';
 import { registerImportRoutes } from './routes/ai-imports';
 import { registerSecurityHeaders } from './http/security-headers';
 import { registerCampaignRoutes } from './routes/campaigns';
@@ -118,6 +121,22 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     });
   }
 
+  // One Socket.IO server, made only when something needs it: the live room (with sign-in) or
+  // the Activity test's echo. A browser may connect from the app's own address, and from
+  // Discord's proxy when the Activity test is served (D-48).
+  let io: Server | undefined;
+  const realtime = (): Server => {
+    io ??= createRealtime(app, {
+      allowedOrigins: [
+        ...(options.publicUrl === undefined ? [] : [options.publicUrl]),
+        ...(options.activityTest === undefined
+          ? []
+          : [`https://${options.activityTest.discord.clientId}.discordsays.com`]),
+      ],
+    });
+    return io;
+  };
+
   // Polled every few seconds by the Docker healthcheck, so keep it out of the request logs.
   app.get('/health', { logLevel: 'silent' }, (): HealthResponse =>
     healthResponseSchema.parse({ status: 'ok' }),
@@ -135,6 +154,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         'buildApp: `auth` requires `db`, `publicUrl`, `credentials`, `importPrompt` and `visuals`',
       );
     }
+    // The live room (F3.3): sessions are played over Socket.IO, and the routes that start and
+    // end one, or remove a member, tell it.
+    const live = registerPlaySocket(realtime(), {
+      auth: options.auth,
+      db: handle.db,
+      log: app.log,
+    });
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
     // The Activity test's routes are called from Discord's proxy origin and carry no session.
     registerCsrfProtection(app, {
@@ -153,7 +179,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     });
     // Campaign routes first: they register the `request.campaign` decoration.
     registerCampaignRoutes(app, { auth: options.auth, db: handle.db });
-    registerMemberRoutes(app, { auth: options.auth, db: handle.db });
+    registerMemberRoutes(app, { auth: options.auth, db: handle.db, live });
     registerInviteRoutes(app, { auth: options.auth, db: handle.db });
     registerCharacterRoutes(app, { auth: options.auth, db: handle.db });
     registerRecordRoutes(app, { auth: options.auth, db: handle.db });
@@ -171,12 +197,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       visuals: options.visuals,
     });
     registerSceneRoutes(app, { auth: options.auth, db: handle.db });
-    registerPlaySessionRoutes(app, { auth: options.auth, db: handle.db });
+    registerPlaySessionRoutes(app, { auth: options.auth, db: handle.db, live });
   }
 
   if (options.activityTest !== undefined) {
     registerActivityRoutes(app, options.activityTest);
-    registerActivitySocket(app);
+    registerActivitySocket(realtime());
   }
 
   if (options.webDistDir !== undefined) {

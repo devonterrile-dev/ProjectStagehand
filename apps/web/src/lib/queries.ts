@@ -15,6 +15,7 @@ import type {
   StartImportRequest,
   InviteExpiry,
   MeResponse,
+  PlaySession,
   Provider,
   ProviderCredential,
   RecordType,
@@ -46,6 +47,7 @@ import {
   deleteScene,
   deleteStatBlock,
   discardImport,
+  endPlaySession,
   estimateImport,
   fetchBacklinks,
   fetchCampaign,
@@ -66,6 +68,7 @@ import {
   fetchMe,
   fetchMembers,
   fetchOwnCharacterSheet,
+  fetchPlaySession,
   fetchProviderCredentials,
   fetchRecord,
   fetchRecords,
@@ -88,6 +91,7 @@ import {
   setCampaignArchived,
   retryImport,
   startImport,
+  startPlaySession,
   updateMe,
   type RecordListFilter,
 } from './api';
@@ -200,7 +204,8 @@ type CampaignPart =
   | 'stat-blocks'
   | 'imports'
   | 'scenes'
-  | 'stage-records';
+  | 'stage-records'
+  | 'play-session';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
 
@@ -921,6 +926,43 @@ export function useSaveSceneObjects(campaignId: string, sceneId: string) {
           : { ...current, objects: scene.objects, updatedAt: scene.updatedAt },
       );
       refetchList();
+    },
+  });
+}
+
+/** How often a page that shows whether a session is running asks again. */
+const PLAY_SESSION_REFRESH_MS = 10_000;
+
+/**
+ * The campaign's running session (F3.3), or null. Asked again every few seconds, so a player
+ * looking at the campaign page sees the session appear soon after the GM starts it.
+ */
+export function usePlaySession(campaignId: string) {
+  return useQuery({
+    queryKey: partKey(campaignId, 'play-session'),
+    queryFn: () => fetchPlaySession(campaignId),
+    refetchInterval: PLAY_SESSION_REFRESH_MS,
+  });
+}
+
+/** Starts a session (or finds the one already running). GM only. */
+export function useStartPlaySession(campaignId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => startPlaySession(campaignId),
+    onSuccess: (session) => {
+      queryClient.setQueryData<PlaySession | null>(partKey(campaignId, 'play-session'), session);
+    },
+  });
+}
+
+/** Ends the running session for everyone. GM only. */
+export function useEndPlaySession(campaignId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => endPlaySession(campaignId),
+    onSuccess: () => {
+      queryClient.setQueryData<PlaySession | null>(partKey(campaignId, 'play-session'), null);
     },
   });
 }

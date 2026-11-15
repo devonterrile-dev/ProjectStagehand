@@ -17,10 +17,11 @@ import { campaignOf, memberOnly } from '../campaigns/guard';
 import { endSession, getActiveSession, startSession } from '../campaigns/play-sessions';
 import { assertGm, assertWritable } from '../campaigns/scope';
 import type { Database } from '../db/client';
+import type { PlayLive } from '../play/socket';
 
 export function registerPlaySessionRoutes(
   app: FastifyInstance,
-  deps: { auth: Auth; db: Database },
+  deps: { auth: Auth; db: Database; live: PlayLive },
 ): void {
   const preHandler = memberOnly(deps.auth, deps.db);
 
@@ -39,6 +40,7 @@ export function registerPlaySessionRoutes(
     assertWritable(scope);
 
     const { session, started } = await startSession(deps.db, scope);
+    if (started) deps.live.sessionStarted(scope.campaignId);
     return reply.code(started ? 201 : 200).send(playSessionResponseSchema.parse({ session }));
   });
 
@@ -50,6 +52,7 @@ export function registerPlaySessionRoutes(
       assertGm(scope);
 
       await endSession(deps.db, scope);
+      deps.live.sessionEnded(scope.campaignId);
       return reply.code(204).send();
     },
   );

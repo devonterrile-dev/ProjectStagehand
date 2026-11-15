@@ -7,6 +7,7 @@ import { assignCharacter, listMembers, removeMember } from '../campaigns/members
 import { assertGm, assertWritable } from '../campaigns/scope';
 import type { Database } from '../db/client';
 import { sendValidationError } from '../http/errors';
+import type { PlayLive } from '../play/socket';
 
 /**
  * Members (F1.2): the roster, removing or leaving, and assigning PCs. The PCs themselves are
@@ -15,7 +16,7 @@ import { sendValidationError } from '../http/errors';
  */
 export function registerMemberRoutes(
   app: FastifyInstance,
-  deps: { auth: Auth; db: Database },
+  deps: { auth: Auth; db: Database; live: PlayLive },
 ): void {
   const preHandler = memberOnly(deps.auth, deps.db);
 
@@ -35,6 +36,8 @@ export function registerMemberRoutes(
       const scope = campaignOf(request);
       const userId = uuidParam(request, 'userId', 'Member not found');
       await removeMember(deps.db, scope, userId);
+      // No longer a member: out of the live session too, if they were in it (F3.3).
+      deps.live.memberRemoved(scope.campaignId, userId);
       return reply.code(204).send();
     },
   );

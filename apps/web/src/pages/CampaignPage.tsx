@@ -8,6 +8,7 @@ import { CampaignRoleBadge } from '@/components/campaigns/CampaignRoleBadge';
 import { CharactersPanel } from '@/components/campaigns/CharactersPanel';
 import { InvitesPanel } from '@/components/campaigns/InvitesPanel';
 import { MembersPanel } from '@/components/campaigns/MembersPanel';
+import { SessionCard } from '@/components/play/SessionCard';
 import { PlayersNote } from '@/components/records/PlayersNote';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -112,12 +113,9 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
             </DropdownMenu>
           )}
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Sessions for this campaign will appear here.
-          </p>
-        </CardContent>
       </Card>
+
+      <SessionCard campaign={campaign} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">

@@ -1,7 +1,7 @@
 /**
  * Renders the whole app against a fake Stagehand API (a `fetch` spy with in-memory
- * campaigns, members, PC sheets, invites, records, stat blocks and scenes), so tests drive real
- * pages, routes and queries.
+ * campaigns, members, PC sheets, invites, records, stat blocks, scenes and live sessions), so
+ * tests drive real pages, routes and queries.
  */
 import {
   applyFieldsPatch,
@@ -33,6 +33,7 @@ import {
   type InvitePreview,
   type Member,
   type MeResponse,
+  type PlaySession,
   type Provider,
   type ProviderCredential,
   type RecordListItem,
@@ -244,6 +245,8 @@ export interface FakeWorld extends ImportsWorldOptions, VisualsWorldOptions, Sce
    * error (502).
    */
   credentials?: ProviderCredential[];
+  /** The live session already running in a campaign (F3.3), by campaign id. */
+  playSessions?: Record<string, PlaySession>;
 }
 
 /** What the fake server answers when Anthropic refuses a key, as the real one words it. */
@@ -342,6 +345,11 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     notFound,
   });
   const scenes = scenesWorld(world, { refused, notFound, invalid });
+  /** The running session of each campaign that has one, and how many each has had. */
+  const playSessions = new Map(Object.entries(world.playSessions ?? {}));
+  const sessionsPlayed = new Map(
+    [...playSessions].map(([campaignId, session]) => [campaignId, session.number]),
+  );
 
   /** The records API, GM only, mirroring the server's rules and messages. */
   const respondRecords = (
@@ -854,6 +862,28 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       if (revoke && method === 'POST') {
         d.invites = d.invites.filter((i) => i.id !== revoke[1]);
         return new Response(null, { status: 204 });
+      }
+
+      // Live sessions (F3.3): any member may ask; only the GM starts and ends one.
+      if (rest === '/play-session' && method === 'GET') {
+        return Response.json({ session: playSessions.get(found.id) ?? null });
+      }
+      if (rest === '/play-session' || rest === '/play-session/end') {
+        if (method !== 'POST') return new Response('not mocked', { status: 500 });
+        if (found.role !== 'gm') return refused(403, 'Only the GM can do that');
+        const running = playSessions.get(found.id);
+        if (rest === '/play-session/end') {
+          if (running === undefined) return notFound('No session is running');
+          playSessions.delete(found.id);
+          return new Response(null, { status: 204 });
+        }
+        if (running !== undefined) return Response.json({ session: running });
+        if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+        const number = (sessionsPlayed.get(found.id) ?? 0) + 1;
+        sessionsPlayed.set(found.id, number);
+        const session = { id: uuid(), number, startedAt: '2026-11-15T19:00:00.000Z' };
+        playSessions.set(found.id, session);
+        return Response.json({ session }, { status: 201 });
       }
 
       const visual = visuals.respond(found, d, rest, method, rawBody);

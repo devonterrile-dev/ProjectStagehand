@@ -27,6 +27,11 @@ const SceneBuilderPage = lazy(() =>
   import('@/pages/SceneBuilderPage').then((module) => ({ default: module.SceneBuilderPage })),
 );
 
+// The table during a live session (F3.3): the theater, and Socket.IO for the live room.
+const PlayPage = lazy(() =>
+  import('@/pages/PlayPage').then((module) => ({ default: module.PlayPage })),
+);
+
 // The Discord Activity test (governance §13) brings Discord's SDK and Socket.IO with it.
 const ActivityTestPage = lazy(() =>
   import('@/pages/ActivityTestPage').then((module) => ({ default: module.ActivityTestPage })),
@@ -131,6 +136,16 @@ export function App() {
             <RequireAuth>
               <Suspense fallback={stageFallback}>
                 <SceneBuilderPage />
+              </Suspense>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/play"
+          element={
+            <RequireAuth>
+              <Suspense fallback={stageFallback}>
+                <PlayPage />
               </Suspense>
             </RequireAuth>
           }

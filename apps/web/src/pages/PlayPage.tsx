@@ -1,0 +1,210 @@
+import type { Campaign } from '@stagehand/shared';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link, useParams } from 'react-router';
+import { useStore } from 'zustand';
+
+import { GmDesk } from '@/components/play/GmDesk';
+import { PresenceList } from '@/components/play/PresenceList';
+import { Button } from '@/components/ui/button';
+import { useCampaign, useEndPlaySession, useStartPlaySession } from '@/lib/queries';
+import { createPlayRoom } from '@/play/room';
+import { EMPTY_THEATER, theaterView } from '@/play/stage';
+import { PlayCanvas } from '@/stage/PlayCanvas';
+
+/** A message in place of the theater: loading, waiting, not allowed. */
+function Notice({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * `/campaigns/:campaignId/play`: the table during a live session (F3.3, governance §13). The
+ * theater fills the window, like every stage page, and is loaded lazily so Three.js stays out
+ * of the main bundle. Players see only the theater; the GM has a desk beside it.
+ */
+export function PlayPage() {
+  const { campaignId = '' } = useParams();
+  const campaignQuery = useCampaign(campaignId);
+
+  if (campaignQuery.isPending) return <Notice>Loading…</Notice>;
+  if (campaignQuery.isError) {
+    return (
+      <Notice>
+        <p role="alert">Could not load this campaign. Try again in a moment.</p>
+      </Notice>
+    );
+  }
+  const campaign = campaignQuery.data;
+  if (campaign === null) {
+    return (
+      <Notice>
+        <h1 className="text-2xl font-bold">Campaign not found</h1>
+        <p>It may not exist, or you may not be a member of it.</p>
+        <Link to="/" className="underline">
+          Back to your campaigns
+        </Link>
+      </Notice>
+    );
+  }
+  // A new room for another campaign: nothing of one table carries over to the next.
+  return <Table key={campaign.id} campaign={campaign} />;
+}
+
+function Table({ campaign }: { campaign: Campaign }) {
+  const [room] = useState(() => createPlayRoom(campaign.id));
+  useEffect(() => {
+    room.open();
+    return () => {
+      room.close();
+    };
+  }, [room]);
+
+  const { phase, connected, stage, view, presence } = useStore(room.store);
+  const start = useStartPlaySession(campaign.id);
+  const end = useEndPlaySession(campaign.id);
+
+  const isGm = campaign.role === 'gm';
+  const archived = campaign.archivedAt !== null;
+  const theater = useMemo(
+    () => (view === null ? EMPTY_THEATER : theaterView(campaign.id, view.stage)),
+    [campaign.id, view],
+  );
+
+  const back = (
+    <Link to={`/campaigns/${campaign.id}`} className="underline">
+      Back to {campaign.name}
+    </Link>
+  );
+  // The server tells the room when the session starts, and the room joins by itself.
+  const startButton = isGm && !archived && (
+    <>
+      <Button
+        disabled={start.isPending}
+        onClick={() => {
+          start.mutate();
+        }}
+      >
+        Start session
+      </Button>
+      {start.isError && (
+        <p role="alert" className="text-sm text-red-400">
+          {start.error.message}
+        </p>
+      )}
+    </>
+  );
+
+  if (phase === 'signed-out') {
+    return (
+      <Notice>
+        <p>You&apos;ve been signed out. Sign in again to come back to the table.</p>
+        <Link to="/" className="underline">
+          Sign in
+        </Link>
+      </Notice>
+    );
+  }
+  if (phase === 'not-found') {
+    return (
+      <Notice>
+        <p>You&apos;re not a member of this campaign any more.</p>
+        <Link to="/" className="underline">
+          Back to your campaigns
+        </Link>
+      </Notice>
+    );
+  }
+  if (phase === 'waiting') {
+    return (
+      <Notice>
+        <h1 className="text-2xl font-bold">{campaign.name}</h1>
+        {isGm ? (
+          <p>No session is running.</p>
+        ) : (
+          <p>
+            Waiting for your GM to start the session. The theater opens here by itself when it
+            starts.
+          </p>
+        )}
+        {startButton}
+        {back}
+      </Notice>
+    );
+  }
+  if (phase === 'ended') {
+    return (
+      <Notice>
+        <h1 className="text-2xl font-bold">The session has ended</h1>
+        {!isGm && <p>If your GM starts another, the theater opens here again.</p>}
+        {startButton}
+        {back}
+      </Notice>
+    );
+  }
+  if (phase === 'full') {
+    return (
+      <Notice>
+        <h1 className="text-2xl font-bold">The session is full</h1>
+        <p>It already has its 6 players. When one of them leaves, you can take the seat.</p>
+        <Button
+          disabled={!connected}
+          onClick={() => {
+            room.join();
+          }}
+        >
+          Try again
+        </Button>
+        {back}
+      </Notice>
+    );
+  }
+  if (phase === 'connecting' || stage === null) {
+    return (
+      <Notice>
+        <p>Connecting to the table…</p>
+        {back}
+      </Notice>
+    );
+  }
+
+  return (
+    <div className="dark flex h-full w-full bg-background text-foreground">
+      <div className="relative min-w-0 flex-1 bg-black">
+        <PlayCanvas
+          backdropUrl={theater.backdropUrl}
+          objects={theater.cutouts}
+          curtainOpen={view?.curtainOpen ?? false}
+        />
+        {!connected && (
+          <p
+            role="status"
+            className="absolute top-3 left-1/2 -translate-x-1/2 rounded-md bg-black/80 px-3 py-2 text-sm text-white"
+          >
+            Connection lost. Reconnecting…
+          </p>
+        )}
+        {!isGm && (
+          <div className="absolute top-3 left-3 w-56 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
+            <PresenceList presence={presence} />
+            <Link to={`/campaigns/${campaign.id}`} className="block text-xs underline">
+              Leave the table
+            </Link>
+          </div>
+        )}
+      </div>
+      {stage.role === 'gm' && (
+        <GmDesk
+          campaign={campaign}
+          stage={stage}
+          presence={presence}
+          connected={connected}
+          room={room}
+          onEnd={() => end.mutateAsync()}
+        />
+      )}
+    </div>
+  );
+}

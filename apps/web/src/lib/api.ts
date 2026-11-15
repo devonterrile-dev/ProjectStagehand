@@ -20,6 +20,7 @@ import {
   memberListResponseSchema,
   meResponseSchema,
   playerCharacterSheetSchema,
+  playSessionResponseSchema,
   providerCredentialSchema,
   providerCredentialsResponseSchema,
   recordListResponseSchema,
@@ -59,6 +60,7 @@ import {
   type MeResponse,
   type Member,
   type PlayerCharacterSheet,
+  type PlaySession,
   type Provider,
   type ProviderCredential,
   type RecordListItem,
@@ -688,6 +690,25 @@ export async function saveSceneObjects(
     init,
   );
   return sceneSchema.parse(await response.json());
+}
+
+const playSessionPath = (campaignId: string, rest = '') =>
+  campaignPath(campaignId, `/play-session${rest}`);
+
+/** The campaign's running session (F3.3), or null. Any member. */
+export async function fetchPlaySession(campaignId: string): Promise<PlaySession | null> {
+  return playSessionResponseSchema.parse(await getJson(playSessionPath(campaignId))).session;
+}
+
+/** Starts a session, or answers the one already running. GM only; refused while archived. */
+export async function startPlaySession(campaignId: string): Promise<PlaySession | null> {
+  const response = await send(playSessionPath(campaignId), 'POST');
+  return playSessionResponseSchema.parse(await response.json()).session;
+}
+
+/** Ends the running session for everyone. GM only. */
+export async function endPlaySession(campaignId: string): Promise<void> {
+  await send(playSessionPath(campaignId, '/end'), 'POST');
 }
 
 /** What the scene builder's tray offers: placeable records with an image, and every Spot. */

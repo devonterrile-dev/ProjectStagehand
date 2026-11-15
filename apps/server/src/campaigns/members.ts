@@ -2,7 +2,12 @@
  * Campaign members and PC assignment (F1.2). Part of the campaign data-access layer: every
  * function is scoped to `scope.campaignId`, so ids from another campaign are never found.
  */
-import { memberSchema, type Member } from '@stagehand/shared';
+import {
+  memberSchema,
+  presenceMemberSchema,
+  type Member,
+  type PresenceMember,
+} from '@stagehand/shared';
 import { and, eq } from 'drizzle-orm';
 
 import type { Database } from '../db/client';
@@ -52,6 +57,40 @@ export async function listMembers(db: Database, scope: CampaignScope): Promise<M
       Number(b.role === 'gm') - Number(a.role === 'gm') ||
       a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }),
   );
+}
+
+/**
+ * The scope's own user as the live room shows them to everyone in a session (F3.3): the name
+ * Stagehand shows for them, their picture, their role and their PC's name.
+ */
+export async function presenceMemberOf(
+  db: Database,
+  scope: CampaignScope,
+): Promise<PresenceMember> {
+  const [row] = await db
+    .select({
+      name: users.name,
+      displayName: users.displayName,
+      image: users.image,
+      characterName: characters.name,
+    })
+    .from(campaignMembers)
+    .innerJoin(users, eq(users.id, campaignMembers.userId))
+    .leftJoin(characters, eq(characters.id, campaignMembers.characterId))
+    .where(
+      and(
+        eq(campaignMembers.campaignId, scope.campaignId),
+        eq(campaignMembers.userId, scope.userId),
+      ),
+    );
+  if (row === undefined) throw httpError(404, 'Member not found');
+  return presenceMemberSchema.parse({
+    userId: scope.userId,
+    displayName: shownName(row),
+    avatarUrl: row.image,
+    role: scope.role,
+    characterName: row.characterName,
+  });
 }
 
 /**
