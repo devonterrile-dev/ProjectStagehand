@@ -101,7 +101,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 ### Phase 3: Stage MVP and first playtest (months 5–8)
 
 - [x] F3.1 Tabletop theater: the table, the theater box (back wall, side walls, roof, front curtain, open void below), the backdrop on the back wall, the locked player camera, and a performance test scene (section 12)
-- [ ] F3.2 Scene builder: backdrop from a Spot, props placed left/right, up/down and on a depth tick, optional NPC puppets waiting below, save and load scenes (static location scenes)
+- [x] F3.2 Scene builder: backdrop from a Spot, props placed left/right, up/down and on a depth tick, optional NPC puppets waiting below, save and load scenes (static location scenes)
 - [ ] F3.3 Live sessions: start, join (6-player cap), presence, reconnect, the stage in sync for everyone (section 13)
 - [ ] F3.4 GM control desk: change scenes behind the curtain, raise, lower and move puppets, show and hide props, play emotes, reveal records
 - [ ] F3.5 Player table: the sheet as a page on the table, the inspect stage for props, reveal flow, player journal, shared player notes
