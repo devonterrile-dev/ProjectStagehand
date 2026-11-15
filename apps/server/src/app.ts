@@ -20,6 +20,7 @@ import { registerCharacterRoutes } from './routes/characters';
 import { registerInviteRoutes } from './routes/invites';
 import { registerMeRoutes } from './routes/me';
 import { registerMemberRoutes } from './routes/members';
+import { registerPlaySessionRoutes } from './routes/play-sessions';
 import {
   registerProviderCredentialRoutes,
   type CredentialDeps,
@@ -170,6 +171,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       visuals: options.visuals,
     });
     registerSceneRoutes(app, { auth: options.auth, db: handle.db });
+    registerPlaySessionRoutes(app, { auth: options.auth, db: handle.db });
   }
 
   if (options.activityTest !== undefined) {

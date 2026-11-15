@@ -750,7 +750,9 @@ describe('Visuals API', () => {
         403,
       );
       expect((await revise(pcBase(pc, table), asset.id, 'taller', player)).statusCode).toBe(403);
-      expect((await call('GET', imageUrl(asset.id, table), player)).statusCode).toBe(403);
+      // An image is a player's to load only while the live stage shows it (F3.3,
+      // `play-sessions.int.test.ts`); otherwise it is answered as if it didn't exist.
+      expect((await call('GET', imageUrl(asset.id, table), player)).statusCode).toBe(404);
       // The player's own sheet doesn't carry the visual (yet).
       const own = await call('GET', pcBase(pc, table), player);
       expect(own.statusCode).toBe(200);

@@ -26,7 +26,8 @@ interface CampaignRoute {
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
  * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`,
  * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts`,
- * `ai-imports.int.test.ts`, `visuals.int.test.ts` and `scenes.int.test.ts`.
+ * `ai-imports.int.test.ts`, `visuals.int.test.ts`, `scenes.int.test.ts` and
+ * `play-sessions.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -198,7 +199,8 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     path: '/api/campaigns/:campaignId/characters/:characterId/visuals/:assetId',
     gmOnly: true,
   },
-  { method: 'GET', path: '/api/campaigns/:campaignId/assets/:assetId/image', gmOnly: true },
+  // A player may load what the live stage shows them: tested in `play-sessions.int.test.ts`.
+  { method: 'GET', path: '/api/campaigns/:campaignId/assets/:assetId/image', gmOnly: false },
   { method: 'GET', path: '/api/campaigns/:campaignId/scenes', gmOnly: true },
   {
     method: 'POST',
@@ -221,6 +223,9 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { objects: [] },
   },
   { method: 'GET', path: '/api/campaigns/:campaignId/stage-records', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/play-session', gmOnly: false },
+  { method: 'POST', path: '/api/campaigns/:campaignId/play-session', gmOnly: true },
+  { method: 'POST', path: '/api/campaigns/:campaignId/play-session/end', gmOnly: true },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */

@@ -555,13 +555,35 @@ export async function purgeDiscarded(db: Database, storage: AssetStorage): Promi
  * Where an asset's image is stored: the processed one unless the original is asked for, or
  * the original while nothing has been processed. 404 for another campaign's asset, one with
  * no image yet, or one discarded.
+ *
+ * `stageOnly` is for a player (F3.3): only the stage's version of an image in use, never the
+ * original and never a draft. Whether the player may see that image at all is the caller's
+ * check (`playerCanSeeAsset`).
  */
 export async function assetImageOf(
   db: Database,
   scope: CampaignScope,
   assetId: string,
   variant: AssetImageVariant = 'processed',
+  options: { stageOnly?: boolean } = {},
 ): Promise<{ key: string; mediaType: string }> {
+  if (options.stageOnly === true) {
+    const [stage] = await db
+      .select({ processed: assets.processedPath })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.id, assetId),
+          eq(assets.campaignId, scope.campaignId),
+          eq(assets.status, 'approved'),
+        ),
+      );
+    if (variant !== 'processed' || stage?.processed == null) {
+      throw httpError(404, ASSET_NOT_FOUND);
+    }
+    return { key: stage.processed, mediaType: PROCESSED_MEDIA_TYPE };
+  }
+
   const [row] = await db
     .select({
       original: assets.originalPath,

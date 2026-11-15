@@ -1,7 +1,7 @@
 /**
- * Generate visual (F2.3, governance §11, D-42). GM only; starting a try and choosing one are
- * refused while the campaign is archived. Every campaign route here is in the isolation table
- * in `campaigns.int.test.ts`.
+ * Generate visual (F2.3, governance §11, D-42). GM only, except the image route; starting a try
+ * and choosing one are refused while the campaign is archived. Every campaign route here is in
+ * the isolation table in `campaigns.int.test.ts`.
  *
  * GET    …/records/:recordId/visuals                  the image in use and the drafts
  * POST   …/records/:recordId/visuals                  a new image → 202 `generating`
@@ -12,6 +12,8 @@
  * (the same five under …/characters/:characterId for a PC; … is /api/campaigns/:campaignId)
  * GET    /api/campaigns/:campaignId/assets/:assetId/image  the stage's version (F2.4), or the
  *        ?v=original for the model's own                    original until it is made
+ *        A player may load only the stage's version of an image the live stage is showing them
+ *        at that moment (F3.3, D-50); everything else here is the GM's.
  *
  * The image is made in the background (`visuals/queue.ts`); the browser polls the list while a
  * try is `generating`. The prompt is built here from the record and the style bible, stored
@@ -32,6 +34,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { Auth } from '../auth/auth';
 import { campaignOf, memberOnly, uuidParam } from '../campaigns/guard';
+import { playerCanSeeAsset } from '../campaigns/play-sessions';
 import { assertGm, assertWritable, type CampaignScope } from '../campaigns/scope';
 import {
   assetImageOf,
@@ -220,20 +223,25 @@ export function registerVisualRoutes(
     { preHandler },
     async (request, reply) => {
       const scope = campaignOf(request);
-      assertGm(scope);
       const assetId = uuidParam(request, 'assetId', 'Image not found');
       const query = assetImageQuerySchema.safeParse(request.query);
       if (!query.success) return sendValidationError(reply, query.error);
-      const { key, mediaType } = await assetImageOf(db, scope, assetId, query.data.v);
+
+      const notFound = () =>
+        reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Image not found' });
+      // A player gets the stage's version of what the live stage is showing them right now
+      // (F3.3), and nothing else: any other image is answered as if it didn't exist.
+      const isPlayer = scope.role !== 'gm';
+      if (isPlayer && !(await playerCanSeeAsset(db, scope, assetId))) return notFound();
+
+      const { key, mediaType } = await assetImageOf(db, scope, assetId, query.data.v, {
+        stageOnly: isPlayer,
+      });
       const stream = await visuals.storage.open(key);
-      if (stream === null) {
-        return reply
-          .code(404)
-          .send({ statusCode: 404, error: 'Not Found', message: 'Image not found' });
-      }
+      if (stream === null) return notFound();
       // An asset's files never change under a URL: a remade processed image comes with a new
       // `?p=<version>`. So the browser may keep them; `private` keeps them out of shared caches
-      // (Cloudflare), since only the GM may see them. The unversioned URL may fall back to the
+      // (Cloudflare), since not everyone may see them. The unversioned URL may fall back to the
       // original before processing, so it is not kept.
       const cache =
         query.data.v === 'original' || query.data.p !== undefined

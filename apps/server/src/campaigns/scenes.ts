@@ -227,6 +227,28 @@ async function toScene(db: DbOrTx, scope: CampaignScope, row: SceneRow): Promise
   });
 }
 
+/**
+ * A scene as a live session copies it onto the stage (F3.3): its Spot and its objects' rows, in
+ * list order. Null when the scene isn't in this campaign.
+ */
+export async function sceneForStage(
+  db: DbOrTx,
+  scope: CampaignScope,
+  sceneId: string,
+): Promise<{ spotId: string | null; objects: (typeof sceneObjects.$inferSelect)[] } | null> {
+  const [scene] = await db
+    .select({ spotId: scenes.spotId })
+    .from(scenes)
+    .where(scoped(scope, sceneId));
+  if (scene === undefined) return null;
+  const objects = await db
+    .select()
+    .from(sceneObjects)
+    .where(and(eq(sceneObjects.sceneId, sceneId), eq(sceneObjects.campaignId, scope.campaignId)))
+    .orderBy(asc(sceneObjects.position));
+  return { spotId: scene.spotId, objects };
+}
+
 /** Every scene in the campaign, by name, with its Spot and how many objects it holds. */
 export async function listScenes(db: Database, scope: CampaignScope): Promise<SceneSummary[]> {
   const spot = alias(records, 'spot');
