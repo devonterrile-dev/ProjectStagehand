@@ -103,7 +103,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F3.1 Tabletop theater: the table, the theater box (back wall, side walls, roof, front curtain, open void below), the backdrop on the back wall, the locked player camera, and a performance test scene (section 12)
 - [x] F3.2 Scene builder: backdrop from a Spot, props placed left/right, up/down and on a depth tick, optional NPC puppets waiting below, save and load scenes (static location scenes)
 - [x] F3.3 Live sessions: start, join (6-player cap), presence, reconnect, the stage in sync for everyone (section 13)
-- [ ] F3.4 GM control desk: change scenes behind the curtain, add PCs, NPCs and props live, raise, lower and move puppets, show and hide props, reveal records. Emotes moved to F3.7 (D-52)
+- [x] F3.4 GM control desk: change scenes behind the curtain, add PCs, NPCs and props live, raise, lower and move puppets, show and hide props, reveal records. Emotes moved to F3.7 (D-52)
 - [ ] F3.5 Player table: the sheet as a page on the table, the inspect stage for props, reveal flow, player journal, shared player notes
 - [ ] F3.6 Players spend Hope from the sheet page; GM calls rolls; Hope and Fear tracking; roll log (section 9)
 - [ ] F3.7 Puppet motion: idle sway, talking (rise and brighten), preset emotes (the `emote` event, the GM's emote buttons on the desk, D-52), and an on-stage emote menu on a player's own puppet. Raising and lowering already glide (F3.4)
