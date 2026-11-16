@@ -190,6 +190,34 @@ describe('Creating a record', () => {
   });
 });
 
+describe('Revealing a record (F3.4)', () => {
+  it('reveals a record to players and hides it again', async () => {
+    const { coast, vex, fetchMock } = world();
+    renderAt(recordUrl(coast, vex));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reveal to players' }));
+    const hide = await screen.findByRole('button', { name: 'Hide from players' });
+    expect(hide.getAttribute('aria-pressed')).toBe('true');
+    expect(
+      calledWith(fetchMock, `/api/campaigns/${coast.id}/records/${vex.id}/reveal`, 'POST'),
+    ).toBe(true);
+
+    fireEvent.click(hide);
+    expect(await screen.findByRole('button', { name: 'Reveal to players' })).toBeDefined();
+    expect(
+      calledWith(fetchMock, `/api/campaigns/${coast.id}/records/${vex.id}/unreveal`, 'POST'),
+    ).toBe(true);
+  });
+
+  it('is not offered while the campaign is archived', async () => {
+    const { coast, vex } = world({ archivedAt: '2026-11-10T10:00:00.000Z' });
+    renderAt(recordUrl(coast, vex));
+
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Reveal to players' })).toBeNull();
+  });
+});
+
 describe('Editing a record', () => {
   it('shows every field of the type in order, link fields included', async () => {
     const { coast, vex } = world();

@@ -13,8 +13,11 @@ import {
   PLAY_SOCKET,
   presenceSchema,
   type ActionResult,
+  type AddObjectRequest,
   type LiveStage,
+  type ObjectChanges,
   type Presence,
+  type SceneObjectKind,
 } from '@stagehand/shared';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
@@ -59,6 +62,11 @@ export interface RoomState {
   view: StageView | null;
   /** Everyone connected to the session. */
   presence: Presence;
+  /**
+   * The GM's moves not yet seen back from the server, by object (F3.4): the GM's theater and
+   * desk show them at once, while the stage catches up.
+   */
+  pending: Readonly<Record<string, ObjectChanges>>;
 }
 
 export interface PlayRoom {
@@ -72,6 +80,17 @@ export interface PlayRoom {
   /** GM only; the server refuses anyone else. */
   loadScene(sceneId: string): Promise<ActionResult>;
   setCurtain(open: boolean): Promise<ActionResult>;
+  /** The control desk (F3.4). */
+  addObject(request: AddObjectRequest): Promise<ActionResult>;
+  /**
+   * Moves an object or changes how it is drawn. Shown at once in `pending`; changes made in
+   * quick succession (a drag, a slider) go to the server together, at most every
+   * `MOVE_GAP_MS`, each answered with the result of the send that carried it.
+   */
+  moveObject(id: string, changes: ObjectChanges): Promise<ActionResult>;
+  removeObject(id: string): Promise<ActionResult>;
+  /** Shows or hides a prop, or raises or lowers a puppet. */
+  setShown(object: { id: string; kind: SceneObjectKind }, shown: boolean): Promise<ActionResult>;
 }
 
 export interface RoomDeps {
@@ -86,13 +105,43 @@ export const RETRY_MS = 2000;
 
 export const NO_ANSWER = "The server didn't answer. Try again.";
 
+/**
+ * The least time between two moves of one object sent to the server: a drag sends a few a
+ * second, well inside what the live room lets one connection send (60 in 10 seconds).
+ */
+export const MOVE_GAP_MS = 300;
+
 const INITIAL: RoomState = {
   phase: 'connecting',
   connected: false,
   stage: null,
   view: null,
   presence: [],
+  pending: {},
 };
+
+/** Whether the stage already shows every change in `changes`, or no longer has the object. */
+function showsChanges(stage: LiveStage, id: string, changes: ObjectChanges): boolean {
+  const object = stage.objects.find((candidate) => candidate.id === id);
+  if (object === undefined) return true;
+  return Object.entries(changes).every(
+    ([key, value]) => object[key as keyof ObjectChanges] === value,
+  );
+}
+
+/** Bringing an object into sight or out of it: a prop is shown or hidden, a puppet raised or lowered. */
+const SHOWN_EVENTS = {
+  prop: { on: PLAY_SOCKET.showProp, off: PLAY_SOCKET.hideProp },
+  puppet: { on: PLAY_SOCKET.raisePuppet, off: PLAY_SOCKET.lowerPuppet },
+} as const;
+
+/** One object's moves: what waits to be sent, who waits for an answer, and the send in hand. */
+interface Moves {
+  queued: ObjectChanges | null;
+  waiters: ((result: ActionResult) => void)[];
+  busy: boolean;
+  timer: number | null;
+}
 
 export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoom {
   const socket = deps.socket ?? createPlaySocket();
@@ -137,9 +186,87 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     }
   }
 
+  const moves = new Map<string, Moves>();
+
+  /** Drops from `pending` what the stage now shows, unless more of it is still on its way. */
+  function settle(stage: LiveStage): void {
+    const { pending } = store.getState();
+    const left = Object.fromEntries(
+      Object.entries(pending).filter(([id, changes]) => {
+        const move = moves.get(id);
+        const inFlight = move !== undefined && (move.busy || move.queued !== null);
+        return inFlight || !showsChanges(stage, id, changes);
+      }),
+    );
+    if (Object.keys(left).length !== Object.keys(pending).length) store.setState({ pending: left });
+  }
+
   function receive(stage: LiveStage): void {
     store.setState({ stage });
+    settle(stage);
     show(onStage(transition, stage));
+  }
+
+  function forgetMoves(): void {
+    for (const move of moves.values()) {
+      if (move.timer !== null) window.clearTimeout(move.timer);
+      for (const waiter of move.waiters) waiter({ ok: false, message: NO_ANSWER });
+    }
+    moves.clear();
+    store.setState({ pending: {} });
+  }
+
+  /** Sends an object's queued moves; whatever is queued meanwhile follows after the gap. */
+  function flush(id: string): void {
+    const move = moves.get(id);
+    if (move?.queued == null || move.busy) return;
+    const changes = move.queued;
+    const waiters = move.waiters;
+    move.queued = null;
+    move.waiters = [];
+    move.busy = true;
+    const sentAt = Date.now();
+    void act(PLAY_SOCKET.moveObject, { id, ...changes }).then((result) => {
+      // Forgotten meanwhile: out of the session.
+      if (moves.get(id) !== move) return;
+      move.busy = false;
+      for (const waiter of waiters) waiter(result);
+      if (move.queued !== null) {
+        move.timer = window.setTimeout(
+          () => {
+            move.timer = null;
+            flush(id);
+          },
+          Math.max(0, MOVE_GAP_MS - (Date.now() - sentAt)),
+        );
+        return;
+      }
+      moves.delete(id);
+      const { stage, pending } = store.getState();
+      // Refused, or already shown: the server's stage is the one to draw.
+      if (!result.ok || (stage !== null && showsChanges(stage, id, pending[id] ?? {}))) {
+        store.setState({
+          pending: Object.fromEntries(Object.entries(pending).filter(([key]) => key !== id)),
+        });
+      }
+    });
+  }
+
+  function moveObject(id: string, changes: ObjectChanges): Promise<ActionResult> {
+    const { pending } = store.getState();
+    store.setState({ pending: { ...pending, [id]: { ...pending[id], ...changes } } });
+    let move = moves.get(id);
+    if (move === undefined) {
+      move = { queued: null, waiters: [], busy: false, timer: null };
+      moves.set(id, move);
+    }
+    const current = move;
+    current.queued = { ...current.queued, ...changes };
+    const answered = new Promise<ActionResult>((resolve) => {
+      current.waiters.push(resolve);
+    });
+    if (!current.busy && current.timer === null) flush(id);
+    return answered;
   }
 
   /** Empties the theater: out of the session, for whatever reason. */
@@ -148,6 +275,7 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     curtainTimer = null;
     loadingFor = null;
     transition = NO_STAGE;
+    forgetMoves();
     store.setState({ stage: null, view: null, presence: [] });
   }
 
@@ -279,5 +407,9 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     },
     loadScene: (sceneId) => act(PLAY_SOCKET.loadScene, { sceneId }),
     setCurtain: (open) => act(open ? PLAY_SOCKET.openCurtain : PLAY_SOCKET.closeCurtain),
+    addObject: (request) => act(PLAY_SOCKET.addObject, request),
+    moveObject,
+    removeObject: (id) => act(PLAY_SOCKET.removeObject, { id }),
+    setShown: ({ id, kind }, shown) => act(SHOWN_EVENTS[kind][shown ? 'on' : 'off'], { id }),
   };
 }

@@ -1,7 +1,7 @@
 import { useTexture } from '@react-three/drei';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
-import { SRGBColorSpace, Texture, type Group } from 'three';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { MathUtils, SRGBColorSpace, Texture, type Group } from 'three';
 
 import { STAGE_COLORS } from './colors';
 import { OPENING, WORLD_UNITS_PER_PIXEL, type Point3 } from './dimensions';
@@ -30,6 +30,12 @@ const STRING = { width: 0.008, tuck: 0.04 } as const;
 /** A swaying puppet turns about a point this far down its stick: the puppeteer's hand. */
 const SWAY = { pivotDrop: 1.2, angle: 0.035, speed: 1.3 } as const;
 
+/**
+ * How fast a gliding cutout closes on where it is going (`MathUtils.damp`): most of the way in
+ * a third of a second, all of it in about half a second, like a hand moving the stick.
+ */
+export const GLIDE_SPEED = 7;
+
 /** How see-through a faded cutout is drawn. */
 const FADED_OPACITY = 0.4;
 /** The frame around a selected cutout: this far outside it, and this thick. */
@@ -55,6 +61,12 @@ export interface CutoutProps {
   selected?: boolean;
   /** Called when the image is pressed. Without it the cutout ignores the pointer. */
   onPress?: (event: ThreeEvent<PointerEvent>) => void;
+  /**
+   * Live play (F3.4): the cutout glides to a new position instead of jumping there, and
+   * starts out at `enterFrom` when given (a puppet rising out of the void).
+   */
+  glide?: boolean;
+  enterFrom?: Point3;
   /** Test only: a gentle sway on the stick. Real puppet motion is F3.7. */
   sway?: boolean;
   /** Where in the sway it starts, in radians. */
@@ -105,6 +117,8 @@ export function Cutout({
   faded = false,
   selected = false,
   onPress,
+  glide = false,
+  enterFrom,
   sway = false,
   phase = 0,
   ownTexture = false,
@@ -129,17 +143,50 @@ export function Cutout({
     [map, shared],
   );
 
+  const [x, y, z] = position;
   const pivot = useRef<Group>(null);
-  useFrame((state) => {
-    if (pivot.current === null) return;
-    pivot.current.rotation.z = sway
+  /** Where the pivot is headed: read each frame while gliding. */
+  const target = useRef<Point3>([x, y - SWAY.pivotDrop, z]);
+  // Before the frame loop and the placing effect below read it.
+  useLayoutEffect(() => {
+    target.current = [x, y - SWAY.pivotDrop, z];
+  }, [x, y, z]);
+
+  // When gliding starts the cutout is placed, and the frame loop moves it from then on. The
+  // first time it is placed where it enters; after that (gliding again once the GM lets go of
+  // a drag) it starts where it is headed.
+  const enter = useRef(enterFrom);
+  useLayoutEffect(() => {
+    if (!glide || pivot.current === null) return;
+    const entering = enter.current;
+    const [startX, startY, startZ] = entering ?? target.current;
+    pivot.current.position.set(
+      startX,
+      startY - (entering === undefined ? 0 : SWAY.pivotDrop),
+      startZ,
+    );
+  }, [glide]);
+
+  useFrame((state, delta) => {
+    const group = pivot.current;
+    if (group === null) return;
+    group.rotation.z = sway
       ? Math.sin(state.clock.elapsedTime * SWAY.speed + phase) * SWAY.angle
       : 0;
+    if (!glide) return;
+    // On its way: placed where it is headed if gliding starts again (cleared here, not in the
+    // effect, so React running effects twice in development can't skip the entrance).
+    enter.current = undefined;
+    const [toX, toY, toZ] = target.current;
+    group.position.set(
+      MathUtils.damp(group.position.x, toX, GLIDE_SPEED, delta),
+      MathUtils.damp(group.position.y, toY, GLIDE_SPEED, delta),
+      MathUtils.damp(group.position.z, toZ, GLIDE_SPEED, delta),
+    );
   });
 
   const w = width * WORLD_UNITS_PER_PIXEL * scale;
   const h = height * WORLD_UNITS_PER_PIXEL * scale;
-  const [x, y, z] = position;
   const mirror = flipped ? -1 : 1;
 
   /** A stick or a post, from behind the cutout down into the void. */
@@ -151,7 +198,7 @@ export function Cutout({
   const stringLength = OPENING.height - y - stringBottom;
 
   return (
-    <group ref={pivot} position={[x, y - SWAY.pivotDrop, z]}>
+    <group ref={pivot} {...(glide ? {} : { position: [x, y - SWAY.pivotDrop, z] })}>
       {/* Everything below is placed from the cutout's bottom center. */}
       <group position={[0, SWAY.pivotDrop, 0]}>
         {!faded && (

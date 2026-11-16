@@ -95,6 +95,7 @@ import {
   saveProviderKey,
   saveSceneObjects,
   setCampaignArchived,
+  setRecordRevealed,
   retryImport,
   startImport,
   startPlaySession,
@@ -425,6 +426,24 @@ export function usePatchRecord(campaignId: string, recordId: string) {
           refetchType: 'none',
         });
       }
+    },
+  });
+}
+
+/**
+ * Reveals a record to players, or takes it back (F3.4). The answer becomes the cached record,
+ * and the record lists, which show what is revealed, are refetched. During a session the
+ * server sends the stage again by itself.
+ */
+export function useRevealRecord(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetchLists = useRefetch(campaignId, 'records');
+  return useMutation({
+    mutationFn: ({ recordId, revealed }: { recordId: string; revealed: boolean }) =>
+      setRecordRevealed(campaignId, recordId, revealed),
+    onSuccess: (record) => {
+      queryClient.setQueryData(recordKey(campaignId, record.id), record);
+      refetchLists();
     },
   });
 }

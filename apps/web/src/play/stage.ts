@@ -1,9 +1,10 @@
 /**
- * The live stage as the theater draws it (F3.3). Everyone gets the players' view of the
- * theater, the GM too (governance §12 "Views and camera"): what the GM also knows about, hidden
- * props and puppets waiting below, is listed on the desk, not drawn. Pure.
+ * The live stage as the theater draws it (F3.3, F3.4). Players see what is in sight. The GM sees
+ * the same theater (governance §12 "Views and camera"), and, unless they ask to see it as
+ * players do, the hidden props too, drawn see-through so they can be picked and shown. Puppets
+ * waiting below are never drawn: they are listed on the desk. Pure.
  */
-import type { LiveStage } from '@stagehand/shared';
+import type { LiveStage, ObjectChanges } from '@stagehand/shared';
 
 import { stageImageUrl, type StageCutout } from '@/lib/scenes';
 
@@ -19,11 +20,26 @@ export interface TheaterView {
 
 export const EMPTY_THEATER: TheaterView = { backdropUrl: null, cutouts: [] };
 
-/** What is in sight on a stage: for a player all of it, for the GM what is shown and drawn. */
-export function theaterView(campaignId: string, stage: LiveStage): TheaterView {
+export interface TheaterOptions {
+  /** The GM's theater: hidden props drawn see-through. */
+  hiddenProps?: boolean;
+  /** The GM's moves still on their way to the server, drawn where they are going. */
+  pending?: Readonly<Record<string, ObjectChanges>>;
+}
+
+/** What the theater draws of a stage. */
+export function theaterView(
+  campaignId: string,
+  stage: LiveStage,
+  { hiddenProps = false, pending = {} }: TheaterOptions = {},
+): TheaterView {
   const cutouts: StageCutout[] = [];
-  for (const object of stage.objects) {
-    if (object.image === null || ('shown' in object && !object.shown)) continue;
+  for (const stageObject of stage.objects) {
+    const object = { ...stageObject, ...pending[stageObject.id] };
+    if (object.image === null) continue;
+    const isProp = object.kind === 'prop';
+    const shown = !('shown' in object) || object.shown;
+    if (!shown && !(isProp && hiddenProps)) continue;
     cutouts.push({
       id: object.id,
       url: stageImageUrl(campaignId, object.image),
@@ -34,8 +50,8 @@ export function theaterView(campaignId: string, stage: LiveStage): TheaterView {
       depthTick: object.depthTick,
       scale: object.scale,
       flipped: object.flipped,
-      mount: object.kind === 'prop' ? (object.mount ?? 'stand') : 'stick',
-      faded: false,
+      mount: isProp ? (object.mount ?? 'stand') : 'stick',
+      faded: !shown,
       lowered: false,
     });
   }
@@ -45,9 +61,9 @@ export function theaterView(campaignId: string, stage: LiveStage): TheaterView {
   };
 }
 
-/** Every image a stage needs before the curtain opens on it. */
+/** Every image a stage needs before the curtain opens on it, hidden props too for the GM. */
 export function stageImageUrls(campaignId: string, stage: LiveStage): string[] {
-  const view = theaterView(campaignId, stage);
+  const view = theaterView(campaignId, stage, { hiddenProps: true });
   const urls = view.cutouts.map((cutout) => cutout.url);
   if (view.backdropUrl !== null) urls.push(view.backdropUrl);
   return [...new Set(urls)];

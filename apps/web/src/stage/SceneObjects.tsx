@@ -39,6 +39,12 @@ export interface SceneObjectsProps {
   onMove?: (id: string, place: Place) => void;
   /** Called when a drag starts (true) and ends (false), so the editing camera can hold still. */
   onDragChange?: (dragging: boolean) => void;
+  /**
+   * Live play (F3.4): cutouts glide to new places, and puppets rise out of the void as they
+   * appear. `snapId` names one that follows the pointer exactly instead: the one being dragged.
+   */
+  glide?: boolean;
+  snapId?: string | null;
 }
 
 /**
@@ -52,6 +58,8 @@ export function SceneObjects({
   onSelect,
   onMove,
   onDragChange,
+  glide = false,
+  snapId = null,
 }: SceneObjectsProps) {
   const camera = useThree((state) => state.camera);
   const canvas = useThree((state) => state.gl.domElement);
@@ -114,6 +122,8 @@ export function SceneObjects({
     <>
       {objects.map((object, index) => {
         const position = cutoutPosition(object, index);
+        const glides = glide && object.id !== snapId;
+        const rises = glides && object.mount === 'stick';
         return (
           // Keyed by the image too: a boundary that gave up tries again with a new image.
           <CutoutBoundary key={`${object.id}:${object.url}`}>
@@ -128,6 +138,10 @@ export function SceneObjects({
                 mount={object.mount}
                 faded={object.faded}
                 selected={object.id === selectedId}
+                glide={glides}
+                {...(rises
+                  ? { enterFrom: cutoutPosition({ ...object, lowered: true }, index) }
+                  : {})}
                 {...(onSelect === undefined
                   ? {}
                   : {

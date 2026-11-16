@@ -362,10 +362,31 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     const [path = '', queryString = ''] = rest.split('?');
     const recordMatch = /^\/records\/([^/]+)$/.exec(path);
     const backlinksMatch = /^\/records\/([^/]+)\/backlinks$/.exec(path);
-    if (path !== '/records' && recordMatch === null && backlinksMatch === null) return null;
+    const revealMatch = /^\/records\/([^/]+)\/(reveal|unreveal)$/.exec(path);
+    if (
+      path !== '/records' &&
+      recordMatch === null &&
+      backlinksMatch === null &&
+      revealMatch === null
+    ) {
+      return null;
+    }
     if (found.role !== 'gm') return refused(403, 'Only the GM can do that');
 
     const byId = (id: string) => d.records.find((r) => r.id === id);
+
+    // Reveal and Un-reveal (F3.4): only whether players may have it changes.
+    if (revealMatch !== null) {
+      if (method !== 'POST') return new Response('not mocked', { status: 500 });
+      if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+      const target = byId(revealMatch[1] ?? '');
+      if (target === undefined) return notFound('Record not found');
+      const revealed = revealMatch[2] === 'reveal';
+      if ((target.revealedAt !== null) !== revealed) {
+        target.revealedAt = revealed ? '2026-11-15T20:00:00.000Z' : null;
+      }
+      return Response.json(target);
+    }
     const refOf = (r: CampaignRecord): RecordRef => ({ id: r.id, type: r.type, name: r.name });
     const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
     /** Like the server: links under the targets' current names, sorted, deleted ones gone. */

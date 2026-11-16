@@ -57,6 +57,25 @@ describe('theaterView', () => {
     ]);
   });
 
+  it('draws the GM the hidden props see-through when asked, never the puppets below', () => {
+    const view = theaterView(CAMPAIGN, gmStage(), { hiddenProps: true });
+
+    expect(view.cutouts.map((cutout) => [cutout.url, cutout.faded])).toEqual([
+      [urlOf(1), false],
+      [urlOf(2), true],
+    ]);
+  });
+
+  it('draws the GM a move still on its way where it is going', () => {
+    const stage = gmStage();
+    const [well] = stage.objects;
+    const view = theaterView(CAMPAIGN, stage, {
+      pending: { [well?.id ?? '']: { across: 0.9, depthTick: 1, flipped: true } },
+    });
+
+    expect(view.cutouts[0]).toMatchObject({ across: 0.9, depthTick: 1, flipped: true, up: 0 });
+  });
+
   it('leaves the back wall bare without a backdrop', () => {
     const view = theaterView(CAMPAIGN, playerStage({ backdrop: null, objects: [] }));
 
@@ -73,8 +92,10 @@ describe('stageImageUrls', () => {
     expect(stageImageUrls(CAMPAIGN, stage).sort()).toEqual([urlOf(0), urlOf(1), urlOf(2)].sort());
   });
 
-  it('asks a GM for nothing a player would not load', () => {
-    expect(stageImageUrls(CAMPAIGN, gmStage()).sort()).toEqual([urlOf(0), urlOf(1)].sort());
+  it('asks a GM for the hidden props too, which the GM sees through, but no puppet below', () => {
+    expect(stageImageUrls(CAMPAIGN, gmStage()).sort()).toEqual(
+      [urlOf(0), urlOf(1), urlOf(2)].sort(),
+    );
   });
 });
 

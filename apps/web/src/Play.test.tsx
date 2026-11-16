@@ -1,4 +1,10 @@
-import { PLAY_SOCKET, type Campaign, type LiveStage, type Presence } from '@stagehand/shared';
+import {
+  PLAY_SOCKET,
+  type Campaign,
+  type GmStageObject,
+  type LiveStage,
+  type Presence,
+} from '@stagehand/shared';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,16 +21,21 @@ import {
   stageImage,
 } from '@/test/play-fixtures';
 
-// jsdom has no WebGL, so the 3D theater is replaced by a stand-in that shows what it was given.
+// jsdom has no WebGL, so the 3D theater is replaced by a stand-in that shows what it was given,
+// and keeps its props so a test can press a cutout as the GM would.
+let canvasProps: PlayCanvasProps | null = null;
 vi.mock('@/stage/PlayCanvas', () => ({
-  PlayCanvas: (props: PlayCanvasProps) => (
-    <div
-      data-testid="play-canvas"
-      data-backdrop={props.backdropUrl ?? ''}
-      data-curtain={props.curtainOpen ? 'open' : 'closed'}
-      data-objects={JSON.stringify(props.objects)}
-    />
-  ),
+  PlayCanvas: (props: PlayCanvasProps) => {
+    canvasProps = props;
+    return (
+      <div
+        data-testid="play-canvas"
+        data-backdrop={props.backdropUrl ?? ''}
+        data-curtain={props.curtainOpen ? 'open' : 'closed'}
+        data-objects={JSON.stringify(props.objects)}
+      />
+    );
+  },
 }));
 
 /** The live room's connection: each test plays the server on it. */
@@ -35,6 +46,7 @@ vi.mock('@/play/preload', () => ({ preloadImages: () => Promise.resolve() }));
 
 beforeEach(() => {
   socket = fakePlaySocket();
+  canvasProps = null;
 });
 
 type FetchMock = ReturnType<typeof mockApi>;
@@ -210,6 +222,9 @@ describe('The table, for a player', () => {
     expect(whoIsHere()).toEqual(['MMiraGM', 'SSamVex Tidecaller']);
     expect(screen.queryByRole('complementary', { name: 'Control desk' })).toBeNull();
     expect(screen.queryByRole('button', { name: /curtain/ })).toBeNull();
+    // Nothing in a player's theater can be picked or dragged.
+    expect(canvasProps?.onSelect).toBeUndefined();
+    expect(canvasProps?.onMove).toBeUndefined();
   });
 
   it('follows the curtain and who is here as the server sends them', async () => {
@@ -314,16 +329,21 @@ describe('The table, for the GM', () => {
   it('shows the theater as players see it, with the desk beside it', async () => {
     const theater = await seated(coast, stageWith(), [GM_HERE, SAM_HERE]);
 
-    // Only the well is in sight: the trapdoor is hidden and Marta waits below.
+    // The well is in sight and the hidden trapdoor drawn see-through; Marta waits below.
     await waitFor(() => {
-      expect(drawn(theater)).toHaveLength(1);
+      expect(drawn(theater)).toHaveLength(2);
     });
+    expect(drawn(theater).map((cutout) => cutout.faded)).toEqual([false, true]);
     expect(desk().getByRole('heading', { name: 'Session 3' })).toBeDefined();
     expect(
       within(desk().getByRole('list', { name: 'On stage' }))
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['Stone WellIn sight', 'Secret TrapdoorHidden', 'Old MartaWaiting below']);
+    ).toEqual([
+      'Stone WellIn sightHide',
+      'Secret TrapdoorHiddenShow',
+      'Old MartaWaiting belowRaise',
+    ]);
     expect(whoIsHere()).toEqual(['MMiraGM', 'SSamVex Tidecaller']);
     expect(screen.queryByRole('link', { name: 'Leave the table' })).toBeNull();
   });
@@ -400,6 +420,153 @@ describe('The table, for the GM', () => {
     expect(
       (await desk().findByRole<HTMLButtonElement>('button', { name: 'Load: The cellar' })).disabled,
     ).toBe(true);
+  });
+
+  describe('the control desk', () => {
+    const [well, trapdoor, marta] = gmStage().objects.map((object) => object.id);
+    const wellId = well ?? '';
+    const sent = (event: string) => socket.requests.filter((request) => request.event === event);
+    const picked = (name: string) =>
+      within(desk().getByRole('region', { name: `Selected: ${name}` }));
+
+    function pressInTheater(id: string | null) {
+      act(() => {
+        canvasProps?.onSelect?.(id);
+      });
+    }
+
+    it('picks an object in the theater, and moves it at once, sending moves one at a time', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      pressInTheater(wellId);
+      expect(canvasProps?.selectedId).toBe(wellId);
+
+      fireEvent.change(picked('Stone Well').getByLabelText('Left to right'), {
+        target: { value: '0.8' },
+      });
+      expect(socket.last(PLAY_SOCKET.moveObject).payload).toEqual({ id: wellId, across: 0.8 });
+      expect(drawn(await canvas())[0]?.across).toBe(0.8);
+
+      // A second change waits for the first to be answered, then goes after the gap.
+      fireEvent.click(picked('Stone Well').getByRole('button', { name: 'Step back' }));
+      expect(sent(PLAY_SOCKET.moveObject)).toHaveLength(1);
+      await answer(PLAY_SOCKET.moveObject, { ok: true });
+      await waitFor(() => {
+        expect(sent(PLAY_SOCKET.moveObject)).toHaveLength(2);
+      });
+      expect(socket.last(PLAY_SOCKET.moveObject).payload).toEqual({ id: wellId, depthTick: 6 });
+
+      pressInTheater(null);
+      expect(desk().queryByRole('region', { name: 'Selected: Stone Well' })).toBeNull();
+    });
+
+    it('drags a cutout in the theater, and moves it with the arrow keys', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      fireEvent.click(desk().getByRole('button', { name: /^Stone Well/ }));
+
+      act(() => {
+        canvasProps?.onMove?.(wellId, { across: 0.1, up: 0.3 });
+      });
+      expect(socket.last(PLAY_SOCKET.moveObject).payload).toEqual({
+        id: wellId,
+        across: 0.1,
+        up: 0.3,
+      });
+      await answer(PLAY_SOCKET.moveObject, { ok: true });
+
+      fireEvent.keyDown(window, { key: 'ArrowLeft', shiftKey: true });
+      await waitFor(() => {
+        expect(sent(PLAY_SOCKET.moveObject)).toHaveLength(2);
+      });
+      // From where the drag left it, not from where the server last had it.
+      expect(socket.last(PLAY_SOCKET.moveObject).payload).toEqual({ id: wellId, across: 0.05 });
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(canvasProps?.selectedId).toBeNull();
+    });
+
+    it('raises a puppet and shows a prop from the list', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+
+      fireEvent.click(desk().getByRole('button', { name: 'Raise: Old Marta' }));
+      expect(socket.last(PLAY_SOCKET.raisePuppet).payload).toEqual({ id: marta });
+      await answer(PLAY_SOCKET.raisePuppet, { ok: true });
+
+      fireEvent.click(desk().getByRole('button', { name: 'Show: Secret Trapdoor' }));
+      expect(socket.last(PLAY_SOCKET.showProp).payload).toEqual({ id: trapdoor });
+      await answer(PLAY_SOCKET.showProp, { ok: false, message: 'That is no longer on the stage' });
+      expect(desk().getByRole('alert').textContent).toBe('That is no longer on the stage');
+    });
+
+    it('adds a PC out of sight, and picks it once the stage has it', async () => {
+      const vexId = uuid();
+      mockApi(MIRA, [coast], {
+        playSessions: { [coast.id]: SESSION },
+        stageCharacters: {
+          [coast.id]: [{ id: vexId, name: 'Vex Tidecaller', image: stageImage(9) }],
+        },
+      });
+      await seated(coast, stageWith(), [GM_HERE]);
+
+      fireEvent.click(await desk().findByRole('button', { name: 'Add Vex Tidecaller' }));
+      const { payload } = socket.last(PLAY_SOCKET.addObject);
+      expect(payload).toEqual({ id: expect.any(String) as string, characterId: vexId });
+      await answer(PLAY_SOCKET.addObject, { ok: true });
+
+      const added = (payload as { id: string }).id;
+      serverSends(
+        PLAY_SOCKET.stage,
+        stageWith({
+          objects: [
+            ...gmStage().objects,
+            {
+              ...gmStage().objects[2],
+              id: added,
+              subject: { kind: 'pc', id: vexId, name: 'Vex Tidecaller' },
+            } as GmStageObject,
+          ],
+        }),
+      );
+      expect(await desk().findByRole('region', { name: 'Selected: Vex Tidecaller' })).toBeDefined();
+      expect(picked('Vex Tidecaller').getByRole('button', { name: 'Raise' })).toBeDefined();
+      expect(picked('Vex Tidecaller').queryByRole('button', { name: 'Reveal' })).toBeNull();
+    });
+
+    it('takes an object off the stage after asking', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      pressInTheater(wellId);
+
+      fireEvent.click(picked('Stone Well').getByRole('button', { name: 'Remove from stage' }));
+      const dialog = within(await screen.findByRole('alertdialog'));
+      expect(dialog.getByText(/The saved scene keeps it/)).toBeDefined();
+      fireEvent.click(dialog.getByRole('button', { name: 'Remove from stage' }));
+
+      await waitFor(() => {
+        expect(socket.last(PLAY_SOCKET.removeObject).payload).toEqual({ id: wellId });
+      });
+    });
+
+    it('reveals what is picked through the server', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      pressInTheater(wellId);
+
+      fireEvent.click(picked('Stone Well').getByRole('button', { name: 'Reveal' }));
+
+      const recordId = gmStage().objects[0]?.subject.id ?? '';
+      await waitFor(() => {
+        expect(sentTo(fetchMock, `/records/${recordId}/reveal`, 'POST')).toBe(1);
+      });
+    });
+
+    it('shows the GM the theater as players see it, on request', async () => {
+      const theater = await seated(coast, stageWith(), [GM_HERE]);
+      await waitFor(() => {
+        expect(drawn(theater)).toHaveLength(2);
+      });
+
+      fireEvent.click(desk().getByRole('button', { name: 'As players see it' }));
+
+      expect(drawn(await canvas())).toHaveLength(1);
+    });
   });
 
   it('puts the desk away and brings it back, for a small window', async () => {

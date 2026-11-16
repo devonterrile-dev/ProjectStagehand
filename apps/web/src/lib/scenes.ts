@@ -117,8 +117,11 @@ export const RECORD_DRAG_TYPE = 'application/x-stagehand-record';
 /** How far an arrow key moves the selected object, as a share of the opening; Shift moves more. */
 export const NUDGE = { step: 0.01, big: 0.05 } as const;
 
+/** Where the keys move an object: across, up and between depth ticks. */
+export type KeyPlacement = Pick<SceneObject, 'across' | 'up' | 'depthTick'>;
+
 /** What a key does to the selected object. */
-export type KeyAction = { change: Partial<SceneObject> } | 'remove' | 'deselect';
+export type KeyAction = { change: Partial<KeyPlacement> } | 'remove' | 'deselect';
 
 const tidy = (value: number) => Math.round(value * 10_000) / 10_000;
 
@@ -127,7 +130,7 @@ const tidy = (value: number) => Math.round(value * 10_000) / 10_000;
  * forward and `]` back, Delete or Backspace removes it, Escape lets go of it. Null for any
  * other key.
  */
-export function keyAction(object: SceneObject, key: string, shift: boolean): KeyAction | null {
+export function keyAction(object: KeyPlacement, key: string, shift: boolean): KeyAction | null {
   const step = shift ? NUDGE.big : NUDGE.step;
   switch (key) {
     case 'ArrowLeft':

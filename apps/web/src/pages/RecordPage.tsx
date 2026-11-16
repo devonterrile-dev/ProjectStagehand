@@ -1,5 +1,5 @@
 import { isVisualSubject, RECORD_TYPE_LABELS } from '@stagehand/shared';
-import { SparklesIcon, TheaterIcon } from 'lucide-react';
+import { EyeIcon, EyeOffIcon, SparklesIcon, TheaterIcon } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { BacklinksPanel } from '@/components/records/BacklinksPanel';
@@ -11,11 +11,48 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { VisualCard } from '@/components/visuals/VisualCard';
 import { importPath } from '@/lib/ai-import';
-import { useCampaign, useCreateScene, useRecord, useRecords } from '@/lib/queries';
+import { useCampaign, useCreateScene, useRecord, useRecords, useRevealRecord } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
 import { recordsPath } from '@/lib/records';
 import { scenePath } from '@/lib/scenes';
 import { CampaignNotFound } from '@/pages/CampaignPage';
+
+/**
+ * Reveal to players, or Hide from players (F3.4, governance §7): whether this record may reach
+ * players' journals. Showing it on stage during a session reveals it too.
+ */
+function RevealButton({
+  campaignId,
+  recordId,
+  revealed,
+}: {
+  campaignId: string;
+  recordId: string;
+  revealed: boolean;
+}) {
+  const reveal = useRevealRecord(campaignId);
+  return (
+    <>
+      {reveal.isError && (
+        <span role="alert" className="text-sm text-destructive">
+          {reveal.error.message}
+        </span>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        aria-pressed={revealed}
+        disabled={reveal.isPending}
+        onClick={() => {
+          reveal.mutate({ recordId, revealed: !revealed });
+        }}
+      >
+        {revealed ? <EyeOffIcon aria-hidden /> : <EyeIcon aria-hidden />}
+        {revealed ? 'Hide from players' : 'Reveal to players'}
+      </Button>
+    </>
+  );
+}
 
 /**
  * On a Spot (F3.2, governance §12 "Scene builder" step 1): makes a scene named after the Spot,
@@ -120,6 +157,13 @@ export function RecordPage() {
         <div className="flex items-center gap-2">
           {campaign.archivedAt === null && record.type === 'spot' && (
             <BuildSceneButton campaignId={campaign.id} spot={record} />
+          )}
+          {campaign.archivedAt === null && (
+            <RevealButton
+              campaignId={campaign.id}
+              recordId={record.id}
+              revealed={record.revealedAt !== null}
+            />
           )}
           {campaign.archivedAt === null && (
             <Button asChild size="sm" variant="outline">

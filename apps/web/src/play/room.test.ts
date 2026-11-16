@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakePlaySocket, type FakePlaySocket } from '@/test/fake-play-socket';
 import { gmStage, playerStage, present, stageImage } from '@/test/play-fixtures';
 
-import { createPlayRoom, CURTAIN_CLOSE_MS, NO_ANSWER, RETRY_MS, type PlayRoom } from './room';
+import {
+  createPlayRoom,
+  CURTAIN_CLOSE_MS,
+  MOVE_GAP_MS,
+  NO_ANSWER,
+  RETRY_MS,
+  type PlayRoom,
+} from './room';
 
 const CAMPAIGN = 'campaign-1';
 const urlOf = (n: number) => `/api/campaigns/${CAMPAIGN}/assets/${stageImage(n).assetId}/image?p=3`;
@@ -369,6 +376,92 @@ describe('the live room, from the browser', () => {
       socket.last(PLAY_SOCKET.loadScene).answer('fine');
       expect(await garbled).toEqual({ ok: false, message: NO_ANSWER });
     });
+
+    it('sends the desk’s actions (F3.4)', async () => {
+      const stage = gmStage();
+      await joined(stage);
+      const [well, , marta] = stage.objects;
+
+      void room.addObject({ id: 'new-1', characterId: 'pc-1' });
+      expect(socket.last(PLAY_SOCKET.addObject).payload).toEqual({
+        id: 'new-1',
+        characterId: 'pc-1',
+      });
+      void room.removeObject(well?.id ?? '');
+      expect(socket.last(PLAY_SOCKET.removeObject).payload).toEqual({ id: well?.id });
+      for (const [object, shown, event] of [
+        [well, false, PLAY_SOCKET.hideProp],
+        [well, true, PLAY_SOCKET.showProp],
+        [marta, true, PLAY_SOCKET.raisePuppet],
+        [marta, false, PLAY_SOCKET.lowerPuppet],
+      ] as const) {
+        if (object === undefined) throw new Error('missing fixture');
+        void room.setShown(object, shown);
+        expect(socket.last(event).payload).toEqual({ id: object.id });
+      }
+    });
+
+    describe('moves', () => {
+      const moves = () =>
+        socket.requests.filter((request) => request.event === PLAY_SOCKET.moveObject);
+
+      it('shows a move at once, and sends what piles up meanwhile as one, after the gap', async () => {
+        const stage = gmStage();
+        await joined(stage);
+        const id = stage.objects[0]?.id ?? '';
+
+        const first = room.moveObject(id, { across: 0.2 });
+        expect(state().pending).toEqual({ [id]: { across: 0.2 } });
+        expect(moves().map((move) => move.payload)).toEqual([{ id, across: 0.2 }]);
+
+        const second = room.moveObject(id, { across: 0.3 });
+        const third = room.moveObject(id, { up: 0.4 });
+        expect(state().pending).toEqual({ [id]: { across: 0.3, up: 0.4 } });
+        expect(moves()).toHaveLength(1);
+
+        moves()[0]?.answer({ ok: true });
+        expect(await first).toEqual({ ok: true });
+        await vi.advanceTimersByTimeAsync(MOVE_GAP_MS - 1);
+        expect(moves()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(moves()[1]?.payload).toEqual({ id, across: 0.3, up: 0.4 });
+
+        moves()[1]?.answer({ ok: true });
+        expect(await second).toEqual({ ok: true });
+        expect(await third).toEqual({ ok: true });
+      });
+
+      it('keeps a move on show until the stage has it, then lets the stage draw it', async () => {
+        const stage = gmStage();
+        await joined(stage);
+        const [well, ...rest] = stage.objects;
+        if (well === undefined) throw new Error('missing fixture');
+
+        const moving = room.moveObject(well.id, { across: 0.9 });
+        moves()[0]?.answer({ ok: true });
+        await moving;
+        // Answered, but the stage that has it has not come yet.
+        expect(state().pending).toEqual({ [well.id]: { across: 0.9 } });
+
+        socket.receive(PLAY_SOCKET.stage, {
+          ...stage,
+          objects: [{ ...well, across: 0.9 }, ...rest],
+        });
+        expect(state().pending).toEqual({});
+      });
+
+      it('drops a refused move, so the stage as the server has it is drawn', async () => {
+        const stage = gmStage();
+        await joined(stage);
+        const id = stage.objects[0]?.id ?? '';
+
+        const moving = room.moveObject(id, { depthTick: 9 });
+        moves()[0]?.answer({ ok: false, message: 'That is no longer on the stage' });
+
+        expect(await moving).toEqual({ ok: false, message: 'That is no longer on the stage' });
+        expect(state().pending).toEqual({});
+      });
+    });
   });
 
   describe('closing', () => {
@@ -383,6 +476,7 @@ describe('the live room, from the browser', () => {
         stage: null,
         view: null,
         presence: [],
+        pending: {},
       });
 
       // Nothing that arrives late changes a closed room.

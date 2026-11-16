@@ -354,6 +354,22 @@ export async function patchRecord(
   return recordSchema.parse(await response.json());
 }
 
+/**
+ * Reveals a record to players, or takes it back (F3.4, governance §7). Answers the record. GM
+ * only; refused while the campaign is archived.
+ */
+export async function setRecordRevealed(
+  campaignId: string,
+  recordId: string,
+  revealed: boolean,
+): Promise<CampaignRecord> {
+  const response = await send(
+    `${recordsPath(campaignId, recordId)}/${revealed ? 'reveal' : 'unreveal'}`,
+    'POST',
+  );
+  return recordSchema.parse(await response.json());
+}
+
 /** Deletes a record for good. An Area that still has Spots is refused (409). GM only. */
 export async function deleteRecord(campaignId: string, recordId: string): Promise<void> {
   await send(recordsPath(campaignId, recordId), 'DELETE');

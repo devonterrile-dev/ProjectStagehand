@@ -1,5 +1,5 @@
-import type { Campaign } from '@stagehand/shared';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { DEPTH_TICKS, type Campaign, type ObjectChanges } from '@stagehand/shared';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { useStore } from 'zustand';
 
@@ -7,9 +7,24 @@ import { GmDesk } from '@/components/play/GmDesk';
 import { PresenceList } from '@/components/play/PresenceList';
 import { Button } from '@/components/ui/button';
 import { useCampaign, useEndPlaySession, useStartPlaySession } from '@/lib/queries';
+import { keyAction, type KeyPlacement } from '@/lib/scenes';
 import { createPlayRoom } from '@/play/room';
 import { EMPTY_THEATER, theaterView } from '@/play/stage';
 import { PlayCanvas } from '@/stage/PlayCanvas';
+import type { Place } from '@/stage/placement';
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/** A key's move kept inside the opening and on a real depth tick, as the server requires. */
+function insideStage(change: Partial<KeyPlacement>): ObjectChanges {
+  return {
+    ...(change.across === undefined ? {} : { across: clamp(change.across, 0, 1) }),
+    ...(change.up === undefined ? {} : { up: clamp(change.up, 0, 1) }),
+    ...(change.depthTick === undefined
+      ? {}
+      : { depthTick: clamp(change.depthTick, 0, DEPTH_TICKS - 1) }),
+  };
+}
 
 /** A message in place of the theater: loading, waiting, not allowed. */
 function Notice({ children }: { children: ReactNode }) {
@@ -21,9 +36,10 @@ function Notice({ children }: { children: ReactNode }) {
 }
 
 /**
- * `/campaigns/:campaignId/play`: the table during a live session (F3.3, governance §13). The
- * theater fills the window, like every stage page, and is loaded lazily so Three.js stays out
- * of the main bundle. Players see only the theater; the GM has a desk beside it.
+ * `/campaigns/:campaignId/play`: the table during a live session (F3.3, F3.4, governance §13).
+ * The theater fills the window, like every stage page, and is loaded lazily so Three.js stays
+ * out of the main bundle. Players see only the theater; the GM has the control desk beside it,
+ * and can pick and drag what is on stage in the theater itself.
  */
 export function PlayPage() {
   const { campaignId = '' } = useParams();
@@ -62,18 +78,67 @@ function Table({ campaign }: { campaign: Campaign }) {
     };
   }, [room]);
 
-  const { phase, connected, stage, view, presence } = useStore(room.store);
+  const { phase, connected, stage, view, presence, pending } = useStore(room.store);
   // The desk can be put away: in a small window or Activity frame the theater needs the room.
   const [deskOpen, setDeskOpen] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [asPlayers, setAsPlayers] = useState(false);
   const start = useStartPlaySession(campaign.id);
   const end = useEndPlaySession(campaign.id);
 
   const isGm = campaign.role === 'gm';
   const archived = campaign.archivedAt !== null;
   const theater = useMemo(
-    () => (view === null ? EMPTY_THEATER : theaterView(campaign.id, view.stage)),
-    [campaign.id, view],
+    () =>
+      view === null
+        ? EMPTY_THEATER
+        : theaterView(campaign.id, view.stage, { hiddenProps: !asPlayers, pending }),
+    [campaign.id, view, asPlayers, pending],
   );
+
+  // What the GM picked, while it is still on the stage.
+  const gmStage = stage?.role === 'gm' ? stage : null;
+  const selected = gmStage?.objects.find((object) => object.id === selectedId) ?? null;
+  const picked = selected === null ? null : selected.id;
+
+  const onMove = useCallback(
+    (id: string, place: Place) => {
+      void room.moveObject(id, place);
+    },
+    [room],
+  );
+
+  // The builder's keys for the object the GM picked: arrows across and up, [ and ] in depth,
+  // Escape to let go. Not while typing, in a dialog or in a menu.
+  useEffect(() => {
+    if (selected === null) return;
+    const { id } = selected;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+      const { target } = event;
+      if (
+        target instanceof Element &&
+        target.closest(
+          'input, select, textarea, [contenteditable], [role="dialog"], [role="alertdialog"], [role="menu"]',
+        ) !== null
+      ) {
+        return;
+      }
+      const placed = { ...selected, ...room.store.getState().pending[id] };
+      const action = keyAction(placed, event.key, event.shiftKey);
+      if (action === null || action === 'remove') return;
+      event.preventDefault();
+      if (action === 'deselect') {
+        setSelectedId(null);
+        return;
+      }
+      void room.moveObject(id, insideStage(action.change));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [room, selected]);
 
   const back = (
     <Link to={`/campaigns/${campaign.id}`} className="underline">
@@ -179,6 +244,7 @@ function Table({ campaign }: { campaign: Campaign }) {
           backdropUrl={theater.backdropUrl}
           objects={theater.cutouts}
           curtainOpen={view?.curtainOpen ?? false}
+          {...(isGm ? { selectedId: picked, onSelect: setSelectedId, onMove } : {})}
         />
         {!connected && (
           <p
@@ -217,9 +283,14 @@ function Table({ campaign }: { campaign: Campaign }) {
         <GmDesk
           campaign={campaign}
           stage={stage}
+          pending={pending}
           presence={presence}
           connected={connected}
           room={room}
+          selectedId={picked}
+          onSelect={setSelectedId}
+          asPlayers={asPlayers}
+          onAsPlayersChange={setAsPlayers}
           onEnd={() => end.mutateAsync()}
         />
       )}

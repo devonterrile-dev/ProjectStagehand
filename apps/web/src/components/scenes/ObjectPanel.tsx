@@ -1,9 +1,10 @@
-import { DEPTH_TICKS, SCENE_SCALE, type SceneObject } from '@stagehand/shared';
-import { useId, type ReactNode } from 'react';
+import type { SceneObject } from '@stagehand/shared';
 import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { recordPath } from '@/lib/records';
+
+import { PlacementControls, Toggle } from './PlacementControls';
 
 interface ObjectPanelProps {
   campaignId: string;
@@ -15,80 +16,6 @@ interface ObjectPanelProps {
   onSelect: (id: string | null) => void;
   onChange: (id: string, change: Partial<SceneObject>) => void;
   onRemove: (id: string) => void;
-}
-
-const percent = (value: number) => `${String(Math.round(value * 100))}%`;
-
-/** A labelled slider with its value beside it. */
-function Slider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  shown,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  /** The value as the GM reads it. */
-  shown: string;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id}>{label}</label>
-        <span className="text-xs text-muted-foreground tabular-nums">{shown}</span>
-      </div>
-      <input
-        id={id}
-        type="range"
-        className="w-full"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => {
-          onChange(Number(event.target.value));
-        }}
-      />
-    </div>
-  );
-}
-
-/** An on-or-off button. */
-function Toggle({
-  pressed,
-  disabled,
-  onChange,
-  children,
-}: {
-  pressed: boolean;
-  disabled: boolean;
-  onChange: (pressed: boolean) => void;
-  children: ReactNode;
-}) {
-  return (
-    <Button
-      size="xs"
-      variant={pressed ? 'default' : 'secondary'}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={() => {
-        onChange(!pressed);
-      }}
-    >
-      {children}
-    </Button>
-  );
 }
 
 function Controls({
@@ -105,7 +32,6 @@ function Controls({
   onRemove: () => void;
 }) {
   const isProp = object.kind === 'prop';
-  const lastTick = DEPTH_TICKS - 1;
 
   return (
     <section aria-label={`Placing ${object.record.name}`} className="space-y-3">
@@ -138,108 +64,19 @@ function Controls({
         )}
       </div>
 
-      <Slider
-        label="Left to right"
-        value={object.across}
-        min={0}
-        max={1}
-        step={0.01}
-        shown={percent(object.across)}
-        disabled={!editable}
-        onChange={(across) => {
-          onChange({ across });
-        }}
-      />
-      <Slider
-        label="Height"
-        value={object.up}
-        min={0}
-        max={1}
-        step={0.01}
-        shown={percent(object.up)}
-        disabled={!editable}
-        onChange={(up) => {
-          onChange({ up });
-        }}
-      />
-
-      <div role="group" aria-label="Depth" className="space-y-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <span>Depth</span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            tick {object.depthTick} of 0 (front) to {lastTick} (back)
-          </span>
-        </div>
-        <div className="flex gap-1.5">
-          <Button
-            size="xs"
-            variant="secondary"
-            disabled={!editable || object.depthTick <= 0}
-            onClick={() => {
-              onChange({ depthTick: object.depthTick - 1 });
-            }}
-          >
-            Step forward
-          </Button>
-          <Button
-            size="xs"
-            variant="secondary"
-            disabled={!editable || object.depthTick >= lastTick}
-            onClick={() => {
-              onChange({ depthTick: object.depthTick + 1 });
-            }}
-          >
-            Step back
-          </Button>
-        </div>
-      </div>
-
-      <Slider
-        label="Size"
-        value={object.scale}
-        min={SCENE_SCALE.min}
-        max={SCENE_SCALE.max}
-        step={0.05}
-        shown={percent(object.scale)}
-        disabled={!editable}
-        onChange={(scale) => {
-          onChange({ scale });
-        }}
-      />
-
-      <div className="flex flex-wrap gap-1.5">
-        <Toggle
-          pressed={object.flipped}
-          disabled={!editable}
-          onChange={(flipped) => {
-            onChange({ flipped });
-          }}
-        >
-          Flipped
-        </Toggle>
+      <PlacementControls placement={object} disabled={!editable} onChange={onChange}>
         {isProp && (
-          <>
-            <Toggle
-              pressed={!object.shown}
-              disabled={!editable}
-              onChange={(hidden) => {
-                onChange({ shown: !hidden });
-              }}
-            >
-              Hidden at first
-            </Toggle>
-            <Toggle
-              pressed={object.mount === 'hang'}
-              disabled={!editable}
-              onChange={(hangs) => {
-                onChange({ mount: hangs ? 'hang' : 'stand' });
-              }}
-            >
-              Hangs from the roof
-            </Toggle>
-          </>
+          <Toggle
+            pressed={!object.shown}
+            disabled={!editable}
+            onChange={(hidden) => {
+              onChange({ shown: !hidden });
+            }}
+          >
+            Hidden at first
+          </Toggle>
         )}
-      </div>
+      </PlacementControls>
 
       <Button size="xs" variant="destructive" disabled={!editable} onClick={onRemove}>
         Remove from scene

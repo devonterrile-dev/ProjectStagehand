@@ -1,30 +1,56 @@
-import type { ActionResult, Campaign, GmStage, GmStageObject, Presence } from '@stagehand/shared';
+import {
+  RECORD_TYPE_LABELS,
+  STAGE_MAX_OBJECTS,
+  type ActionResult,
+  type Campaign,
+  type GmStage,
+  type GmStageObject,
+  type ObjectChanges,
+  type Presence,
+  type StageImage,
+} from '@stagehand/shared';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { PlacementControls, Toggle } from '@/components/scenes/PlacementControls';
 import { Button } from '@/components/ui/button';
-import { useScenes } from '@/lib/queries';
-import { scenesPath } from '@/lib/scenes';
+import { Input } from '@/components/ui/input';
+import { useRecordSearch, useRevealRecord, useScenes, useStageRecords } from '@/lib/queries';
+import { recordPath } from '@/lib/records';
+import { scenesPath, stageImageUrl } from '@/lib/scenes';
 import type { PlayRoom } from '@/play/room';
 
 import { PresenceList } from './PresenceList';
+
+export type DeskRoom = Pick<
+  PlayRoom,
+  'loadScene' | 'setCurtain' | 'addObject' | 'moveObject' | 'removeObject' | 'setShown'
+>;
 
 interface GmDeskProps {
   campaign: Campaign;
   /** The stage as the server last sent it. */
   stage: GmStage;
+  /** The GM's moves still on their way, shown in the controls at once. */
+  pending: Readonly<Record<string, ObjectChanges>>;
   presence: Presence;
   /** False while the connection is down: nothing can be sent. */
   connected: boolean;
-  room: Pick<PlayRoom, 'loadScene' | 'setCurtain'>;
+  room: DeskRoom;
+  /** The object picked here or in the theater; null for none. */
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  /** Whether the GM's theater leaves hidden props out, as players see it. */
+  asPlayers: boolean;
+  onAsPlayersChange: (asPlayers: boolean) => void;
   /** Ends the session for everyone. */
   onEnd: () => Promise<unknown>;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-2 border-b px-3 py-3">
+    <section aria-label={title} className="space-y-2 border-b px-3 py-3">
       <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
       </h2>
@@ -40,16 +66,219 @@ function whereabouts(object: GmStageObject): string {
   return object.shown ? 'In sight' : 'Hidden';
 }
 
+/** The button that brings an object into sight or takes it out. */
+function shownAction(object: GmStageObject): string {
+  if (object.kind === 'puppet') return object.shown ? 'Lower' : 'Raise';
+  return object.shown ? 'Hide' : 'Show';
+}
+
+function Thumb({ campaignId, image }: { campaignId: string; image: StageImage }) {
+  return (
+    <img
+      src={stageImageUrl(campaignId, image)}
+      alt=""
+      loading="lazy"
+      className="size-8 shrink-0 object-contain"
+    />
+  );
+}
+
+/** What can be put on the stage live: the PCs, then every Prop, Item and NPC with an image. */
+function AddToStage({
+  campaign,
+  stage,
+  disabled,
+  onAdd,
+}: {
+  campaign: Campaign;
+  stage: GmStage;
+  disabled: boolean;
+  onAdd: (subject: { recordId: string } | { characterId: string }) => void;
+}) {
+  const offer = useStageRecords(campaign.id, true);
+  const [search, setSearch] = useState('');
+  const needle = search.trim().toLowerCase();
+  const matches = (name: string) => name.toLowerCase().includes(needle);
+  const full = stage.objects.length >= STAGE_MAX_OBJECTS;
+  const onStage = new Set(
+    stage.objects
+      .filter((object) => object.kind === 'puppet')
+      .map((object) => `${object.subject.kind}:${object.subject.id}`),
+  );
+
+  const pcs = (offer.data?.characters ?? []).filter((pc) => matches(pc.name));
+  const records = (offer.data?.records ?? []).filter((entry) => matches(entry.record.name));
+
+  function row(key: string, name: string, detail: string, image: StageImage, add: () => void) {
+    const here = onStage.has(key);
+    return (
+      <li key={key} className="flex items-center gap-2">
+        <Thumb campaignId={campaign.id} image={image} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{name}</span>
+          <span className="block text-xs text-muted-foreground">
+            {detail}
+            {here ? ' · on stage' : ''}
+          </span>
+        </span>
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={disabled || here || full}
+          aria-label={`Add ${name}`}
+          onClick={add}
+        >
+          Add
+        </Button>
+      </li>
+    );
+  }
+
+  return (
+    <Section title="Add to stage">
+      <p className="text-xs text-muted-foreground">
+        It arrives out of sight, hidden or waiting below, so you can place it first. The saved scene
+        is not changed.
+      </p>
+      {full && (
+        <p className="text-xs text-muted-foreground">
+          The stage is full: it holds {STAGE_MAX_OBJECTS} props and puppets.
+        </p>
+      )}
+      <Input
+        type="search"
+        aria-label="Search what can be added"
+        placeholder="Search…"
+        value={search}
+        onChange={(event) => {
+          setSearch(event.target.value);
+        }}
+      />
+      {offer.isPending && <p className="text-muted-foreground">Loading…</p>}
+      {offer.isError && <p role="alert">Could not load what can be added.</p>}
+      {offer.data !== undefined && pcs.length + records.length === 0 && (
+        <p className="text-muted-foreground">
+          {needle === ''
+            ? 'Nothing has an image for the stage yet.'
+            : 'Nothing matches that search.'}
+        </p>
+      )}
+      <ul aria-label="Can be added" className="max-h-64 space-y-1 overflow-y-auto">
+        {pcs.map((pc) =>
+          row(`pc:${pc.id}`, pc.name, 'PC · puppet', pc.image, () => {
+            onAdd({ characterId: pc.id });
+          }),
+        )}
+        {records.flatMap((entry) =>
+          entry.image === null
+            ? []
+            : [
+                row(
+                  `record:${entry.record.id}`,
+                  entry.record.name,
+                  `${RECORD_TYPE_LABELS[entry.record.type]}${entry.kind === 'puppet' ? ' · puppet' : ''}`,
+                  entry.image,
+                  () => {
+                    onAdd({ recordId: entry.record.id });
+                  },
+                ),
+              ],
+        )}
+      </ul>
+    </Section>
+  );
+}
+
+/** Reveal any record of the campaign, or take one back (§7), found by a search. */
+function RevealAny({
+  campaign,
+  disabled,
+  onReveal,
+}: {
+  campaign: Campaign;
+  disabled: boolean;
+  onReveal: (recordId: string, revealed: boolean) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const q = search.trim();
+  const found = useRecordSearch(campaign.id, { q, limit: 8 }, q !== '');
+
+  return (
+    <Section title="Reveal">
+      <p className="text-xs text-muted-foreground">
+        What comes into sight while the curtain is open is revealed by itself. Reveal anything else
+        here.
+      </p>
+      <Input
+        type="search"
+        aria-label="Search records to reveal"
+        placeholder="Search records…"
+        value={search}
+        onChange={(event) => {
+          setSearch(event.target.value);
+        }}
+      />
+      {q !== '' && found.data?.length === 0 && (
+        <p className="text-muted-foreground">Nothing matches that search.</p>
+      )}
+      {q !== '' && (
+        <ul aria-label="Records to reveal" className="space-y-1">
+          {found.data?.map((record) => {
+            const revealed = record.revealedAt !== null;
+            return (
+              <li key={record.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{record.name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {RECORD_TYPE_LABELS[record.type]} · {revealed ? 'revealed' : 'hidden'}
+                  </span>
+                </span>
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  disabled={disabled}
+                  aria-label={`${revealed ? 'Un-reveal' : 'Reveal'}: ${record.name}`}
+                  onClick={() => {
+                    onReveal(record.id, !revealed);
+                  }}
+                >
+                  {revealed ? 'Un-reveal' : 'Reveal'}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
 /**
- * The GM's side of a live session (F3.3): load a scene, open and close the curtain, see who is
- * here and what the stage holds, and end the session. Raising, moving, showing and revealing
- * come with the full control desk (F3.4, governance §12 "GM control desk").
+ * The GM's side of a live session (F3.3, F3.4, governance §12 "GM control desk"): the curtain
+ * and how the GM's own theater is drawn; the object picked, to place, bring into sight, reveal
+ * or take off the stage; everything on the stage; what can be added; revealing any record;
+ * the scenes to load; who is here; and ending the session. Every change goes to the server,
+ * which sends everyone the stage; moves are shown here at once.
  */
-export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: GmDeskProps) {
+export function GmDesk({
+  campaign,
+  stage,
+  pending,
+  presence,
+  connected,
+  room,
+  selectedId,
+  onSelect,
+  asPlayers,
+  onAsPlayersChange,
+  onEnd,
+}: GmDeskProps) {
   const scenes = useScenes(campaign.id, true);
+  const reveal = useRevealRecord(campaign.id);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [removing, setRemoving] = useState<GmStageObject | null>(null);
 
   /** Sends one action; the stage itself comes back from the server, for everyone at once. */
   async function send(action: () => Promise<ActionResult>) {
@@ -60,12 +289,34 @@ export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: Gm
     if (!result.ok) setRefusal(result.message);
   }
 
+  /** A move: no waiting, so a slider or a drag keeps going; a refusal is still said. */
+  function move(id: string, changes: ObjectChanges) {
+    void room.moveObject(id, changes).then((result) => {
+      if (!result.ok) setRefusal(result.message);
+    });
+  }
+
+  function setRevealed(recordId: string, revealed: boolean) {
+    setRefusal(null);
+    reveal.mutate(
+      { recordId, revealed },
+      {
+        onError: (error) => {
+          setRefusal(error.message);
+        },
+      },
+    );
+  }
+
   const idle = connected && !busy;
+  const archived = campaign.archivedAt !== null;
+  const stageObject = stage.objects.find((object) => object.id === selectedId) ?? null;
+  const selected = stageObject === null ? null : { ...stageObject, ...pending[stageObject.id] };
 
   return (
     <aside
       aria-label="Control desk"
-      className="flex w-72 shrink-0 flex-col overflow-y-auto border-l text-sm"
+      className={`flex shrink-0 flex-col overflow-y-auto border-l text-sm ${selected === null ? 'w-72' : 'w-80'}`}
     >
       <header className="space-y-1 border-b px-3 py-3">
         <Link to={`/campaigns/${campaign.id}`} className="underline">
@@ -89,7 +340,162 @@ export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: Gm
         >
           {stage.curtainOpen ? 'Close the curtain' : 'Open the curtain'}
         </Button>
+        <p className="text-xs text-muted-foreground">
+          {stage.curtainOpen
+            ? 'Loading a scene now closes the curtain, changes the scene and opens it again.'
+            : 'Loading a scene now keeps the curtain closed, so you can set the stage first.'}
+        </p>
+        <Toggle pressed={asPlayers} disabled={false} onChange={onAsPlayersChange}>
+          As players see it
+        </Toggle>
       </Section>
+
+      {selected !== null && stageObject !== null && (
+        <section
+          aria-label={`Selected: ${selected.subject.name}`}
+          className="space-y-3 border-b px-3 py-3"
+        >
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate font-semibold">{selected.subject.name}</h2>
+              <p className="text-xs text-muted-foreground">
+                {selected.subject.kind === 'pc' ? 'PC' : RECORD_TYPE_LABELS[selected.subject.type]}{' '}
+                · {whereabouts(stageObject)}
+                {selected.subject.kind === 'record' &&
+                  (selected.subject.revealed ? ' · revealed' : ' · not revealed')}
+              </p>
+            </div>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                onSelect(null);
+              }}
+            >
+              Let go
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="xs"
+              disabled={!idle}
+              onClick={() => void send(() => room.setShown(stageObject, !stageObject.shown))}
+            >
+              {shownAction(stageObject)}
+            </Button>
+            {selected.subject.kind === 'record' && (
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={!connected || archived || reveal.isPending}
+                onClick={() => {
+                  if (selected.subject.kind === 'record') {
+                    setRevealed(selected.subject.id, !selected.subject.revealed);
+                  }
+                }}
+              >
+                {selected.subject.revealed ? 'Un-reveal' : 'Reveal'}
+              </Button>
+            )}
+            {selected.subject.kind === 'record' && (
+              // In a new tab: leaving this page would take the GM out of the session.
+              <Link
+                to={recordPath(campaign.id, selected.subject.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="self-center text-xs underline"
+              >
+                Open record
+              </Link>
+            )}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Drag it in the theater, or use the arrow keys (Shift for bigger steps). [ and ] step it
+            forward and back.
+          </p>
+          <PlacementControls
+            placement={selected}
+            disabled={!connected}
+            onChange={({ mount, ...change }) => {
+              // A puppet has no mount to change; a prop's is a stand or a string.
+              move(selected.id, mount == null ? change : { ...change, mount });
+            }}
+          />
+
+          <Button
+            size="xs"
+            variant="destructive"
+            disabled={!idle}
+            onClick={() => {
+              setRemoving(stageObject);
+            }}
+          >
+            Remove from stage
+          </Button>
+        </section>
+      )}
+
+      <Section title="On stage">
+        {stage.objects.length === 0 ? (
+          <p className="text-muted-foreground">
+            {stage.sceneLoad === 0 ? 'Nothing yet. Load a scene to begin.' : 'An empty theater.'}
+          </p>
+        ) : (
+          <ul aria-label="On stage" className="space-y-0.5">
+            {stage.objects.map((object) => (
+              <li key={object.id} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-pressed={object.id === selectedId}
+                  className="flex min-w-0 flex-1 items-baseline gap-2 rounded-md px-2 py-1 text-left hover:bg-accent aria-pressed:bg-accent"
+                  onClick={() => {
+                    onSelect(object.id === selectedId ? null : object.id);
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate">{object.subject.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {whereabouts(object)}
+                    {object.subject.kind === 'record' && object.subject.revealed
+                      ? ' · revealed'
+                      : ''}
+                  </span>
+                </button>
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  disabled={!idle || object.image === null}
+                  aria-label={`${shownAction(object)}: ${object.subject.name}`}
+                  onClick={() => void send(() => room.setShown(object, !object.shown))}
+                >
+                  {shownAction(object)}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <AddToStage
+        campaign={campaign}
+        stage={stage}
+        disabled={!idle}
+        onAdd={(subject) => {
+          const id = crypto.randomUUID();
+          void send(async () => {
+            const result = await room.addObject({ id, ...subject });
+            if (result.ok) onSelect(id);
+            return result;
+          });
+        }}
+      />
+
+      <RevealAny
+        campaign={campaign}
+        disabled={!connected || archived || reveal.isPending}
+        onReveal={setRevealed}
+      />
 
       <Section title="Scenes">
         {scenes.isPending && <p className="text-muted-foreground">Loading…</p>}
@@ -123,7 +529,10 @@ export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: Gm
                   variant="secondary"
                   disabled={!idle}
                   aria-label={`${onStage ? 'Load again' : 'Load'}: ${scene.name}`}
-                  onClick={() => void send(() => room.loadScene(scene.id))}
+                  onClick={() => {
+                    onSelect(null);
+                    void send(() => room.loadScene(scene.id));
+                  }}
                 >
                   {onStage ? 'Load again' : 'Load'}
                 </Button>
@@ -131,25 +540,6 @@ export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: Gm
             );
           })}
         </ul>
-      </Section>
-
-      <Section title="On stage">
-        {stage.objects.length === 0 ? (
-          <p className="text-muted-foreground">
-            {stage.sceneLoad === 0 ? 'Nothing yet. Load a scene to begin.' : 'An empty theater.'}
-          </p>
-        ) : (
-          <ul aria-label="On stage" className="space-y-1">
-            {stage.objects.map((object) => (
-              <li key={object.id} className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate">{object.subject.name}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {whereabouts(object)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
       </Section>
 
       <Section title="Who is here">
@@ -168,6 +558,22 @@ export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: Gm
           End session
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+        title={`Take ${removing?.subject.name ?? 'it'} off the stage?`}
+        description="It leaves the stage for everyone. The saved scene keeps it, so loading the scene again brings it back."
+        confirmLabel="Remove from stage"
+        onConfirm={async () => {
+          if (removing === null) return;
+          const { id } = removing;
+          onSelect(null);
+          await send(() => room.removeObject(id));
+        }}
+      />
 
       <ConfirmDialog
         open={ending}
