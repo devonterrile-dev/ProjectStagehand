@@ -71,7 +71,10 @@ const recordBase = {
   parentId: z.uuid().nullable(),
   /** The stat block an NPC fights with (F1.4). Null for every other type. */
   statBlockId: z.uuid().nullable(),
-  /** Null = hidden from players. Set by the reveal flow (F3.5). */
+  /**
+   * Null = hidden from players. Set by the GM's Reveal, or by coming into sight on the live
+   * stage (F3.4, D-52); players see revealed records in their journal (F3.5).
+   */
   revealedAt: timestamp.nullable(),
   /** The visual in use ("Use this one", F2.3), or null. NPCs, Props, Items and Spots only. */
   visualAssetId: z.uuid().nullable(),

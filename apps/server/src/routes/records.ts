@@ -16,20 +16,23 @@ import {
   recordTypeOf,
   updateRecord,
 } from '../campaigns/records';
+import { setRecordRevealed } from '../campaigns/play-sessions';
 import { listBacklinks } from '../campaigns/record-links';
 import { assertGm, assertWritable } from '../campaigns/scope';
 import type { Database } from '../db/client';
 import { sendValidationError } from '../http/errors';
+import type { PlayLive } from '../play/socket';
 
 /**
  * Narrative records (F1.3): list, create, read, partial update and delete, plus each
  * record's backlinks (F1.5). A record's own links are read and written with the record.
- * GM only until the reveal flow (F3.5) adds the players' view. Every route here is campaign-scoped: see
- * the isolation table in `campaigns.int.test.ts`.
+ * Reveal and Un-reveal (F3.4, §7) say whether players may have it; what players then see of a
+ * revealed record arrives with the player journal (F3.5). GM only. Every route here is
+ * campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerRecordRoutes(
   app: FastifyInstance,
-  deps: { auth: Auth; db: Database },
+  deps: { auth: Auth; db: Database; live: PlayLive },
 ): void {
   const preHandler = memberOnly(deps.auth, deps.db);
   const recordId = (request: Parameters<typeof uuidParam>[0]) =>
@@ -94,6 +97,28 @@ export function registerRecordRoutes(
       return updateRecord(deps.db, scope, id, parsed.data);
     },
   );
+
+  // Reveal (§7): players may have the record from now on; Un-reveal undoes a mistake. During a
+  // session the desk's marks change too, so the stage is sent again.
+  for (const [action, revealed] of [
+    ['reveal', true],
+    ['unreveal', false],
+  ] as const) {
+    app.post(
+      `/api/campaigns/:campaignId/records/:recordId/${action}`,
+      { preHandler },
+      async (request) => {
+        const scope = campaignOf(request);
+        assertGm(scope);
+        assertWritable(scope);
+        const id = recordId(request);
+
+        await setRecordRevealed(deps.db, scope, id, revealed);
+        deps.live.stageChanged(scope);
+        return getRecord(deps.db, scope, id);
+      },
+    );
+  }
 
   app.delete(
     '/api/campaigns/:campaignId/records/:recordId',

@@ -55,12 +55,13 @@ export function sceneObjectKindFor(type: RecordType): SceneObjectKind | null {
 }
 
 /** 0 to 1 across the theater's opening (left to right), or up it (bottom to top). */
-const unitSchema = z
+export const unitSchema = z
   .number()
   .min(0, 'Must be inside the opening')
   .max(1, 'Must be inside the opening');
 
-const scaleSchema = z
+/** An object's size against its image's own, from `SCENE_SCALE.min` to `.max`. */
+export const scaleSchema = z
   .number()
   .min(SCENE_SCALE.min, `Scale must be ${String(SCENE_SCALE.min)} or more`)
   .max(SCENE_SCALE.max, `Scale must be ${String(SCENE_SCALE.max)} or less`);
@@ -86,6 +87,17 @@ export const stageRecordSchema = z.object({
   image: stageImageSchema.nullable(),
 });
 export type StageRecord = z.infer<typeof stageRecordSchema>;
+
+/**
+ * A PC that can go on the live stage as a puppet (F3.4): one with an image for the stage. PCs
+ * are never saved in a scene (D-36); the GM adds them live.
+ */
+export const stageCharacterSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  image: stageImageSchema,
+});
+export type StageCharacter = z.infer<typeof stageCharacterSchema>;
 
 /** A Spot as a scene's backdrop. `backdrop` is null while the Spot has no image in use. */
 export const sceneSpotSchema = z.object({
@@ -202,10 +214,12 @@ export type SetSceneObjectsRequest = z.infer<typeof setSceneObjectsRequestSchema
 /**
  * `GET /api/campaigns/:campaignId/stage-records`: what the builder's tray offers. GM only.
  * `records` is every Prop, Item and NPC with an image for the stage, by name; `spots` is every
- * Spot, by name, with its backdrop if it has one.
+ * Spot, by name, with its backdrop if it has one; `characters` is every PC with an image for the
+ * stage, by name, for the live control desk (F3.4).
  */
 export const stageRecordsResponseSchema = z.object({
   records: z.array(stageRecordSchema),
   spots: z.array(sceneSpotSchema),
+  characters: z.array(stageCharacterSchema),
 });
 export type StageRecordsResponse = z.infer<typeof stageRecordsResponseSchema>;

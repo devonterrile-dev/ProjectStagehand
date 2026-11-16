@@ -8,9 +8,11 @@
  * primary key is the session and the object together.
  *
  * Here `shown` is a prop that is in sight or a puppet that is raised, so a puppet may be shown,
- * unlike in a saved scene. Players are sent only what is shown.
+ * unlike in a saved scene. Players are sent only what is shown. An object is a record or, added
+ * live, a PC's puppet (F3.4).
  *
  * A session's objects are deleted when it ends: they are the stage, not a record of the night.
+ * Its events stay: they are the record of the night (§8 `session_events`).
  * Only `src/campaigns/play-sessions.ts` queries these tables.
  */
 import { sql } from 'drizzle-orm';
@@ -20,6 +22,8 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
+  pgEnum,
   pgTable,
   primaryKey,
   timestamp,
@@ -27,7 +31,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { campaigns } from './campaigns';
+import { users } from './auth';
+import { campaigns, characters } from './campaigns';
 import { records } from './records';
 import { propMount, sceneObjectKind, scenes } from './scenes';
 
@@ -82,10 +87,13 @@ export const playSessionObjects = pgTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     kind: sceneObjectKind('kind').notNull(),
-    /** A Prop or Item for a prop, an NPC for a puppet. Deleting it takes the object along. */
-    recordId: uuid('record_id')
-      .notNull()
-      .references(() => records.id, { onDelete: 'cascade' }),
+    /**
+     * A Prop or Item for a prop, an NPC for a puppet. Deleting it takes the object along. Null
+     * for a PC's puppet.
+     */
+    recordId: uuid('record_id').references(() => records.id, { onDelete: 'cascade' }),
+    /** A PC's puppet, added live by the GM (F3.4). Deleting the PC takes the puppet along. */
+    characterId: uuid('character_id').references(() => characters.id, { onDelete: 'cascade' }),
     across: doublePrecision('across').notNull(),
     up: doublePrecision('up').notNull(),
     depthTick: integer('depth_tick').notNull(),
@@ -103,7 +111,24 @@ export const playSessionObjects = pgTable(
     index('play_session_objects_session_position_idx').on(table.playSessionId, table.position),
     /** The cascade when a record is deleted. */
     index('play_session_objects_record_id_idx').on(table.recordId),
+    index('play_session_objects_character_id_idx').on(table.characterId),
     index('play_session_objects_campaign_id_idx').on(table.campaignId),
+    /** An NPC is on the stage once; a prop record can be placed several times. */
+    uniqueIndex('play_session_objects_npc_unique')
+      .on(table.playSessionId, table.recordId)
+      .where(sql`${table.kind} = 'puppet' and ${table.recordId} is not null`),
+    /** A PC is on the stage once. */
+    uniqueIndex('play_session_objects_pc_unique')
+      .on(table.playSessionId, table.characterId)
+      .where(sql`${table.characterId} is not null`),
+    check(
+      'play_session_objects_one_subject',
+      sql`(${table.recordId} is null) <> (${table.characterId} is null)`,
+    ),
+    check(
+      'play_session_objects_pc_is_puppet',
+      sql`${table.characterId} is null or ${table.kind} = 'puppet'`,
+    ),
     check(
       'play_session_objects_inside_opening',
       sql`${table.across} between 0 and 1 and ${table.up} between 0 and 1`,
@@ -115,5 +140,41 @@ export const playSessionObjects = pgTable(
       'play_session_objects_mount_only_props',
       sql`(${table.kind} = 'prop') = (${table.mount} is not null)`,
     ),
+  ],
+);
+
+/** What a session's log holds so far (F3.4). Rolls and Hope and Fear arrive with F3.6. */
+export const SESSION_EVENT_KINDS = ['scene_load', 'reveal', 'unreveal'] as const;
+export const sessionEventKind = pgEnum('session_event_kind', SESSION_EVENT_KINDS);
+
+/**
+ * A session's log (governance §8, F4.3 recap): append-only, never updated. Kept when the session
+ * ends. `actor_user_id` is null for what the stage did by itself (a record revealed as it came
+ * into sight); `data` holds what the kind needs beyond its record, such as a loaded scene's name.
+ */
+export const sessionEvents = pgTable(
+  'session_events',
+  {
+    id: uuid('id')
+      .default(sql`pg_catalog.gen_random_uuid()`)
+      .primaryKey(),
+    playSessionId: uuid('play_session_id')
+      .notNull()
+      .references(() => playSessions.id, { onDelete: 'cascade' }),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    kind: sessionEventKind('kind').notNull(),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    recordId: uuid('record_id').references(() => records.id, { onDelete: 'set null' }),
+    data: jsonb('data').$type<Record<string, unknown>>().default({}).notNull(),
+    at: timestamp('at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('session_events_session_at_idx').on(table.playSessionId, table.at),
+    index('session_events_campaign_id_idx').on(table.campaignId),
+    /** The set-nulls when a user or a record is deleted. */
+    index('session_events_actor_user_id_idx').on(table.actorUserId),
+    index('session_events_record_id_idx').on(table.recordId),
   ],
 );

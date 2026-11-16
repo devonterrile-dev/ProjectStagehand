@@ -13,9 +13,12 @@
  */
 import {
   actionResultSchema,
+  addObjectRequestSchema,
   joinRequestSchema,
   joinResultSchema,
   loadSceneRequestSchema,
+  moveObjectRequestSchema,
+  objectRequestSchema,
   PLAY_SOCKET,
   type ActionResult,
   type CampaignRole,
@@ -24,10 +27,19 @@ import {
 import { fromNodeHeaders } from 'better-auth/node';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DefaultEventsMap, Namespace, Server, Socket } from 'socket.io';
+import type { z } from 'zod';
 
 import type { Auth } from '../auth/auth';
 import { presenceMemberOf } from '../campaigns/members';
-import { loadSceneLive, setCurtain, stagesOf } from '../campaigns/play-sessions';
+import {
+  addLiveObject,
+  loadSceneLive,
+  moveLiveObject,
+  removeLiveObject,
+  setCurtain,
+  setLiveObjectShown,
+  stagesOf,
+} from '../campaigns/play-sessions';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
 import type { Database } from '../db/client';
 import { reportError } from '../http/errors';
@@ -42,6 +54,11 @@ export interface PlayLive {
   sessionEnded(campaignId: string): void;
   /** Someone left the campaign or was removed: their connections to it are dropped. */
   memberRemoved(campaignId: string, userId: string): void;
+  /**
+   * Something the stage shows changed outside the live room, such as a record revealed from its
+   * page: everyone in the session gets the stage again.
+   */
+  stageChanged(scope: CampaignScope): void;
 }
 
 export interface PlaySocketDeps {
@@ -75,6 +92,7 @@ export const EVENT_BUDGET = { events: 60, perMs: 10_000 } as const;
 
 const ONLY_GM = 'Only the GM can do that';
 const NOT_JOINED = 'Join the session first';
+const NOT_ON_STAGE = 'Choose something on the stage';
 
 export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
   const { auth, db, log } = deps;
@@ -266,16 +284,58 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       });
     });
 
-    socket.on(PLAY_SOCKET.loadScene, (payload: unknown, reply: unknown) => {
-      if (typeof reply !== 'function') return;
-      const answer = reply as (result: ActionResult) => void;
-      const parsed = loadSceneRequestSchema.safeParse(payload);
-      if (!parsed.success) {
-        answer({ ok: false, message: 'Choose a scene to load' });
-        return;
-      }
-      void gmAction(socket, answer, (scope) => loadSceneLive(db, scope, parsed.data.sceneId));
-    });
+    /** A GM action with a payload: checked against `schema`, refused with `invalid` if it fails. */
+    function onGm<T>(
+      event: string,
+      schema: z.ZodType<T>,
+      invalid: string,
+      run: (scope: CampaignScope, request: T) => Promise<void>,
+    ): void {
+      socket.on(event, (payload: unknown, reply: unknown) => {
+        if (typeof reply !== 'function') return;
+        const answer = reply as (result: ActionResult) => void;
+        const parsed = schema.safeParse(payload);
+        if (!parsed.success) {
+          answer({ ok: false, message: invalid });
+          return;
+        }
+        void gmAction(socket, answer, (scope) => run(scope, parsed.data));
+      });
+    }
+
+    onGm(
+      PLAY_SOCKET.loadScene,
+      loadSceneRequestSchema,
+      'Choose a scene to load',
+      (scope, request) => loadSceneLive(db, scope, request.sceneId),
+    );
+
+    // The control desk (F3.4).
+    onGm(
+      PLAY_SOCKET.addObject,
+      addObjectRequestSchema,
+      'Choose a record or a PC to add',
+      (scope, request) => addLiveObject(db, scope, request),
+    );
+    onGm(
+      PLAY_SOCKET.moveObject,
+      moveObjectRequestSchema,
+      'That place is not on the stage',
+      (scope, request) => moveLiveObject(db, scope, request),
+    );
+    onGm(PLAY_SOCKET.removeObject, objectRequestSchema, NOT_ON_STAGE, (scope, { id }) =>
+      removeLiveObject(db, scope, id),
+    );
+    for (const [event, kind, shown] of [
+      [PLAY_SOCKET.showProp, 'prop', true],
+      [PLAY_SOCKET.hideProp, 'prop', false],
+      [PLAY_SOCKET.raisePuppet, 'puppet', true],
+      [PLAY_SOCKET.lowerPuppet, 'puppet', false],
+    ] as const) {
+      onGm(event, objectRequestSchema, NOT_ON_STAGE, (scope, { id }) =>
+        setLiveObjectShown(db, scope, id, kind, shown),
+      );
+    }
 
     for (const [event, open] of [
       [PLAY_SOCKET.openCurtain, true],
@@ -326,6 +386,10 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         vacate(socket);
         socket.disconnect(true);
       }
+    },
+
+    stageChanged(scope) {
+      void sendStage(scope);
     },
   };
 }

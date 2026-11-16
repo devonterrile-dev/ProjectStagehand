@@ -28,7 +28,7 @@ import { and, asc, count, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/client';
-import { recordLinks, records, sceneObjects, scenes } from '../db/schema';
+import { characters, recordLinks, records, sceneObjects, scenes } from '../db/schema';
 import { httpError } from '../http/errors';
 
 import type { DbOrTx } from './members';
@@ -235,9 +235,13 @@ export async function sceneForStage(
   db: DbOrTx,
   scope: CampaignScope,
   sceneId: string,
-): Promise<{ spotId: string | null; objects: (typeof sceneObjects.$inferSelect)[] } | null> {
+): Promise<{
+  name: string;
+  spotId: string | null;
+  objects: (typeof sceneObjects.$inferSelect)[];
+} | null> {
   const [scene] = await db
-    .select({ spotId: scenes.spotId })
+    .select({ name: scenes.name, spotId: scenes.spotId })
     .from(scenes)
     .where(scoped(scope, sceneId));
   if (scene === undefined) return null;
@@ -246,7 +250,7 @@ export async function sceneForStage(
     .from(sceneObjects)
     .where(and(eq(sceneObjects.sceneId, sceneId), eq(sceneObjects.campaignId, scope.campaignId)))
     .orderBy(asc(sceneObjects.position));
-  return { spotId: scene.spotId, objects };
+  return { name: scene.name, spotId: scene.spotId, objects };
 }
 
 /** Every scene in the campaign, by name, with its Spot and how many objects it holds. */
@@ -467,7 +471,8 @@ export async function setSceneObjects(
 
 /**
  * What the builder's tray offers (§12): every Prop, Item and NPC with an image for the stage,
- * and every Spot with its backdrop if it has one, each by name.
+ * and every Spot with its backdrop if it has one, each by name. The control desk's tray (F3.4)
+ * adds every PC with an image for the stage.
  */
 export async function listStageRecords(
   db: Database,
@@ -504,15 +509,25 @@ export async function listStageRecords(
     .where(and(eq(records.campaignId, scope.campaignId), eq(records.type, 'spot')))
     .orderBy(...nameOrder);
 
+  const pcs = await db
+    .select({ id: characters.id, name: characters.name, visualAssetId: characters.visualAssetId })
+    .from(characters)
+    .where(and(eq(characters.campaignId, scope.campaignId), isNotNull(characters.visualAssetId)))
+    .orderBy(asc(sql`lower(${characters.name})`), asc(characters.createdAt));
+
   const images = await stageImagesOf(
     db,
     scope,
-    [...placeable, ...spots].flatMap((row) =>
+    [...placeable, ...spots, ...pcs].flatMap((row) =>
       row.visualAssetId === null ? [] : [row.visualAssetId],
     ),
   );
   return stageRecordsResponseSchema.parse({
     records: toStageRecords(placeable, images).filter((entry) => entry.image !== null),
     spots: spots.map((spot) => toSpot(spot, images)),
+    characters: pcs.flatMap((pc) => {
+      const image = pc.visualAssetId === null ? undefined : images.get(pc.visualAssetId);
+      return image === undefined ? [] : [{ id: pc.id, name: pc.name, image }];
+    }),
   });
 }

@@ -16,6 +16,7 @@ import {
   type SceneObjectInput,
   type SceneSpot,
   type SceneSummary,
+  type StageCharacter,
   type StageImage,
   type StageRecord,
   type StageRecordsResponse,
@@ -37,6 +38,8 @@ export interface SceneSeed {
 export interface ScenesWorldOptions {
   /** Scenes already saved, by campaign id. */
   scenes?: Record<string, SceneSeed[]>;
+  /** PCs with an image for the stage, by campaign id (the control desk's tray, F3.4). */
+  stageCharacters?: Record<string, StageCharacter[]>;
 }
 
 interface Ctx {
@@ -183,6 +186,7 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
           .filter((r) => r.type === 'spot')
           .sort(byName)
           .map(toSpot),
+        characters: options.stageCharacters?.[found.id] ?? [],
       };
       return Response.json(response);
     }

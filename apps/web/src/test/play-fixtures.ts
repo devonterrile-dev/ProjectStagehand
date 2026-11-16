@@ -1,4 +1,4 @@
-/** Live stages for the play tests (F3.3): what the server would send each role. */
+/** Live stages for the play tests (F3.3, F3.4): what the server would send each role. */
 import type {
   GmStage,
   GmStageObject,
@@ -46,7 +46,7 @@ export function gmObject(
 ): GmStageObject {
   return {
     ...playerObject(n),
-    record: { id: id(300 + n), type: 'prop', name },
+    subject: { kind: 'record', id: id(300 + n), type: 'prop', name, revealed: false },
     shown: true,
     ...overrides,
   };
@@ -79,7 +79,7 @@ export function gmStage(overrides: Partial<GmStage> = {}): GmStage {
         kind: 'puppet',
         mount: null,
         shown: false,
-        record: { id: id(303), type: 'npc', name: 'Old Marta' },
+        subject: { kind: 'record', id: id(303), type: 'npc', name: 'Old Marta', revealed: false },
       }),
     ],
     ...overrides,

@@ -5,8 +5,9 @@
  * `@stagehand/shared`. `type` is a Postgres enum built from `RECORD_TYPES`, so a new type
  * also needs a migration that rebuilds the enum (see 0011, which added `prop`; D-41).
  *
- * `revealed_at` exists now, but nothing sets it until the reveal flow (F3.5); every record
- * route is GM-only until then. `visual_asset_id` is the visual in use (F2.3, D-42).
+ * `revealed_at` is set by the GM's Reveal and by the live stage (F3.4, D-52); players see
+ * nothing of a revealed record until their journal (F3.5), so every record route is GM-only
+ * until then. `visual_asset_id` is the visual in use (F2.3, D-42).
  *
  * Only the data-access layer in `src/campaigns/` queries this table.
  */

@@ -19,15 +19,27 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildTestApp, discordUser, SAME_ORIGIN, signIn } from '../../test/auth-helpers';
-import { loadSceneLive, NO_SESSION, setCurtain, stagesOf } from '../campaigns/play-sessions';
+import {
+  addLiveObject,
+  loadSceneLive,
+  moveLiveObject,
+  NO_SESSION,
+  removeLiveObject,
+  setCurtain,
+  setLiveObjectShown,
+  setRecordRevealed,
+  stagesOf,
+} from '../campaigns/play-sessions';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
 import type { DbHandle } from '../db/client';
 import {
   assets,
   campaignMembers,
+  characters,
   playSessionObjects,
   playSessions,
   records,
+  sessionEvents,
   users,
 } from '../db/schema';
 import { originalKey, processedKey, type AssetStorage } from '../visuals/storage';
@@ -361,13 +373,13 @@ describe('Live sessions API', () => {
       });
     });
 
-    it('loads a scene as saved, and opens the curtain on it', async () => {
+    it('loads a scene as saved, behind the curtain while it is closed', async () => {
       await loadSceneLive(handle.db, gmScope, marketScene.id);
 
       const { gm: forGm } = await stages();
       expect(forGm).toMatchObject({
         sceneLoad: 1,
-        curtainOpen: true,
+        curtainOpen: false,
         scene: { id: marketScene.id, name: 'Ambush at the market' },
         backdrop: { assetId: backdropAsset, width: 1536, height: 864, version: 3 },
       });
@@ -381,12 +393,15 @@ describe('Live sessions API', () => {
           scale: object.scale,
           flipped: object.flipped,
           mount: object.mount,
-          record: object.record,
+          subject: { kind: 'record', ...object.record, revealed: false },
           image: object.image,
           shown: object.shown,
         })),
       );
       expect(forGm.objects.map((object) => object.shown)).toEqual([true, false, false]);
+
+      await setCurtain(handle.db, gmScope, true);
+      expect((await stages()).gm.curtainOpen).toBe(true);
     });
 
     it('sends players only what is in sight, as an image and a place', async () => {
@@ -474,7 +489,7 @@ describe('Live sessions API', () => {
       well = { ...well, assetId: redrawn };
     });
 
-    it('loads another scene in its place, counting the load', async () => {
+    it('loads another scene in its place, counting the load, and keeps a closed curtain closed', async () => {
       const lantern = await drawn('item', 'Storm lantern');
       const cellar = await scene('The cellar', null, [
         at(lantern.record.id, { mount: 'hang', up: 0.6 }),
@@ -486,11 +501,11 @@ describe('Live sessions API', () => {
       const { gm: forGm, player: forPlayers } = await stages();
       expect(forGm).toMatchObject({
         sceneLoad: 2,
-        curtainOpen: true,
+        curtainOpen: false,
         backdrop: null,
         scene: { id: cellar.id, name: 'The cellar' },
       });
-      expect(forGm.objects.map((object) => object.record.name)).toEqual(['Storm lantern']);
+      expect(forGm.objects.map((object) => object.subject.name)).toEqual(['Storm lantern']);
       expect(forPlayers.objects).toEqual([
         expect.objectContaining({ mount: 'hang', up: 0.6, image: { ...lanternImage(lantern) } }),
       ]);
@@ -534,7 +549,7 @@ describe('Live sessions API', () => {
       }
 
       const { gm: forGm, player: forPlayers } = await stages();
-      expect(forGm.objects.map((object) => object.record.name)).toEqual(['The cursed well']);
+      expect(forGm.objects.map((object) => object.subject.name)).toEqual(['The cursed well']);
       expect(forPlayers.objects).toHaveLength(1);
       expect(forPlayers.backdrop).toBeNull();
     });
@@ -594,6 +609,406 @@ describe('Live sessions API', () => {
         .where(eq(playSessionObjects.playSessionId, session?.id ?? ''));
       expect(left).toEqual([]);
       expect(await stagesOf(handle.db, gmScope)).toBeNull();
+    });
+  });
+
+  describe('the control desk', () => {
+    let desk: Campaign;
+    let deskScope: CampaignScope;
+    let lantern: Awaited<ReturnType<typeof drawn>>;
+    let crate: Awaited<ReturnType<typeof drawn>>;
+    let marta: Awaited<ReturnType<typeof drawn>>;
+    let mira: { id: string; assetId: string };
+    let faceless: { id: string };
+    let deskScene: Scene;
+    let sessionId: string;
+
+    /** A PC, with an image in use when `withImage`. */
+    async function pc(name: string, withImage: boolean, c: Campaign) {
+      const response = await call('POST', `/api/campaigns/${c.id}/characters`, gm, { name });
+      expect(response.statusCode, response.body).toBe(201);
+      const { id } = response.json<{ id: string }>();
+      if (!withImage) return { id, assetId: '' };
+      const assetId = randomUUID();
+      await handle.db.insert(assets).values({
+        id: assetId,
+        campaignId: c.id,
+        characterId: id,
+        createdBy: gm.id,
+        kind: 'character',
+        status: 'approved',
+        prompt: 'a test image',
+        model: 'test/model',
+        styleBibleVersion: 1,
+        quality: 'medium',
+        aspectRatio: '2:3',
+        originalPath: originalKey(c.id, assetId, 'png'),
+        mediaType: 'image/png',
+        processedPath: processedKey(c.id, assetId),
+        processedWidth: 640,
+        processedHeight: 1024,
+        processingVersion: 3,
+      });
+      await handle.db
+        .update(characters)
+        .set({ visualAssetId: assetId })
+        .where(eq(characters.id, id));
+      return { id, assetId };
+    }
+
+    async function revealedAt(recordId: string) {
+      const [row] = await handle.db
+        .select({ revealedAt: records.revealedAt })
+        .from(records)
+        .where(eq(records.id, recordId));
+      return row?.revealedAt ?? null;
+    }
+
+    async function events() {
+      const rows = await handle.db
+        .select()
+        .from(sessionEvents)
+        .where(eq(sessionEvents.playSessionId, sessionId))
+        .orderBy(sessionEvents.at);
+      return rows.map((row) => ({
+        kind: row.kind,
+        actorUserId: row.actorUserId,
+        recordId: row.recordId,
+      }));
+    }
+
+    const objectOf = async (id: string) =>
+      (await stages(desk)).gm.objects.find((object) => object.id === id);
+
+    beforeAll(async () => {
+      desk = await newCampaign('Desk Campaign');
+      deskScope = await scopeOf(gm, desk);
+      lantern = await drawn('prop', 'Storm lantern', desk);
+      crate = await drawn('prop', 'Fish crate', desk);
+      marta = await drawn('npc', 'Old Marta', desk);
+      mira = await pc('Mira', true, desk);
+      faceless = await pc('Faceless', false, desk);
+      deskScene = await scene(
+        'The quay',
+        null,
+        [at(lantern.record.id), at(crate.record.id, { shown: false }), at(marta.record.id)],
+        desk,
+      );
+      sessionId = (await start(desk)).id;
+    });
+
+    afterAll(async () => {
+      if ((await running(gm, desk)) !== null) await end(desk);
+    });
+
+    it('lists the PCs that have an image for the stage', async () => {
+      const response = await call('GET', `/api/campaigns/${desk.id}/stage-records`, gm);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json<{ characters: unknown[] }>().characters).toEqual([
+        {
+          id: mira.id,
+          name: 'Mira',
+          image: { assetId: mira.assetId, width: 640, height: 1024, version: 3 },
+        },
+      ]);
+    });
+
+    it('loads behind the closed curtain, reveals nothing, and logs the load', async () => {
+      await loadSceneLive(handle.db, deskScope, deskScene.id);
+
+      expect((await stages(desk)).gm.curtainOpen).toBe(false);
+      expect(await revealedAt(lantern.record.id)).toBeNull();
+      expect(await events()).toEqual([{ kind: 'scene_load', actorUserId: gm.id, recordId: null }]);
+    });
+
+    it('reveals what is in sight when the curtain opens, and only that', async () => {
+      await setCurtain(handle.db, deskScope, true);
+
+      expect(await revealedAt(lantern.record.id)).not.toBeNull();
+      expect(await revealedAt(crate.record.id)).toBeNull();
+      expect(await revealedAt(marta.record.id)).toBeNull();
+      expect((await events()).slice(1)).toEqual([
+        { kind: 'reveal', actorUserId: null, recordId: lantern.record.id },
+      ]);
+      const [first] = (await stages(desk)).gm.objects;
+      expect(first?.subject).toEqual({
+        kind: 'record',
+        id: lantern.record.id,
+        type: 'prop',
+        name: 'Storm lantern',
+        revealed: true,
+      });
+
+      // Opening an open curtain again changes nothing.
+      await setCurtain(handle.db, deskScope, true);
+      expect(await events()).toHaveLength(2);
+    });
+
+    it('reveals a prop shown and a puppet raised while the curtain is open', async () => {
+      const [, hidden, waiting] = deskScene.objects;
+      await setLiveObjectShown(handle.db, deskScope, hidden?.id ?? '', 'prop', true);
+      await setLiveObjectShown(handle.db, deskScope, waiting?.id ?? '', 'puppet', true);
+
+      expect(await revealedAt(crate.record.id)).not.toBeNull();
+      expect(await revealedAt(marta.record.id)).not.toBeNull();
+      const { player: forPlayers } = await stages(desk);
+      expect(forPlayers.objects.map((object) => object.id)).toEqual(
+        deskScene.objects.map((object) => object.id),
+      );
+      expect(JSON.stringify(forPlayers)).not.toContain('Marta');
+    });
+
+    it('refuses a prop raised as a puppet, a puppet shown as a prop, and what is not there', async () => {
+      const [prop, , puppet] = deskScene.objects;
+      await expect(
+        setLiveObjectShown(handle.db, deskScope, prop?.id ?? '', 'puppet', true),
+      ).rejects.toMatchObject({ statusCode: 400, message: 'That is not a puppet' });
+      await expect(
+        setLiveObjectShown(handle.db, deskScope, puppet?.id ?? '', 'prop', false),
+      ).rejects.toMatchObject({ statusCode: 400, message: 'That is not a prop' });
+      await expect(
+        setLiveObjectShown(handle.db, deskScope, randomUUID(), 'prop', true),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('keeps an un-reveal while the record stays in sight, until it comes into sight again', async () => {
+      const [, hidden] = deskScene.objects;
+      await setRecordRevealed(handle.db, deskScope, crate.record.id, false);
+      expect(await revealedAt(crate.record.id)).toBeNull();
+      expect(await events()).toContainEqual({
+        kind: 'unreveal',
+        actorUserId: gm.id,
+        recordId: crate.record.id,
+      });
+
+      await moveLiveObject(handle.db, deskScope, { id: hidden?.id ?? '', across: 0.9 });
+      await setCurtain(handle.db, deskScope, false);
+      expect(await revealedAt(crate.record.id)).toBeNull();
+
+      await setCurtain(handle.db, deskScope, true);
+      expect(await revealedAt(crate.record.id)).not.toBeNull();
+    });
+
+    it('adds a prop hidden, and an NPC and a PC waiting below, without touching the scene', async () => {
+      const extraLantern = randomUUID();
+      const gull = await drawn('npc', 'Gull the smuggler', desk);
+      const gullId = randomUUID();
+      const miraId = randomUUID();
+      await addLiveObject(handle.db, deskScope, { id: extraLantern, recordId: lantern.record.id });
+      await addLiveObject(handle.db, deskScope, { id: gullId, recordId: gull.record.id });
+      await addLiveObject(handle.db, deskScope, {
+        id: miraId,
+        characterId: mira.id,
+        across: 0.2,
+        depthTick: 1,
+      });
+
+      expect(await objectOf(extraLantern)).toMatchObject({
+        kind: 'prop',
+        shown: false,
+        mount: 'stand',
+        up: 0,
+        depthTick: 5,
+      });
+      expect(await objectOf(gullId)).toMatchObject({ kind: 'puppet', shown: false, mount: null });
+      expect(await objectOf(miraId)).toMatchObject({
+        kind: 'puppet',
+        shown: false,
+        across: 0.2,
+        up: 0.1,
+        depthTick: 1,
+        subject: { kind: 'pc', id: mira.id, name: 'Mira' },
+        image: { assetId: mira.assetId },
+      });
+      const ids = (await stages(desk)).player.objects.map((object) => object.id);
+      expect(ids).not.toContain(miraId);
+      expect(await revealedAt(gull.record.id)).toBeNull();
+
+      const saved = await call('GET', `/api/campaigns/${desk.id}/scenes/${deskScene.id}`, gm);
+      expect(saved.json<Scene>().objects).toHaveLength(3);
+
+      // A PC raised reaches players, as an image and a place only.
+      await setLiveObjectShown(handle.db, deskScope, miraId, 'puppet', true);
+      const raised = (await stages(desk)).player.objects.find((object) => object.id === miraId);
+      expect(raised).toMatchObject({ kind: 'puppet', image: { assetId: mira.assetId } });
+      expect(JSON.stringify(raised)).not.toContain('Mira');
+    });
+
+    it('adds a prop already in sight when asked, revealing it', async () => {
+      const net = await drawn('item', 'Fishing net', desk);
+      const id = randomUUID();
+      await addLiveObject(handle.db, deskScope, {
+        id,
+        recordId: net.record.id,
+        shown: true,
+        mount: 'hang',
+      });
+      expect(await objectOf(id)).toMatchObject({ shown: true, mount: 'hang' });
+      expect(await revealedAt(net.record.id)).not.toBeNull();
+    });
+
+    it('refuses what cannot go on the stage', async () => {
+      const coast = await record({ type: 'area', name: 'The coast' }, desk);
+      const spot = await record({ type: 'spot', name: 'The pier', parentId: coast.id }, desk);
+      const elsewhere = await drawn('prop', 'Far away', other);
+      const stranger = await pc('Stranger', true, other);
+      const add = (request: Parameters<typeof addLiveObject>[2]) =>
+        addLiveObject(handle.db, deskScope, request);
+
+      await expect(add({ id: randomUUID(), characterId: faceless.id })).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Faceless has no image for the stage yet',
+      });
+      await expect(add({ id: randomUUID(), characterId: mira.id })).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Mira is already on the stage',
+      });
+      await expect(add({ id: randomUUID(), recordId: marta.record.id })).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Old Marta is already on the stage',
+      });
+      await expect(
+        add({ id: deskScene.objects[0]?.id ?? '', recordId: lantern.record.id }),
+      ).rejects.toMatchObject({ statusCode: 409, message: 'That is already on the stage' });
+      await expect(add({ id: randomUUID(), recordId: elsewhere.record.id })).rejects.toMatchObject({
+        statusCode: 404,
+      });
+      await expect(add({ id: randomUUID(), characterId: stranger.id })).rejects.toMatchObject({
+        statusCode: 404,
+      });
+      await expect(add({ id: randomUUID(), recordId: spot.id })).rejects.toMatchObject({
+        statusCode: 400,
+        message: 'Only Props, Items and NPCs can go on the stage',
+      });
+      const gullTwo = await drawn('npc', 'Second gull', desk);
+      await expect(
+        add({ id: randomUUID(), recordId: gullTwo.record.id, shown: true }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('moves, flips and resizes an object, and keeps a puppet on its stick', async () => {
+      const [prop, , puppet] = deskScene.objects;
+      await moveLiveObject(handle.db, deskScope, {
+        id: prop?.id ?? '',
+        across: 0.1,
+        up: 0.4,
+        depthTick: 9,
+        scale: 2,
+        flipped: true,
+        mount: 'hang',
+      });
+      expect(await objectOf(prop?.id ?? '')).toMatchObject({
+        across: 0.1,
+        up: 0.4,
+        depthTick: 9,
+        scale: 2,
+        flipped: true,
+        mount: 'hang',
+      });
+
+      await expect(
+        moveLiveObject(handle.db, deskScope, { id: puppet?.id ?? '', mount: 'stand' }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        moveLiveObject(handle.db, deskScope, { id: randomUUID(), across: 0.5 }),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('removes an object from the stage and leaves the saved scene alone', async () => {
+      const [prop] = deskScene.objects;
+      await removeLiveObject(handle.db, deskScope, prop?.id ?? '');
+      expect(await objectOf(prop?.id ?? '')).toBeUndefined();
+      await expect(removeLiveObject(handle.db, deskScope, prop?.id ?? '')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+
+      const saved = await call('GET', `/api/campaigns/${desk.id}/scenes/${deskScene.id}`, gm);
+      expect(saved.json<Scene>().objects).toHaveLength(3);
+    });
+
+    it('holds at most 30 props and puppets', async () => {
+      const placed = (await stages(desk)).gm.objects.length;
+      for (let n = placed; n < 30; n += 1) {
+        await addLiveObject(handle.db, deskScope, { id: randomUUID(), recordId: crate.record.id });
+      }
+      await expect(
+        addLiveObject(handle.db, deskScope, { id: randomUUID(), recordId: crate.record.id }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'The stage holds at most 30 props and puppets',
+      });
+    });
+
+    it('drops a PC’s puppet when the PC is deleted', async () => {
+      const before = (await stages(desk)).gm.objects.length;
+      const deleted = await call('DELETE', `/api/campaigns/${desk.id}/characters/${mira.id}`, gm);
+      expect(deleted.statusCode, deleted.body).toBe(204);
+
+      const { gm: forGm } = await stages(desk);
+      expect(forGm.objects).toHaveLength(before - 1);
+      expect(forGm.objects.some((object) => object.subject.kind === 'pc')).toBe(false);
+    });
+
+    it('refuses every desk action with no session running', async () => {
+      const otherScope = await scopeOf(gm, other);
+      const id = randomUUID();
+      for (const action of [
+        () => addLiveObject(handle.db, otherScope, { id, recordId: randomUUID() }),
+        () => moveLiveObject(handle.db, otherScope, { id, across: 0.5 }),
+        () => removeLiveObject(handle.db, otherScope, id),
+        () => setLiveObjectShown(handle.db, otherScope, id, 'prop', true),
+      ]) {
+        await expect(action()).rejects.toMatchObject({ statusCode: 409, message: NO_SESSION });
+      }
+    });
+
+    describe('Reveal and Un-reveal', () => {
+      const revealUrl = (recordId: string, action: 'reveal' | 'unreveal', c = desk) =>
+        `/api/campaigns/${c.id}/records/${recordId}/${action}`;
+
+      it('reveals and un-reveals a record for the GM, logging each during a session', async () => {
+        const lore = await record({ type: 'lore', name: 'The drowned bell' }, desk);
+        const before = (await events()).length;
+
+        const revealed = await call('POST', revealUrl(lore.id, 'reveal'), gm);
+        expect(revealed.statusCode, revealed.body).toBe(200);
+        expect(revealed.json<CampaignRecord>().revealedAt).not.toBeNull();
+        expect(revealed.json<CampaignRecord>().updatedAt).toBe(lore.updatedAt);
+
+        // Revealing again changes nothing and logs nothing.
+        expect((await call('POST', revealUrl(lore.id, 'reveal'), gm)).statusCode).toBe(200);
+
+        const hidden = await call('POST', revealUrl(lore.id, 'unreveal'), gm);
+        expect(hidden.statusCode, hidden.body).toBe(200);
+        expect(hidden.json<CampaignRecord>().revealedAt).toBeNull();
+
+        expect((await events()).slice(before)).toEqual([
+          { kind: 'reveal', actorUserId: gm.id, recordId: lore.id },
+          { kind: 'unreveal', actorUserId: gm.id, recordId: lore.id },
+        ]);
+      });
+
+      it('reveals with no session running, logging nothing', async () => {
+        const lore = await record({ type: 'lore', name: 'Quiet legend' }, other);
+        const revealed = await call('POST', revealUrl(lore.id, 'reveal', other), gm);
+        expect(revealed.statusCode, revealed.body).toBe(200);
+        expect(revealed.json<CampaignRecord>().revealedAt).not.toBeNull();
+        const logged = await handle.db
+          .select()
+          .from(sessionEvents)
+          .where(eq(sessionEvents.recordId, lore.id));
+        expect(logged).toEqual([]);
+      });
+
+      it('refuses a player, and a record of another campaign', async () => {
+        const lore = await record({ type: 'lore', name: 'Players’ secret' });
+        const asPlayer = await call('POST', revealUrl(lore.id, 'reveal', campaign), player);
+        expect(asPlayer.statusCode).toBe(403);
+        expect(await revealedAt(lore.id)).toBeNull();
+
+        const crossed = await call('POST', revealUrl(lore.id, 'reveal', desk), gm);
+        expect(crossed.statusCode).toBe(404);
+      });
     });
   });
 

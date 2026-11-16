@@ -314,7 +314,7 @@ describe('The live room', () => {
 
       expect(forGm.role).toBe('gm');
       expect(forGm.scene).toEqual({ id: market.id, name: 'Ambush at the market' });
-      expect(forGm.objects.map((object) => [object.record.name, object.shown])).toEqual([
+      expect(forGm.objects.map((object) => [object.subject.name, object.shown])).toEqual([
         ['The cursed well', true],
         ['Secret trapdoor', false],
         ['Old Marta', false],
@@ -397,11 +397,12 @@ describe('The live room', () => {
         ok: true,
       });
 
+      // A new session's curtain is closed, and a load leaves it closed (F3.4).
       await vi.waitFor(() => {
         expect(last(player.client.stages)).toMatchObject({
           role: 'player',
           sceneLoad: 1,
-          curtainOpen: true,
+          curtainOpen: false,
         });
         expect(last(director.client.stages)).toMatchObject({ role: 'gm', sceneLoad: 1 });
       });
@@ -409,17 +410,17 @@ describe('The live room', () => {
       expect(last(director.client.stages)?.objects).toHaveLength(3);
       expect(JSON.stringify(last(player.client.stages))).not.toContain('trapdoor');
 
-      expect(await act(director.client, PLAY_SOCKET.closeCurtain)).toEqual({ ok: true });
-      await vi.waitFor(() => {
-        expect(last(player.client.stages)?.curtainOpen).toBe(false);
-        expect(last(director.client.stages)?.curtainOpen).toBe(false);
-      });
-      expect(last(player.client.stages)?.sceneLoad).toBe(1);
-
       expect(await act(director.client, PLAY_SOCKET.openCurtain)).toEqual({ ok: true });
       await vi.waitFor(() => {
         expect(last(player.client.stages)?.curtainOpen).toBe(true);
+        expect(last(director.client.stages)?.curtainOpen).toBe(true);
       });
+
+      expect(await act(director.client, PLAY_SOCKET.closeCurtain)).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect(last(player.client.stages)?.curtainOpen).toBe(false);
+      });
+      expect(last(player.client.stages)?.sceneLoad).toBe(1);
       await end(campaign);
     });
 
@@ -436,11 +437,104 @@ describe('The live room', () => {
       );
       expect(await act(player.client, PLAY_SOCKET.openCurtain)).toEqual(refusal);
       expect(await act(player.client, PLAY_SOCKET.closeCurtain)).toEqual(refusal);
+      const well = market.objects[0]?.record.id ?? '';
+      expect(
+        await act(player.client, PLAY_SOCKET.addObject, { id: randomUUID(), recordId: well }),
+      ).toEqual(refusal);
+      const id = randomUUID();
+      expect(await act(player.client, PLAY_SOCKET.moveObject, { id, across: 0.2 })).toEqual(
+        refusal,
+      );
+      for (const event of [
+        PLAY_SOCKET.removeObject,
+        PLAY_SOCKET.showProp,
+        PLAY_SOCKET.hideProp,
+        PLAY_SOCKET.raisePuppet,
+        PLAY_SOCKET.lowerPuppet,
+      ]) {
+        expect(await act(player.client, event, { id })).toEqual(refusal);
+      }
 
       const now = (await seated(gm, campaign)).stage;
       expect(now).toMatchObject({ sceneLoad: 0, curtainOpen: false, objects: [] });
       expect(director.client.stages).toEqual([]);
       expect(player.client.stages).toEqual([]);
+      await end(campaign);
+    });
+
+    it('runs the control desk: add, move, show, raise and remove, for everyone', async () => {
+      const campaign = await table('Desk Table');
+      const market = await marketScene(campaign);
+      const gull = await drawn(campaign, 'npc', 'Gull the smuggler');
+      await start(campaign);
+      const director = await seated(gm, campaign);
+      const player = await seated(players[0] ?? gm, campaign);
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: market.id })).toEqual({
+        ok: true,
+      });
+      expect(await act(director.client, PLAY_SOCKET.openCurtain)).toEqual({ ok: true });
+      const [, trapdoor, marta] = market.objects;
+      const ok = { ok: true };
+
+      const gullId = randomUUID();
+      expect(
+        await act(director.client, PLAY_SOCKET.addObject, { id: gullId, recordId: gull.id }),
+      ).toEqual(ok);
+      expect(
+        await act(director.client, PLAY_SOCKET.moveObject, {
+          id: gullId,
+          across: 0.8,
+          depthTick: 2,
+        }),
+      ).toEqual(ok);
+      expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: gullId })).toEqual(ok);
+      expect(await act(director.client, PLAY_SOCKET.showProp, { id: trapdoor?.id })).toEqual(ok);
+      expect(await act(director.client, PLAY_SOCKET.removeObject, { id: marta?.id })).toEqual(ok);
+
+      await vi.waitFor(() => {
+        const forGm = last(director.client.stages) as GmStage | undefined;
+        expect(forGm?.objects.map((object) => [object.subject.name, object.shown])).toEqual([
+          ['The cursed well', true],
+          ['Secret trapdoor', true],
+          ['Gull the smuggler', true],
+        ]);
+        expect(forGm?.objects.at(-1)).toMatchObject({
+          across: 0.8,
+          depthTick: 2,
+          subject: { revealed: true },
+        });
+        expect(last(player.client.stages)?.objects).toHaveLength(3);
+      });
+      expect(JSON.stringify(last(player.client.stages))).not.toContain('Gull');
+
+      expect(await act(director.client, PLAY_SOCKET.lowerPuppet, { id: gullId })).toEqual(ok);
+      expect(await act(director.client, PLAY_SOCKET.hideProp, { id: trapdoor?.id })).toEqual(ok);
+      await vi.waitFor(() => {
+        expect(last(player.client.stages)?.objects).toHaveLength(1);
+      });
+      await end(campaign);
+    });
+
+    it('refuses desk actions that are malformed or name nothing on the stage', async () => {
+      const campaign = await table('Fussy Table');
+      await start(campaign);
+      const director = await seated(gm, campaign);
+
+      expect(await act(director.client, PLAY_SOCKET.addObject, { id: randomUUID() })).toEqual({
+        ok: false,
+        message: 'Choose a record or a PC to add',
+      });
+      expect(
+        await act(director.client, PLAY_SOCKET.moveObject, { id: randomUUID(), across: 2 }),
+      ).toEqual({ ok: false, message: 'That place is not on the stage' });
+      expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: 'nope' })).toEqual({
+        ok: false,
+        message: 'Choose something on the stage',
+      });
+      expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: randomUUID() })).toEqual({
+        ok: false,
+        message: 'That is no longer on the stage',
+      });
       await end(campaign);
     });
 

@@ -92,6 +92,8 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     path: '/api/campaigns/:campaignId/records/:recordId/backlinks',
     gmOnly: true,
   },
+  { method: 'POST', path: '/api/campaigns/:campaignId/records/:recordId/reveal', gmOnly: true },
+  { method: 'POST', path: '/api/campaigns/:campaignId/records/:recordId/unreveal', gmOnly: true },
   { method: 'GET', path: '/api/campaigns/:campaignId/stat-blocks', gmOnly: true },
   {
     method: 'POST',

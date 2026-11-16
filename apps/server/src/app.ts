@@ -201,7 +201,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerMemberRoutes(app, { auth: options.auth, db: handle.db, live });
     registerInviteRoutes(app, { auth: options.auth, db: handle.db });
     registerCharacterRoutes(app, { auth: options.auth, db: handle.db });
-    registerRecordRoutes(app, { auth: options.auth, db: handle.db });
+    registerRecordRoutes(app, { auth: options.auth, db: handle.db, live });
     registerStatBlockRoutes(app, { auth: options.auth, db: handle.db });
     registerImportRoutes(app, {
       auth: options.auth,

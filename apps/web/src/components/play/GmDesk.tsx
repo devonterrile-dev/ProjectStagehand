@@ -142,7 +142,7 @@ export function GmDesk({ campaign, stage, presence, connected, room, onEnd }: Gm
           <ul aria-label="On stage" className="space-y-1">
             {stage.objects.map((object) => (
               <li key={object.id} className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate">{object.record.name}</span>
+                <span className="min-w-0 flex-1 truncate">{object.subject.name}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {whereabouts(object)}
                 </span>

@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   actionResultSchema,
+  addObjectRequestSchema,
   gmStageSchema,
   joinRequestSchema,
   joinResultSchema,
   liveStageSchema,
   loadSceneRequestSchema,
+  moveObjectRequestSchema,
+  objectRequestSchema,
   PLAY_SOCKET,
   playerStageSchema,
   presenceSchema,
@@ -65,12 +68,26 @@ describe('the players’ stage', () => {
 describe('the GM’s stage', () => {
   const object = {
     ...placed,
-    record: { id: id(4), type: 'prop', name: 'The cursed well' },
+    subject: { kind: 'record', id: id(4), type: 'prop', name: 'The cursed well', revealed: false },
     image: null,
     shown: false,
   };
 
-  it('holds every object, in sight or not, with its record', () => {
+  it('holds a PC as a puppet, by name', () => {
+    const pc = {
+      ...placed,
+      kind: 'puppet',
+      mount: null,
+      subject: { kind: 'pc', id: id(6), name: 'Vex Tidecaller' },
+      image,
+      shown: true,
+    };
+    const parsed = gmStageSchema.parse({ role: 'gm', ...stage, scene: null, objects: [pc] });
+
+    expect(parsed.objects).toEqual([pc]);
+  });
+
+  it('holds every object, in sight or not, with what it shows', () => {
     const parsed = gmStageSchema.parse({
       role: 'gm',
       ...stage,
@@ -97,6 +114,13 @@ describe('the live room’s messages', () => {
     expect(PLAY_SOCKET.loadScene).toBe('scene:load');
     expect(PLAY_SOCKET.openCurtain).toBe('scene:curtain.open');
     expect(PLAY_SOCKET.closeCurtain).toBe('scene:curtain.close');
+    expect(PLAY_SOCKET.addObject).toBe('scene:object.add');
+    expect(PLAY_SOCKET.moveObject).toBe('scene:object.move');
+    expect(PLAY_SOCKET.removeObject).toBe('scene:object.remove');
+    expect(PLAY_SOCKET.showProp).toBe('scene:object.show');
+    expect(PLAY_SOCKET.hideProp).toBe('scene:object.hide');
+    expect(PLAY_SOCKET.raisePuppet).toBe('puppet:raise');
+    expect(PLAY_SOCKET.lowerPuppet).toBe('puppet:lower');
     expect(PLAY_SOCKET.path).toBe('/socket.io');
   });
 
@@ -120,6 +144,32 @@ describe('the live room’s messages', () => {
       expect(joinResultSchema.parse({ status })).toEqual({ status });
     }
     expect(joinResultSchema.safeParse({ status: 'kicked' }).success).toBe(false);
+  });
+
+  it('adds a record or a PC, never both or neither, and only inside the opening', () => {
+    const ok = (request: unknown) => addObjectRequestSchema.safeParse(request).success;
+
+    expect(ok({ id: id(1), recordId: id(2) })).toBe(true);
+    expect(ok({ id: id(1), characterId: id(2), across: 0.2, depthTick: 0 })).toBe(true);
+    expect(ok({ id: id(1), recordId: id(2), shown: true, mount: 'hang' })).toBe(true);
+    expect(ok({ id: id(1) })).toBe(false);
+    expect(ok({ id: id(1), recordId: id(2), characterId: id(3) })).toBe(false);
+    expect(ok({ id: id(1), recordId: id(2), across: 1.5 })).toBe(false);
+    expect(ok({ id: id(1), recordId: id(2), depthTick: 10 })).toBe(false);
+    expect(ok({ id: id(1), recordId: id(2), name: 'Sneaky' })).toBe(false);
+  });
+
+  it('moves an object by any of its placement, and needs something to change', () => {
+    const ok = (request: unknown) => moveObjectRequestSchema.safeParse(request).success;
+
+    expect(ok({ id: id(1), across: 0, up: 1, scale: 2.5, flipped: true })).toBe(true);
+    expect(ok({ id: id(1), mount: 'stand' })).toBe(true);
+    expect(ok({ id: id(1) })).toBe(false);
+    expect(ok({ id: id(1), scale: 3 })).toBe(false);
+    expect(ok({ id: id(1), up: -0.1 })).toBe(false);
+    expect(ok({ id: id(1), shown: true })).toBe(false);
+    expect(objectRequestSchema.safeParse({ id: id(1) }).success).toBe(true);
+    expect(objectRequestSchema.safeParse({ id: 'well' }).success).toBe(false);
   });
 
   it('takes a scene id to load', () => {

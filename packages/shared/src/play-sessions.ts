@@ -11,7 +11,13 @@ import { z } from 'zod';
 
 import { campaignRoleSchema } from './campaigns';
 import { recordRefSchema } from './record-links';
-import { propMountSchema, sceneObjectKindSchema, stageImageSchema } from './scenes';
+import {
+  propMountSchema,
+  scaleSchema,
+  sceneObjectKindSchema,
+  stageImageSchema,
+  unitSchema,
+} from './scenes';
 import { depthTickSchema } from './stage';
 
 const timestamp = z.iso.datetime({ offset: true });
@@ -49,10 +55,21 @@ const placement = {
 export const playerStageObjectSchema = z.object({ ...placement, image: stageImageSchema });
 export type PlayerStageObject = z.infer<typeof playerStageObjectSchema>;
 
+/**
+ * What a live object shows (F3.4): a record (a Prop or Item as a prop, an NPC as a puppet), with
+ * whether players have it in their journal, or a PC, always a puppet. PCs have no reveal: a
+ * player's own character is never a secret.
+ */
+export const stageSubjectSchema = z.discriminatedUnion('kind', [
+  recordRefSchema.extend({ kind: z.literal('record'), revealed: z.boolean() }),
+  z.object({ kind: z.literal('pc'), id: z.uuid(), name: z.string() }),
+]);
+export type StageSubject = z.infer<typeof stageSubjectSchema>;
+
 /** One object on the live stage as the GM gets it, in sight or not. */
 export const gmStageObjectSchema = z.object({
   ...placement,
-  record: recordRefSchema,
+  subject: stageSubjectSchema,
   /** Null: the record has lost its image for the stage, so nothing is drawn. */
   image: stageImageSchema.nullable(),
   /** A prop that is shown, or a puppet that is raised. False: players get nothing of it. */
@@ -116,8 +133,15 @@ export type Presence = z.infer<typeof presenceSchema>;
  * Browser to server, each answered through its acknowledgement:
  * - `join`: `joinRequestSchema` → `joinResultSchema`. Sent again after every reconnect, so a
  *   reconnect always gets the stage as it is now.
- * - `loadScene`: `loadSceneRequestSchema` → `actionResultSchema`. GM only.
+ * - `loadScene`: `loadSceneRequestSchema` → `actionResultSchema`. GM only. With the curtain
+ *   open, browsers change scene behind it; with it closed, it stays closed (F3.4).
  * - `openCurtain`, `closeCurtain`: no payload → `actionResultSchema`. GM only.
+ * - The control desk (F3.4), each → `actionResultSchema`, GM only: `addObject`
+ *   (`addObjectRequestSchema`), `moveObject` (`moveObjectRequestSchema`), and `removeObject`,
+ *   `showProp`, `hideProp`, `raisePuppet`, `lowerPuppet` (`objectRequestSchema`).
+ *
+ * Whatever comes into sight while the curtain is open, or is in sight when it opens, is revealed
+ * to players (§7): only at that moment, so a record the GM un-reveals stays hidden.
  *
  * Server to browser:
  * - `stage`: the whole stage for that browser's role (`liveStageSchema`), after every change.
@@ -133,6 +157,13 @@ export const PLAY_SOCKET = {
   loadScene: 'scene:load',
   openCurtain: 'scene:curtain.open',
   closeCurtain: 'scene:curtain.close',
+  addObject: 'scene:object.add',
+  moveObject: 'scene:object.move',
+  removeObject: 'scene:object.remove',
+  showProp: 'scene:object.show',
+  hideProp: 'scene:object.hide',
+  raisePuppet: 'puppet:raise',
+  lowerPuppet: 'puppet:lower',
   stage: 'stage',
   presence: 'presence',
   started: 'session:started',
@@ -159,6 +190,56 @@ export type JoinResult = z.infer<typeof joinResultSchema>;
 
 export const loadSceneRequestSchema = z.strictObject({ sceneId: z.uuid() });
 export type LoadSceneRequest = z.infer<typeof loadSceneRequestSchema>;
+
+/**
+ * Where a new live object goes when nothing is said: in the middle, halfway back, a prop on the
+ * bottom edge and a puppet rising a little above it (as in the builder).
+ */
+export const LIVE_OBJECT_START = { across: 0.5, depthTick: 5, propUp: 0, puppetUp: 0.1 } as const;
+
+/**
+ * Puts a record (a Prop or Item as a prop, an NPC as a puppet) or a PC (a puppet) on the live
+ * stage. The browser makes the id. It arrives out of sight, a prop hidden and a puppet waiting
+ * below, so the GM can place it before players see it; `shown` brings a prop in at once. Never
+ * saved to the scene.
+ */
+export const addObjectRequestSchema = z
+  .strictObject({
+    id: z.uuid(),
+    recordId: z.uuid().optional(),
+    characterId: z.uuid().optional(),
+    across: unitSchema.optional(),
+    up: unitSchema.optional(),
+    depthTick: depthTickSchema.optional(),
+    /** Props only. */
+    shown: z.boolean().optional(),
+    /** Props only; a prop is on a stand unless it hangs. */
+    mount: propMountSchema.optional(),
+  })
+  .refine(
+    (request) => (request.recordId === undefined) !== (request.characterId === undefined),
+    'Choose a record or a PC',
+  );
+export type AddObjectRequest = z.infer<typeof addObjectRequestSchema>;
+
+/** Changes where a live object is and how it is drawn; any subset. `mount` is for props. */
+export const moveObjectRequestSchema = z
+  .strictObject({
+    id: z.uuid(),
+    across: unitSchema.optional(),
+    up: unitSchema.optional(),
+    depthTick: depthTickSchema.optional(),
+    scale: scaleSchema.optional(),
+    flipped: z.boolean().optional(),
+    mount: propMountSchema.optional(),
+  })
+  .refine((request) => Object.keys(request).length > 1, 'Nothing to change');
+export type MoveObjectRequest = z.infer<typeof moveObjectRequestSchema>;
+export type ObjectChanges = Omit<MoveObjectRequest, 'id'>;
+
+/** Names one live object: to remove it, show or hide a prop, raise or lower a puppet. */
+export const objectRequestSchema = z.strictObject({ id: z.uuid() });
+export type ObjectRequest = z.infer<typeof objectRequestSchema>;
 
 /** What a GM's action is answered with; `message` says why it was refused. */
 export const actionResultSchema = z.discriminatedUnion('ok', [
