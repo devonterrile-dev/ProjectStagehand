@@ -1,10 +1,20 @@
 import { useTexture } from '@react-three/drei';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
+import type { Emote } from '@stagehand/shared';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { MathUtils, SRGBColorSpace, Texture, type Group } from 'three';
+import {
+  BackSide,
+  MathUtils,
+  SRGBColorSpace,
+  Texture,
+  type Group,
+  type MeshBasicMaterial,
+} from 'three';
 
 import { STAGE_COLORS } from './colors';
+import { outlineOnly, outlineOnlyKey } from './cutout-back';
 import { OPENING, WORLD_UNITS_PER_PIXEL, type Point3 } from './dimensions';
+import { EMOTE_SECONDS, emotePose, REST, swayAngle, TALK } from './motion';
 
 /** Pixels more see-through than this are not drawn: transparency is all or nothing (D-43). */
 const ALPHA_TEST = 0.5;
@@ -28,7 +38,13 @@ const BASE = { height: 0.03, depth: 0.1, share: 0.55 } as const;
 const STRING = { width: 0.008, tuck: 0.04 } as const;
 
 /** A swaying puppet turns about a point this far down its stick: the puppeteer's hand. */
-const SWAY = { pivotDrop: 1.2, angle: 0.035, speed: 1.3 } as const;
+const SWAY = { pivotDrop: 1.2 } as const;
+
+/** An emote to play (F3.7): `id` is new for each play, so the same emote twice plays twice. */
+export interface EmoteCue {
+  id: string;
+  emote: Emote;
+}
 
 /**
  * How fast a gliding cutout closes on where it is going (`MathUtils.damp`): most of the way in
@@ -73,10 +89,17 @@ export interface CutoutProps {
    */
   glide?: boolean;
   enterFrom?: Point3;
-  /** Test only: a gentle sway on the stick. Real puppet motion is F3.7. */
+  /** A gentle sway on the stick (F3.7): live puppets, and the stage test. */
   sway?: boolean;
   /** Where in the sway it starts, in radians. */
   phase?: number;
+  /** Talking (F3.7): the puppet rises a little and brightens, and settles when it stops. */
+  talking?: boolean;
+  /**
+   * The last emote played on it (F3.7). A new `id` plays it once; what it held when it was
+   * first drawn is not played, so joining late or remounting doesn't replay an old emote.
+   */
+  emote?: EmoteCue | null;
   /**
    * Test only: upload a separate copy of the image to the graphics card for this cutout, as
    * if every cutout on stage showed a different image.
@@ -128,6 +151,8 @@ export function Cutout({
   enterFrom,
   sway = false,
   phase = 0,
+  talking = false,
+  emote = null,
   ownTexture = false,
 }: CutoutProps) {
   const shared = useTexture(url, (loaded) => {
@@ -174,12 +199,50 @@ export function Cutout({
     );
   }, [glide]);
 
+  /** The emote group: everything that moves with the puppet, turned about its bottom center. */
+  const body = useRef<Group>(null);
+  const solid = useRef<MeshBasicMaterial>(null);
+  /** How far into talking it is, 0 to 1, eased. */
+  const talk = useRef(0);
+  /** The emote playing, and when it started (on its first frame). */
+  const playing = useRef<{ emote: Emote; start: number | null } | null>(null);
+  /** The emote last seen; the one held when first drawn counts as seen. */
+  const seen = useRef(emote?.id ?? null);
+  const emoteId = emote?.id ?? null;
+  const emoteName = emote?.emote ?? null;
+  useEffect(() => {
+    if (emoteId === null || emoteName === null || emoteId === seen.current) return;
+    seen.current = emoteId;
+    // A new emote mid-play starts over from where the puppet is headed: rest.
+    playing.current = { emote: emoteName, start: null };
+  }, [emoteId, emoteName]);
+
+  const mirror = flipped ? -1 : 1;
+
   useFrame((state, delta) => {
     const group = pivot.current;
     if (group === null) return;
-    group.rotation.z = sway
-      ? Math.sin(state.clock.elapsedTime * SWAY.speed + phase) * SWAY.angle
-      : 0;
+    const now = state.clock.elapsedTime;
+    group.rotation.z = sway ? swayAngle(now, phase) : 0;
+
+    const moving = body.current;
+    if (moving !== null) {
+      talk.current = MathUtils.damp(talk.current, talking ? 1 : 0, TALK.speed, delta);
+      if (talk.current < 0.001) talk.current = 0;
+      let pose = REST;
+      const current = playing.current;
+      if (current !== null) {
+        current.start ??= now;
+        const elapsed = now - current.start;
+        if (elapsed >= EMOTE_SECONDS[current.emote]) playing.current = null;
+        else pose = emotePose(current.emote, elapsed);
+      }
+      // A flipped puppet turns and leans the other way, as its picture does.
+      moving.position.set(pose.x * mirror, pose.y + TALK.lift * talk.current, pose.z);
+      moving.rotation.set(pose.rx, pose.ry * mirror, pose.rz * mirror);
+      solid.current?.color.setScalar(1 + TALK.brighten * talk.current);
+    }
+
     if (!glide) return;
     // On its way: placed where it is headed if gliding starts again (cleared here, not in the
     // effect, so React running effects twice in development can't skip the entrance).
@@ -194,7 +257,6 @@ export function Cutout({
 
   const w = width * WORLD_UNITS_PER_PIXEL * scale;
   const h = height * WORLD_UNITS_PER_PIXEL * scale;
-  const mirror = flipped ? -1 : 1;
 
   /** A stick or a post, from behind the cutout down into the void. */
   const rod = mount === 'hang' ? null : mount === 'stick' ? STICK : POST;
@@ -208,67 +270,91 @@ export function Cutout({
     <group ref={pivot} {...(glide ? {} : { position: [x, y - SWAY.pivotDrop, z] })}>
       {/* Everything below is placed from the cutout's bottom center. */}
       <group position={[0, SWAY.pivotDrop, 0]}>
-        {!faded && (
-          <mesh position={[SHADOW.offset[0], h / 2 + SHADOW.offset[1], SHADOW.offset[2]]}>
-            <planeGeometry args={[w, h]} />
-            <meshBasicMaterial
-              map={map}
-              color="#000000"
-              transparent
-              opacity={SHADOW.opacity}
-              // Below the shadow's own opacity, or all of it would be cut away.
-              alphaTest={SHADOW.opacity / 2}
-              depthWrite={false}
-              toneMapped={false}
-            />
-          </mesh>
-        )}
-        <mesh
-          position={[0, h / 2, 0]}
-          scale={[mirror, 1, 1]}
-          {...(onPress === undefined
-            ? {}
-            : pressOn === 'down'
-              ? { onPointerDown: onPress }
-              : { onClick: onPress })}
-        >
-          <planeGeometry args={[w, h]} />
-          {faded ? (
-            <meshBasicMaterial
-              key="faded"
-              map={map}
-              transparent
-              opacity={FADED_OPACITY}
-              // Below its own opacity, as for the shadow.
-              alphaTest={FADED_OPACITY / 2}
-              toneMapped={false}
-            />
-          ) : (
-            <meshBasicMaterial key="solid" map={map} alphaTest={ALPHA_TEST} toneMapped={false} />
+        {/* Emotes and talking move this, turning about the cutout's bottom center (F3.7). */}
+        <group ref={body}>
+          {!faded && (
+            <mesh position={[SHADOW.offset[0], h / 2 + SHADOW.offset[1], SHADOW.offset[2]]}>
+              <planeGeometry args={[w, h]} />
+              <meshBasicMaterial
+                map={map}
+                color="#000000"
+                transparent
+                opacity={SHADOW.opacity}
+                // Below the shadow's own opacity, or all of it would be cut away.
+                alphaTest={SHADOW.opacity / 2}
+                depthWrite={false}
+                toneMapped={false}
+              />
+            </mesh>
           )}
-        </mesh>
-        {selected && <SelectionFrame width={w} height={h} />}
-        {rod !== null && (
-          // The rod sits just behind the image, so it shows only below it.
-          <mesh position={[0, rodTop - rodLength / 2, -rod.depth / 2 - 0.002]}>
-            <boxGeometry args={[rod.width, rodLength, rod.depth]} />
-            <meshLambertMaterial
-              color={mount === 'stick' ? STAGE_COLORS.stick : STAGE_COLORS.stand}
-            />
+          <mesh
+            position={[0, h / 2, 0]}
+            scale={[mirror, 1, 1]}
+            {...(onPress === undefined
+              ? {}
+              : pressOn === 'down'
+                ? { onPointerDown: onPress }
+                : { onClick: onPress })}
+          >
+            <planeGeometry args={[w, h]} />
+            {faded ? (
+              <meshBasicMaterial
+                key="faded"
+                map={map}
+                transparent
+                opacity={FADED_OPACITY}
+                // Below its own opacity, as for the shadow.
+                alphaTest={FADED_OPACITY / 2}
+                toneMapped={false}
+              />
+            ) : (
+              <meshBasicMaterial
+                key="solid"
+                ref={solid}
+                map={map}
+                alphaTest={ALPHA_TEST}
+                toneMapped={false}
+              />
+            )}
           </mesh>
-        )}
-        {mount === 'stand' && (
-          <mesh position={[0, -BASE.height / 2, 0]}>
-            <boxGeometry args={[w * BASE.share, BASE.height, BASE.depth]} />
-            <meshLambertMaterial color={STAGE_COLORS.stand} />
-          </mesh>
-        )}
-        {mount === 'hang' && stringLength > 0 && (
-          <mesh position={[0, stringBottom + stringLength / 2, -STRING.width]}>
-            <boxGeometry args={[STRING.width, stringLength, STRING.width]} />
-            <meshLambertMaterial color={STAGE_COLORS.string} />
-          </mesh>
-        )}
+          {mount === 'stick' && !faded && (
+            // The puppet's back: plain card in its outline, for when it turns away (F3.7).
+            <mesh position={[0, h / 2, 0]} scale={[mirror, 1, 1]}>
+              <planeGeometry args={[w, h]} />
+              <meshBasicMaterial
+                side={BackSide}
+                map={map}
+                color={STAGE_COLORS.cutoutBack}
+                alphaTest={ALPHA_TEST}
+                toneMapped={false}
+                onBeforeCompile={outlineOnly}
+                customProgramCacheKey={outlineOnlyKey}
+              />
+            </mesh>
+          )}
+          {selected && <SelectionFrame width={w} height={h} />}
+          {rod !== null && (
+            // The rod sits just behind the image, so it shows only below it.
+            <mesh position={[0, rodTop - rodLength / 2, -rod.depth / 2 - 0.002]}>
+              <boxGeometry args={[rod.width, rodLength, rod.depth]} />
+              <meshLambertMaterial
+                color={mount === 'stick' ? STAGE_COLORS.stick : STAGE_COLORS.stand}
+              />
+            </mesh>
+          )}
+          {mount === 'stand' && (
+            <mesh position={[0, -BASE.height / 2, 0]}>
+              <boxGeometry args={[w * BASE.share, BASE.height, BASE.depth]} />
+              <meshLambertMaterial color={STAGE_COLORS.stand} />
+            </mesh>
+          )}
+          {mount === 'hang' && stringLength > 0 && (
+            <mesh position={[0, stringBottom + stringLength / 2, -STRING.width]}>
+              <boxGeometry args={[STRING.width, stringLength, STRING.width]} />
+              <meshLambertMaterial color={STAGE_COLORS.string} />
+            </mesh>
+          )}
+        </group>
       </group>
     </group>
   );

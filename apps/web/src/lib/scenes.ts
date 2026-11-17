@@ -177,6 +177,8 @@ export interface StageCutout {
    * inspects. Absent or null: nothing to inspect.
    */
   recordId?: string | null;
+  /** Live play (F3.7): the PC a puppet is, whose player emotes it and whose voice it shows. */
+  characterId?: string | null;
 }
 
 /**

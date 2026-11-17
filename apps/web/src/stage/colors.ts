@@ -11,6 +11,8 @@ export const STAGE_COLORS = {
   walls: '#5b4636',
   curtain: '#b3232d',
   valance: '#8f1b24',
+  /** The back of a puppet's card, seen when it turns away, as in a spin (F3.7). */
+  cutoutBack: '#ffffff',
   /** A puppet's stick: pale wood. A prop's stand: darker, so it draws less attention. */
   stick: '#d8b384',
   stand: '#6f5236',

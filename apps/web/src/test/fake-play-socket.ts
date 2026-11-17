@@ -15,6 +15,8 @@ export interface FakePlaySocket extends PlaySocket {
   receive(event: string, ...args: unknown[]): void;
   /** Every request sent so far, in order. */
   requests: SentRequest[];
+  /** Every message sent with no answer expected (F3.7), in order. */
+  emitted: { event: string; payload: unknown }[];
   /** The newest request for `event`; throws when there is none. */
   last(event: string): SentRequest;
   connects: number;
@@ -27,6 +29,7 @@ export function fakePlaySocket(): FakePlaySocket {
   const listeners = new Map<string, ((...args: unknown[]) => void)[]>();
   const fake: FakePlaySocket = {
     requests: [],
+    emitted: [],
     connects: 0,
     disconnects: 0,
     willRetry: true,
@@ -44,6 +47,9 @@ export function fakePlaySocket(): FakePlaySocket {
           },
         });
       });
+    },
+    emit(event, payload) {
+      fake.emitted.push({ event, payload });
     },
     retrying: () => fake.willRetry,
     connect() {

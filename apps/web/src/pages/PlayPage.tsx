@@ -1,4 +1,10 @@
-import { DEPTH_TICKS, rulesetFor, type Campaign, type ObjectChanges } from '@stagehand/shared';
+import {
+  DEPTH_TICKS,
+  rulesetFor,
+  type Campaign,
+  type Emote,
+  type ObjectChanges,
+} from '@stagehand/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
@@ -6,6 +12,7 @@ import { useStore } from 'zustand';
 
 import { GmDesk } from '@/components/play/GmDesk';
 import { PresenceList } from '@/components/play/PresenceList';
+import { EmoteCard } from '@/components/table/EmoteCard';
 import { TableNotices } from '@/components/table/TableNotices';
 import { useTable } from '@/components/table/useTable';
 import { Button } from '@/components/ui/button';
@@ -19,8 +26,9 @@ import {
 } from '@/lib/queries';
 import { keyAction, type KeyPlacement } from '@/lib/scenes';
 import { createPlayRoom } from '@/play/room';
-import { EMPTY_THEATER, theaterView } from '@/play/stage';
-import { PlayCanvas } from '@/stage/PlayCanvas';
+import { holdKeySource, useSpeaking } from '@/play/speaking';
+import { EMPTY_THEATER, talkingPuppets, theaterView } from '@/play/stage';
+import { PlayCanvas, type OwnPuppet } from '@/stage/PlayCanvas';
 import type { Place } from '@/stage/placement';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -91,8 +99,29 @@ function Table({ campaign }: { campaign: Campaign }) {
     };
   }, [room]);
 
-  const { phase, connected, stage, view, presence, pending, journal, sheet, sheetChanged, log } =
-    useStore(room.store);
+  const {
+    phase,
+    connected,
+    stage,
+    view,
+    presence,
+    pending,
+    journal,
+    sheet,
+    sheetChanged,
+    log,
+    emotes,
+  } = useStore(room.store);
+
+  // Talking (F3.7): holding T, for now; the mic and Discord arrive with F3.9.
+  const setSpeaking = useCallback(
+    (speaking: boolean) => {
+      room.setSpeaking(speaking);
+    },
+    [room],
+  );
+  const [talkKey] = useState(holdKeySource);
+  useSpeaking(setSpeaking, talkKey);
   const makeRoll = useCallback(
     (callId: string, spendHope: boolean) => room.makeRoll(callId, spendHope),
     [room],
@@ -176,6 +205,62 @@ function Table({ campaign }: { campaign: Campaign }) {
         : theaterView(campaign.id, view.stage, { hiddenProps: !asPlayers, pending }),
     [campaign.id, view, asPlayers, pending],
   );
+
+  // Puppet motion (F3.7): who is talking and the emotes played, in either theater.
+  const motion = useMemo(
+    () => ({ talking: talkingPuppets(theater.cutouts, presence), emotes }),
+    [theater.cutouts, presence, emotes],
+  );
+
+  // A player's emote card, open beside their own puppet (F3.7); only ever on the stage view.
+  const [emoteFor, setEmoteFor] = useState<string | null>(null);
+  if (emoteFor !== null && !atStage) setEmoteFor(null);
+  const ownName =
+    presence.find((person) => person.characterId !== null && person.characterId === characterId)
+      ?.characterName ?? null;
+  const own = useMemo((): OwnPuppet | undefined => {
+    if (isGm || characterId === null) return undefined;
+    const close = () => {
+      setEmoteFor(null);
+    };
+    return {
+      characterId,
+      onPress: (objectId) => {
+        setEmoteFor((open) => (open === objectId ? null : objectId));
+      },
+      onClose: close,
+      menu:
+        emoteFor === null
+          ? null
+          : {
+              objectId: emoteFor,
+              card: (
+                <EmoteCard
+                  name={ownName}
+                  onEmote={(emote: Emote) => {
+                    close();
+                    void room.emote(emoteFor, emote);
+                  }}
+                  onClose={close}
+                />
+              ),
+            },
+    };
+  }, [isGm, characterId, emoteFor, ownName, room]);
+
+  // Escape closes the emote card.
+  useEffect(() => {
+    if (emoteFor === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      setEmoteFor(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [emoteFor]);
 
   // What the GM picked, while it is still on the stage.
   const gmStage = stage?.role === 'gm' ? stage : null;
@@ -336,6 +421,8 @@ function Table({ campaign }: { campaign: Campaign }) {
             ? { selectedId: picked, onSelect: setSelectedId, onMove }
             : { onInspect: table.inspect })}
           table={table.scene}
+          motion={motion}
+          {...(own === undefined ? {} : { own })}
         />
         <TableNotices
           stage={stage}

@@ -62,7 +62,7 @@ const REVEAL_FRAMES = 2;
  * of them until something on them changes. Once shown, the field marked `data-autofocus` gets
  * the keyboard, without scrolling the scene's box to it.
  */
-function Reveal({ children }: { children: ReactNode }) {
+export function Reveal({ children }: { children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState(false);
 

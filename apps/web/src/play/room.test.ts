@@ -10,6 +10,7 @@ import {
   MOVE_GAP_MS,
   NO_ANSWER,
   RETRY_MS,
+  SPEAKING_GAP_MS,
   type PlayRoom,
 } from './room';
 
@@ -552,6 +553,7 @@ describe('the live room, from the browser', () => {
         sheet: 0,
         sheetChanged: null,
         log: 0,
+        emotes: {},
       });
 
       // Nothing that arrives late changes a closed room.
@@ -564,6 +566,93 @@ describe('the live room, from the browser', () => {
       expect(socket.connects).toBe(2);
       socket.receive('connect');
       expect(socket.requests).toHaveLength(2);
+    });
+  });
+
+  describe('puppet motion (F3.7)', () => {
+    const PUPPET = '00000000-0000-4000-a000-000000000203';
+    const played = (n: number, emote = 'wave') => ({
+      id: `00000000-0000-4000-a000-00000000090${String(n)}`,
+      objectId: PUPPET,
+      emote,
+    });
+
+    it('keeps the last emote played on each object, and ignores nonsense', async () => {
+      await joined();
+
+      socket.receive(PLAY_SOCKET.emote, played(1));
+      socket.receive(PLAY_SOCKET.emote, played(2, 'bow'));
+      socket.receive(PLAY_SOCKET.emote, { objectId: PUPPET, emote: 'moonwalk' });
+      expect(state().emotes).toEqual({ [PUPPET]: played(2, 'bow') });
+    });
+
+    it('forgets emotes when the session ends', async () => {
+      await joined();
+      socket.receive(PLAY_SOCKET.emote, played(1));
+      socket.receive(PLAY_SOCKET.ended);
+      expect(state().emotes).toEqual({});
+    });
+
+    it('asks the server to play an emote, and gives back its answer', async () => {
+      await joined();
+
+      const answer = room.emote(PUPPET, 'hop');
+      expect(socket.last(PLAY_SOCKET.emote).payload).toEqual({ id: PUPPET, emote: 'hop' });
+      socket.last(PLAY_SOCKET.emote).answer({ ok: false, message: 'Too quick: wait a moment' });
+      expect(await answer).toEqual({ ok: false, message: 'Too quick: wait a moment' });
+    });
+
+    const spoken = () =>
+      socket.emitted
+        .filter((sent) => sent.event === PLAY_SOCKET.speaking)
+        .map((sent) => (sent.payload as { speaking: boolean }).speaking);
+
+    it('tells the server when talking starts and stops, only changes, spaced out', async () => {
+      await joined();
+
+      room.setSpeaking(true);
+      room.setSpeaking(true);
+      expect(spoken()).toEqual([true]);
+
+      // A quick stop and start again: only where it ends up is sent, after the gap.
+      room.setSpeaking(false);
+      room.setSpeaking(true);
+      room.setSpeaking(false);
+      expect(spoken()).toEqual([true]);
+      await vi.advanceTimersByTimeAsync(SPEAKING_GAP_MS);
+      expect(spoken()).toEqual([true, false]);
+    });
+
+    it('waits until it is in the session, and says it again after a reconnect', async () => {
+      room.open();
+      room.setSpeaking(true);
+      expect(spoken()).toEqual([]);
+
+      socket.receive('connect');
+      socket.last(PLAY_SOCKET.join).answer({
+        status: 'joined',
+        stage: playerStage(),
+        presence: [present(1, 'Mira')],
+      });
+      await settle();
+      expect(spoken()).toEqual([true]);
+
+      socket.receive('disconnect', 'transport close');
+      socket.receive('connect');
+      socket.last(PLAY_SOCKET.join).answer({
+        status: 'joined',
+        stage: playerStage(),
+        presence: [present(1, 'Mira')],
+      });
+      await vi.advanceTimersByTimeAsync(SPEAKING_GAP_MS);
+      expect(spoken()).toEqual([true, true]);
+    });
+
+    it('stops talking when the table is left', async () => {
+      await joined();
+      room.setSpeaking(true);
+      room.close();
+      expect(spoken()).toEqual([true, false]);
     });
   });
 });

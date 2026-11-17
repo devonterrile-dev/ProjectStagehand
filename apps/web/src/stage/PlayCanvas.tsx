@@ -4,7 +4,8 @@ import type { StageCutout } from '@/lib/scenes';
 
 import type { StageView } from './camera';
 import type { Place } from './placement';
-import { SceneObjects } from './SceneObjects';
+import { PuppetMenu } from './PuppetMenu';
+import { SceneObjects, type StageMotion } from './SceneObjects';
 import { StageCanvas } from './StageCanvas';
 import { Dice, FearBowl, SheetPage, type DiceRoll } from './RollPieces';
 import { BINDER_PAD, INSPECT_PAD } from './table-layout';
@@ -61,6 +62,21 @@ export interface PlayCanvasProps {
   onInspect?: (recordId: string) => void;
   /** The table around the theater (F3.5b). */
   table?: TableScene;
+  /** Who is talking and the emotes played (F3.7), for every puppet in sight. */
+  motion?: StageMotion;
+  /** A player's own puppet (F3.7): pressing it opens their emote card beside it. */
+  own?: OwnPuppet;
+}
+
+/** A player's own PC's puppet and its emote card (F3.7). */
+export interface OwnPuppet {
+  characterId: string;
+  /** Their puppet was pressed. */
+  onPress: (objectId: string) => void;
+  /** The emote card, open beside that puppet; null while it is closed. */
+  menu: { objectId: string; card: ReactNode } | null;
+  /** Something else was pressed: the card closes. */
+  onClose: () => void;
 }
 
 /** How long a lowered puppet is still drawn, sinking into the void, once it has left the stage. */
@@ -106,7 +122,8 @@ function useLeaving(objects: readonly StageCutout[]): readonly StageCutout[] {
  * it. In the GM's theater a cutout can be picked and dragged; in a player's, a revealed record's
  * cutout can be pressed to inspect it. Around it is the table (F3.5b): the inspect stage, the
  * sticky pads and the binder, and the camera turns to whichever is in use; and (F3.6) the
- * player's sheet page, the dice and the GM's Fear bowl. Everything it takes
+ * player's sheet page, the dice and the GM's Fear bowl; and (F3.7) puppets that sway, talk and
+ * emote, with the emote card beside a player's own puppet. Everything it takes
  * is plain data or finished HTML, so the page around it never touches Three.js, and tests can
  * put a stand-in in its place. Memoized: the desk beside it re-rendering must not re-render the
  * scene.
@@ -120,6 +137,8 @@ export const PlayCanvas = memo(function PlayCanvas({
   onMove,
   onInspect,
   table,
+  motion,
+  own,
 }: PlayCanvasProps) {
   const drawn = useLeaving(objects);
   const [dragging, setDragging] = useState(false);
@@ -135,15 +154,31 @@ export const PlayCanvas = memo(function PlayCanvas({
   }
   const settled = arrivedAt === view;
 
-  // A press on a cutout: the GM picks it; a player inspects the record it shows, if any.
+  // A press on a cutout: the GM picks it; a player opens the emote card on their own puppet
+  // (F3.7), or inspects the record a cutout shows, if any.
   const press =
     onSelect ??
     (onInspect === undefined
       ? undefined
       : (id: string | null) => {
-          const recordId = drawn.find((object) => object.id === id)?.recordId;
+          const pressed = drawn.find((object) => object.id === id);
+          if (own !== undefined && pressed !== undefined) {
+            if (pressed.characterId === own.characterId) {
+              own.onPress(pressed.id);
+              return;
+            }
+            own.onClose();
+          }
+          const recordId = pressed?.recordId;
           if (recordId !== undefined && recordId !== null) onInspect(recordId);
         });
+
+  // The card stays beside the puppet while it is in sight, and only on the stage view.
+  const menuAt =
+    own?.menu == null || view !== 'stage'
+      ? -1
+      : objects.findIndex((object) => object.id === own.menu?.objectId);
+  const menuFor = menuAt === -1 ? undefined : objects[menuAt];
 
   return (
     <StageCanvas
@@ -153,6 +188,7 @@ export const PlayCanvas = memo(function PlayCanvas({
       onCameraSettle={setArrivedAt}
       onPointerMissed={() => {
         onSelect?.(null);
+        own?.onClose();
         // A click away puts down what is being looked at, once it is in view.
         if (table !== undefined && view !== 'stage' && settled) table.onPutDown();
       }}
@@ -168,7 +204,13 @@ export const PlayCanvas = memo(function PlayCanvas({
           ? { pressOn: 'click' as const }
           : {})}
         {...(onMove === undefined ? {} : { onMove, onDragChange: setDragging })}
+        {...(motion === undefined ? {} : { motion })}
       />
+      {menuFor !== undefined && own?.menu != null && (
+        <PuppetMenu cutout={menuFor} index={menuAt}>
+          {own.menu.card}
+        </PuppetMenu>
+      )}
       {table !== undefined && (
         <Suspense fallback={null}>
           <InspectStage

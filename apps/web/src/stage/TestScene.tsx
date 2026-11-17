@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
 import { STAGE_COLORS } from './colors';
-import { Cutout } from './Cutout';
+import { Cutout, type EmoteCue } from './Cutout';
 import { FRAME, openingToWorld, TABLE } from './dimensions';
 import { SAMPLE_CUTOUTS } from './samples';
 import { testSceneObjects } from './test-scene';
@@ -12,9 +12,20 @@ import { useTiledTexture } from './use-tiled-texture';
 /**
  * The performance test scene (F3.1, governance §12 "Performance budget"): up to 30 sample
  * cutouts in the theater. Each uploads its own copy of its image, so the graphics card holds
- * as much as it would for 30 different props and puppets.
+ * as much as it would for 30 different props and puppets. The puppets can also be made to talk
+ * and to play an emote, all at once, to judge puppet motion (F3.7).
  */
-export function TestScene({ count, sway }: { count: number; sway: boolean }) {
+export function TestScene({
+  count,
+  sway,
+  talking = false,
+  emote = null,
+}: {
+  count: number;
+  sway: boolean;
+  talking?: boolean;
+  emote?: EmoteCue | null;
+}) {
   const objects = useMemo(() => testSceneObjects(count, SAMPLE_CUTOUTS), [count]);
 
   return (
@@ -34,6 +45,7 @@ export function TestScene({ count, sway }: { count: number; sway: boolean }) {
             mount={object.mount}
             sway={sway && object.mount === 'stick'}
             phase={object.phase}
+            {...(object.mount === 'stick' ? { talking, emote } : {})}
             ownTexture
           />
         );

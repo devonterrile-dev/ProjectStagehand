@@ -8,6 +8,7 @@
  */
 import {
   actionResultSchema,
+  emotePlayedSchema,
   joinResultSchema,
   liveStageSchema,
   PLAY_SOCKET,
@@ -15,6 +16,8 @@ import {
   sheetChangedSchema,
   type ActionResult,
   type AddObjectRequest,
+  type Emote,
+  type EmotePlayed,
   type RollCallRequest,
   type LiveStage,
   type ObjectChanges,
@@ -85,6 +88,11 @@ export interface RoomState {
   sheetChanged: string | null;
   /** Goes up each time the session's log grew (F3.6, the GM only). The desk reads it again. */
   log: number;
+  /**
+   * The last emote played on each object (F3.7), by object id. A new play has a new id, which
+   * is what makes the puppet play it; an id no longer on the stage is simply never drawn.
+   */
+  emotes: Readonly<Record<string, EmotePlayed>>;
 }
 
 export interface PlayRoom {
@@ -117,6 +125,13 @@ export interface PlayRoom {
   spendFear(amount: number, reason?: string): Promise<ActionResult>;
   setFear(fear: number): Promise<ActionResult>;
   setHope(characterId: string, hope: number): Promise<ActionResult>;
+  /** Puppet motion (F3.7): the GM on any raised puppet, a player on their own PC's. */
+  emote(objectId: string, emote: Emote): Promise<ActionResult>;
+  /**
+   * Whether this browser's person is talking (F3.7). Only changes are sent, at most one every
+   * `SPEAKING_GAP_MS` (the latest wins), and again after every (re)join.
+   */
+  setSpeaking(speaking: boolean): void;
 }
 
 export interface RoomDeps {
@@ -137,6 +152,12 @@ export const NO_ANSWER = "The server didn't answer. Try again.";
  */
 export const MOVE_GAP_MS = 300;
 
+/**
+ * The least time between two changes of "talking" sent to the server (F3.7): even someone
+ * mashing the talk key stays well inside what the live room lets one connection send.
+ */
+export const SPEAKING_GAP_MS = 300;
+
 const INITIAL: RoomState = {
   phase: 'connecting',
   connected: false,
@@ -148,6 +169,7 @@ const INITIAL: RoomState = {
   sheet: 0,
   sheetChanged: null,
   log: 0,
+  emotes: {},
 };
 
 /** Whether the stage already shows every change in `changes`, or no longer has the object. */
@@ -186,6 +208,37 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
   /** Counts requests to join: only the newest one's answer is used. */
   let joinAttempt = 0;
   let retryTimer: number | null = null;
+
+  /** Talking (F3.7): what the person is doing, what the server was last told, and when. */
+  let speakingWanted = false;
+  let speakingSent = false;
+  let speakingSentAt = Number.NEGATIVE_INFINITY;
+  let speakingTimer: number | null = null;
+
+  /** Tells the server whether the person is talking, if that changed, after the gap. */
+  function sendSpeaking(): void {
+    if (speakingTimer !== null || speakingWanted === speakingSent) return;
+    const { phase, connected } = store.getState();
+    if (!isOpen || !connected || phase !== 'joined') return;
+    const wait = SPEAKING_GAP_MS - (Date.now() - speakingSentAt);
+    if (wait > 0) {
+      speakingTimer = window.setTimeout(() => {
+        speakingTimer = null;
+        sendSpeaking();
+      }, wait);
+      return;
+    }
+    speakingSent = speakingWanted;
+    speakingSentAt = Date.now();
+    socket.emit(PLAY_SOCKET.speaking, { speaking: speakingSent });
+  }
+
+  /** The server forgets who is talking when a connection leaves its seat. */
+  function forgetSpeaking(): void {
+    if (speakingTimer !== null) window.clearTimeout(speakingTimer);
+    speakingTimer = null;
+    speakingSent = false;
+  }
 
   function clearRetry(): void {
     if (retryTimer !== null) window.clearTimeout(retryTimer);
@@ -306,7 +359,8 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     loadingFor = null;
     transition = NO_STAGE;
     forgetMoves();
-    store.setState({ stage: null, view: null, presence: [] });
+    forgetSpeaking();
+    store.setState({ stage: null, view: null, presence: [], emotes: {} });
   }
 
   function retryJoinLater(): void {
@@ -339,6 +393,9 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
             log: before.log + 1,
           });
           receive(result.stage);
+          // A new seat starts not talking: say so again if the person is.
+          forgetSpeaking();
+          sendSpeaking();
           return;
         }
         const wasEnded = store.getState().phase === 'ended';
@@ -374,6 +431,7 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     // An answer to a join sent before the drop is no longer worth anything.
     joinAttempt += 1;
     clearRetry();
+    forgetSpeaking();
     store.setState({ connected: false });
     // Socket.IO reconnects by itself, except after the server hung up on purpose (a removed
     // member). Coming back then gets a plain answer from `join`.
@@ -423,6 +481,13 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     store.setState({ log: store.getState().log + 1 });
   });
 
+  socket.on(PLAY_SOCKET.emote, (payload) => {
+    const parsed = emotePlayedSchema.safeParse(payload);
+    if (!isOpen || !parsed.success || store.getState().phase !== 'joined') return;
+    const played = parsed.data;
+    store.setState({ emotes: { ...store.getState().emotes, [played.objectId]: played } });
+  });
+
   socket.on(PLAY_SOCKET.started, () => {
     if (isOpen) join();
   });
@@ -452,6 +517,8 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
       socket.connect();
     },
     close() {
+      if (speakingSent) socket.emit(PLAY_SOCKET.speaking, { speaking: false });
+      speakingWanted = false;
       isOpen = false;
       joinAttempt += 1;
       clearRetry();
@@ -476,5 +543,10 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
       act(PLAY_SOCKET.spendFear, reason === undefined ? { amount } : { amount, reason }),
     setFear: (fear) => act(PLAY_SOCKET.setFear, { fear }),
     setHope: (characterId, hope) => act(PLAY_SOCKET.setHope, { characterId, hope }),
+    emote: (objectId, emote) => act(PLAY_SOCKET.emote, { id: objectId, emote }),
+    setSpeaking(speaking) {
+      speakingWanted = speaking;
+      sendSpeaking();
+    },
   };
 }

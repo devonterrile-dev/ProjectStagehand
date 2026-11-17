@@ -3,11 +3,20 @@ import { Component, Suspense, useEffect, useRef, type ReactNode } from 'react';
 
 import type { StageCutout } from '@/lib/scenes';
 
-import { Cutout } from './Cutout';
+import { Cutout, type EmoteCue } from './Cutout';
 import type { Point3 } from './dimensions';
 import { dragPlace, isDrag, rayAtDepth, type Place } from './placement';
 import { screenRay, toPointerRay } from './pointer-ray';
+import { phaseOf } from './motion';
 import { cutoutPosition } from './scene-layout';
+
+/** Puppet motion in a live session (F3.7), by object id. */
+export interface StageMotion {
+  /** Puppets whose players are talking. */
+  talking: ReadonlySet<string>;
+  /** The last emote played on each. */
+  emotes: Readonly<Record<string, EmoteCue>>;
+}
 
 /**
  * One cutout whose image can't be loaded is left out; the rest of the theater keeps drawing.
@@ -47,6 +56,11 @@ export interface SceneObjectsProps {
   snapId?: string | null;
   /** When a press counts (`Cutout`): a player's theater selects on a whole click (F3.5b). */
   pressOn?: 'down' | 'click';
+  /**
+   * Live play (F3.7): who is talking and the emotes played. Live puppets also sway on their
+   * sticks; in the builder everything holds still.
+   */
+  motion?: StageMotion;
 }
 
 /**
@@ -63,6 +77,7 @@ export function SceneObjects({
   glide = false,
   snapId = null,
   pressOn = 'down',
+  motion,
 }: SceneObjectsProps) {
   const camera = useThree((state) => state.camera);
   const canvas = useThree((state) => state.gl.domElement);
@@ -127,6 +142,7 @@ export function SceneObjects({
         const position = cutoutPosition(object, index);
         const glides = glide && object.id !== snapId;
         const rises = glides && object.mount === 'stick';
+        const live = glide && object.mount === 'stick';
         return (
           // Keyed by the image too: a boundary that gave up tries again with a new image.
           <CutoutBoundary key={`${object.id}:${object.url}`}>
@@ -143,6 +159,14 @@ export function SceneObjects({
                 selected={object.id === selectedId}
                 pressOn={pressOn}
                 glide={glides}
+                {...(live
+                  ? {
+                      sway: true,
+                      phase: phaseOf(object.id),
+                      talking: motion?.talking.has(object.id) ?? false,
+                      emote: motion?.emotes[object.id] ?? null,
+                    }
+                  : {})}
                 {...(rises
                   ? { enterFrom: cutoutPosition({ ...object, lowered: true }, index) }
                   : {})}

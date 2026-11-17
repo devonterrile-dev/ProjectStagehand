@@ -1,4 +1,6 @@
 import {
+  EMOTE_LABELS,
+  EMOTES,
   RECORD_TYPE_LABELS,
   rulesetFor,
   STAGE_MAX_OBJECTS,
@@ -23,12 +25,13 @@ import { scenesPath, stageImageUrl } from '@/lib/scenes';
 import type { PlayRoom } from '@/play/room';
 
 import { Section } from './DeskSection';
+import { EMOTE_ICONS } from './emote-icons';
 import { PresenceList } from './PresenceList';
 import { FearSection, HopeSection, LogSection, RollsSection, type RollRoom } from './RollDesk';
 
 export type DeskRoom = Pick<
   PlayRoom,
-  'loadScene' | 'setCurtain' | 'addObject' | 'moveObject' | 'removeObject' | 'setShown'
+  'loadScene' | 'setCurtain' | 'addObject' | 'moveObject' | 'removeObject' | 'setShown' | 'emote'
 > &
   RollRoom;
 
@@ -409,6 +412,31 @@ export function GmDesk({
               </Link>
             )}
           </div>
+
+          {stageObject.kind === 'puppet' && stageObject.shown && (
+            // Emotes (F3.7): played once, for everyone, on a raised puppet.
+            <div role="group" aria-label="Emote" className="space-y-1">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase">Emote</h3>
+              <div className="grid grid-cols-2 gap-1">
+                {EMOTES.map((emote) => {
+                  const Icon = EMOTE_ICONS[emote];
+                  return (
+                    <Button
+                      key={emote}
+                      size="xs"
+                      variant="secondary"
+                      className="justify-start"
+                      disabled={!idle}
+                      onClick={() => void send(() => room.emote(stageObject.id, emote))}
+                    >
+                      <Icon aria-hidden="true" />
+                      {EMOTE_LABELS[emote]}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <p className="text-xs text-muted-foreground">
             Drag it in the theater, or use the arrow keys (Shift for bigger steps). [ and ] step it

@@ -1,5 +1,6 @@
 import { memo } from 'react';
 
+import type { EmoteCue } from './Cutout';
 import { PerfProbe, type PerfProbeProps } from './PerfProbe';
 import { StageCanvas } from './StageCanvas';
 import { TableStandIns, TestScene } from './TestScene';
@@ -10,6 +11,10 @@ export interface StageTestCanvasProps extends PerfProbeProps {
   /** How many sample cutouts are in the theater, up to 30. */
   objectCount: number;
   sway: boolean;
+  /** Every puppet talking (F3.7). */
+  talking: boolean;
+  /** The emote every puppet plays (F3.7): a new id plays it again. */
+  emote: EmoteCue | null;
   /** The most device pixels per CSS pixel to draw at. */
   maxPixelRatio: number;
 }
@@ -25,6 +30,8 @@ export const StageTestCanvas = memo(function StageTestCanvas({
   curtainOpen,
   objectCount,
   sway,
+  talking,
+  emote,
   maxPixelRatio,
   measure,
   onLive,
@@ -32,7 +39,7 @@ export const StageTestCanvas = memo(function StageTestCanvas({
 }: StageTestCanvasProps) {
   return (
     <StageCanvas backdropUrl={backdropUrl} curtainOpen={curtainOpen} maxPixelRatio={maxPixelRatio}>
-      <TestScene count={objectCount} sway={sway} />
+      <TestScene count={objectCount} sway={sway} talking={talking} emote={emote} />
       <TableStandIns />
       <PerfProbe measure={measure} onLive={onLive} onMeasured={onMeasured} />
     </StageCanvas>

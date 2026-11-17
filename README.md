@@ -605,3 +605,11 @@ Review: one image in use per record or PC, drafts to use or discard, and Regener
 - **Migration** `0014_asset_review` adds `revised_from_id`, lets a `rejected` row have no original, and tidies F2.3's tries: each record or PC keeps its image in use and its newest unused finished try; the rest become `rejected` (their files go at the next start).
 - **Privacy**: the notes are private campaign text: `notes` and `revisionNotes` are in `LOG_REDACT_PATHS`, and the integration tests scan the logs for them.
 - **Looking closer**: clicking any image on the card opens it large in the middle of the screen (`components/visuals/ImageViewer.tsx`); for a pair, a Current | New (or Before | After) switch and the arrow keys flip between the two at the same size and place. Only cutouts offer **Show the original**: a backdrop's stage version is the same picture, cropped and sized.
+
+## Working assumptions (F3.7)
+
+Puppet motion: sway, talking and emotes (governance §12 "Puppet motion", §13, D-55).
+
+- **Talking**: at the table, **hold T** to talk; your puppet rises a little and brightens for everyone, and the list of who is here rings your picture. T typed into a note or a field doesn't count. This is the first speaking source; the browser mic and Discord's speaking events (F3.9) will sit behind the same `SpeakingSource` interface (`apps/web/src/play/speaking.ts`). The GM's voice moves no puppet until NPC takeover (F3.8).
+- **Emotes**: a player clicks their own raised puppet for the emote card; the GM picks a raised puppet on the desk for its **Emote** buttons. Emotes are sent once and never stored or logged, and one connection may ask for one every 800 ms.
+- **Seeing it without a session**: `/stage-test` has **Talk** and an **Emote** picker that play on every sample puppet. The numbers to tune are in `apps/web/src/stage/motion.ts`.

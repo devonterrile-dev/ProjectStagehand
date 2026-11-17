@@ -497,6 +497,28 @@ describe('The table, for the GM', () => {
       expect(desk().getByRole('alert').textContent).toBe('That is no longer on the stage');
     });
 
+    it('plays an emote on a raised puppet, and offers none while it waits below', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      pressInTheater(marta ?? '');
+      expect(picked('Old Marta').queryByRole('group', { name: 'Emote' })).toBeNull();
+
+      const raised = stageWith();
+      const puppet = raised.objects[2];
+      if (puppet !== undefined) puppet.shown = true;
+      serverSends(PLAY_SOCKET.stage, raised);
+      const emotes = within(picked('Old Marta').getByRole('group', { name: 'Emote' }));
+      expect(emotes.getAllByRole('button')).toHaveLength(10);
+
+      fireEvent.click(emotes.getByRole('button', { name: 'Shiver' }));
+      expect(socket.last(PLAY_SOCKET.emote).payload).toEqual({ id: marta, emote: 'shiver' });
+      await answer(PLAY_SOCKET.emote, { ok: false, message: 'Too quick: wait a moment' });
+      expect(desk().getByRole('alert').textContent).toBe('Too quick: wait a moment');
+
+      // A prop has no emotes.
+      pressInTheater(wellId);
+      expect(picked('Stone Well').queryByRole('group', { name: 'Emote' })).toBeNull();
+    });
+
     it('adds a PC out of sight, and picks it once the stage has it', async () => {
       const vexId = uuid();
       mockApi(MIRA, [coast], {

@@ -21,6 +21,8 @@ vi.mock('@/stage/StageTestCanvas', () => ({
         data-curtain={props.curtainOpen ? 'open' : 'closed'}
         data-objects={String(props.objectCount)}
         data-sway={String(props.sway)}
+        data-talking={String(props.talking)}
+        data-emote={props.emote === null ? '' : `${props.emote.id}:${props.emote.emote}`}
         data-pixel-ratio={String(props.maxPixelRatio)}
         data-measure={props.measure === null ? '' : String(props.measure.seconds)}
       />
@@ -108,6 +110,24 @@ describe('Stage test page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open curtain' }));
     expect(stage.dataset['curtain']).toBe('open');
+  });
+
+  it('makes every puppet talk, and plays the chosen emote on them (F3.7)', async () => {
+    const stage = await open();
+    expect(stage.dataset['talking']).toBe('false');
+    expect(stage.dataset['emote']).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+    expect(stage.dataset['talking']).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop talking' }));
+    expect(stage.dataset['talking']).toBe('false');
+
+    fireEvent.change(screen.getByLabelText('Emote'), { target: { value: 'bow' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(stage.dataset['emote']).toBe('1:bow');
+    // The same emote again is a new play.
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(stage.dataset['emote']).toBe('2:bow');
   });
 
   it('changes how many objects are on stage, their sway and the sharpness', async () => {

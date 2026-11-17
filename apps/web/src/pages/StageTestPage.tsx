@@ -1,4 +1,4 @@
-import { STAGE_MAX_OBJECTS } from '@stagehand/shared';
+import { EMOTE_LABELS, EMOTES, STAGE_MAX_OBJECTS, type Emote } from '@stagehand/shared';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
@@ -8,6 +8,7 @@ import { browserName, formatReport } from '@/stage/perf-report';
 import { PerfPanel } from '@/stage/PerfPanel';
 import type { LiveStats } from '@/stage/PerfProbe';
 import { MAX_PIXEL_RATIO, PIXEL_RATIO_CHOICES } from '@/stage/quality';
+import type { EmoteCue } from '@/stage/Cutout';
 import { SAMPLE_BACKDROPS } from '@/stage/samples';
 import { StageTestCanvas } from '@/stage/StageTestCanvas';
 
@@ -79,6 +80,10 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
   const [curtainOpen, setCurtainOpen] = useState(true);
   const [objectCount, setObjectCount] = useState<number>(STAGE_MAX_OBJECTS);
   const [sway, setSway] = useState(true);
+  // Puppet motion (F3.7): every puppet talks, or plays the chosen emote, at once.
+  const [talking, setTalking] = useState(false);
+  const [emoteChoice, setEmoteChoice] = useState<Emote>(EMOTES[0]);
+  const [emote, setEmote] = useState<EmoteCue | null>(null);
   const [maxPixelRatio, setMaxPixelRatio] = useState<number>(MAX_PIXEL_RATIO);
   const [live, setLive] = useState<LiveStats | null>(null);
   const [measurement, setMeasurement] = useState<Measurement>({
@@ -127,6 +132,8 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         curtainOpen={curtainOpen}
         objectCount={objectCount}
         sway={sway}
+        talking={talking}
+        emote={emote}
         maxPixelRatio={maxPixelRatio}
         measure={measurement.run}
         onLive={setLive}
@@ -183,6 +190,45 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         >
           {sway ? 'Stop swaying' : 'Sway puppets'}
         </Button>
+        <Button
+          size="xs"
+          variant="secondary"
+          aria-pressed={talking}
+          onClick={() => {
+            setTalking((on) => !on);
+          }}
+        >
+          {talking ? 'Stop talking' : 'Talk'}
+        </Button>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="stage-test-emote">Emote</label>
+          <select
+            id="stage-test-emote"
+            className="rounded bg-white/10 px-1 py-0.5"
+            value={emoteChoice}
+            onChange={(event) => {
+              setEmoteChoice(event.target.value as Emote);
+            }}
+          >
+            {EMOTES.map((option) => (
+              <option key={option} value={option} className="text-black">
+                {EMOTE_LABELS[option]}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="xs"
+            variant="secondary"
+            onClick={() => {
+              setEmote((last) => ({
+                id: String(Number(last?.id ?? 0) + 1),
+                emote: emoteChoice,
+              }));
+            }}
+          >
+            Play
+          </Button>
+        </div>
         <Button
           size="xs"
           variant="secondary"

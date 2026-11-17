@@ -13,6 +13,8 @@ export interface PlaySocket {
   on(event: string, listener: (...args: unknown[]) => void): void;
   /** Sends `event` and resolves with the server's answer; rejects if none comes in time. */
   request(event: string, payload?: unknown): Promise<unknown>;
+  /** Sends `event` with no answer expected (F3.7: who is talking). Dropped while offline. */
+  emit(event: string, payload: unknown): void;
   /** Whether the connection will try again by itself after an error. */
   retrying(): boolean;
   connect(): void;
@@ -33,6 +35,10 @@ export function createPlaySocket(): PlaySocket {
       payload === undefined
         ? socket.timeout(ANSWER_WAIT_MS).emitWithAck(event)
         : socket.timeout(ANSWER_WAIT_MS).emitWithAck(event, payload),
+    emit: (event, payload) => {
+      // Not queued while offline: an old "talking" is worth nothing once the connection is back.
+      if (socket.connected) socket.emit(event, payload);
+    },
     retrying: () => socket.active,
     connect: () => {
       socket.connect();

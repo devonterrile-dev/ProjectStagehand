@@ -4,7 +4,7 @@
  * players do, the hidden props too, drawn see-through so they can be picked and shown. Puppets
  * waiting below are never drawn: they are listed on the desk. Pure.
  */
-import type { LiveStage, ObjectChanges } from '@stagehand/shared';
+import type { LiveStage, ObjectChanges, Presence } from '@stagehand/shared';
 
 import { stageImageUrl, type StageCutout } from '@/lib/scenes';
 
@@ -54,12 +54,35 @@ export function theaterView(
       faded: !shown,
       lowered: false,
       ...(stage.role === 'player' && 'recordId' in object ? { recordId: object.recordId } : {}),
+      characterId:
+        'subject' in object
+          ? object.subject.kind === 'pc'
+            ? object.subject.id
+            : null
+          : object.characterId,
     });
   }
   return {
     backdropUrl: stage.backdrop === null ? null : stageImageUrl(campaignId, stage.backdrop),
     cutouts,
   };
+}
+
+/**
+ * The puppets talking right now (F3.7), by object id: each PC puppet whose player is speaking.
+ * The GM's voice moves no puppet until NPC takeover (F3.8).
+ */
+export function talkingPuppets(cutouts: readonly StageCutout[], presence: Presence): Set<string> {
+  const speaking = new Set(
+    presence.flatMap((person) =>
+      person.speaking && person.characterId !== null ? [person.characterId] : [],
+    ),
+  );
+  const talking = new Set<string>();
+  for (const cutout of cutouts) {
+    if (cutout.characterId != null && speaking.has(cutout.characterId)) talking.add(cutout.id);
+  }
+  return talking;
 }
 
 /** Every image a stage needs before the curtain opens on it, hidden props too for the GM. */

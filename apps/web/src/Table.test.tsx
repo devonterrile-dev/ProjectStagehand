@@ -9,6 +9,7 @@ import {
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SPEAKING_GAP_MS } from '@/play/room';
 import type { PlayCanvasProps } from '@/stage/PlayCanvas';
 import { campaign, MIRA, mockApi, record, renderAt, uuid } from '@/test/app-harness';
 import { fakePlaySocket, type FakePlaySocket } from '@/test/fake-play-socket';
@@ -16,7 +17,8 @@ import type { NoteSeed } from '@/test/journal-world';
 import { gmStage, playerObject, playerStage, present } from '@/test/play-fixtures';
 
 // jsdom has no WebGL, so the 3D theater is replaced by a stand-in. It shows where the camera
-// rests and draws the table's HTML pieces as they would be laid on the table (F3.5b, F3.6).
+// rests and draws the table's HTML pieces as they would be laid on the table (F3.5b, F3.6), and
+// the player's emote card (F3.7).
 let canvasProps: PlayCanvasProps | null = null;
 vi.mock('@/stage/PlayCanvas', () => ({
   PlayCanvas: (props: PlayCanvasProps) => {
@@ -34,6 +36,7 @@ vi.mock('@/stage/PlayCanvas', () => ({
         {table?.binderPage}
         {table?.binderNote}
         {table?.sheet?.page}
+        {props.own?.menu?.card}
       </div>
     );
   },
@@ -462,5 +465,122 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
       expect(props().table?.fear).toMatchObject({ count: 2, spendId: spend.id });
     });
     expect(await screen.findByText('The GM spends 2 Fear: The bridge gives way')).toBeDefined();
+  });
+});
+
+describe('Puppet motion at the table (F3.7)', () => {
+  const VEX = uuid();
+
+  /** A campaign where Mira plays Vex, whose puppet is raised beside Old Marta's. */
+  function puppets(role: 'player' | 'gm' = 'player') {
+    const coast = campaign({ name: 'Painted Coast', role });
+    const vex = {
+      id: VEX,
+      name: 'Vex',
+      hope: 2,
+      traits: { agility: 2, strength: 0, finesse: 0, instinct: 0, presence: 0, knowledge: 0 },
+      assignedToUserId: MIRA.id,
+    };
+    mockApi(MIRA, [coast], { campaignData: { [coast.id]: { characters: [vex] } } });
+    const vexPuppet = playerObject(2, {
+      kind: 'puppet',
+      mount: null,
+      recordId: null,
+      characterId: VEX,
+    });
+    const marta = playerObject(3, { kind: 'puppet', mount: null, recordId: null });
+    return { coast, vexPuppet, marta };
+  }
+
+  it('opens the emote card on a player’s own puppet, and plays the one picked', async () => {
+    const { coast, vexPuppet, marta } = puppets();
+    await seated(coast, playerStage({ objects: [vexPuppet, marta] }));
+    await waitFor(() => {
+      expect(props().own?.characterId).toBe(VEX);
+    });
+    expect(props().own?.menu).toBeNull();
+
+    act(() => {
+      props().own?.onPress(vexPuppet.id);
+    });
+    const card = within(await screen.findByRole('region', { name: /^Emotes/ }));
+    expect(card.getAllByRole('button')).toHaveLength(11);
+
+    fireEvent.click(card.getByRole('button', { name: 'Wave' }));
+    expect(socket.last(PLAY_SOCKET.emote).payload).toEqual({ id: vexPuppet.id, emote: 'wave' });
+    expect(screen.queryByRole('region', { name: /^Emotes/ })).toBeNull();
+    await answer(PLAY_SOCKET.emote, { ok: true });
+  });
+
+  it('closes the card with Escape, its close mark, or a click away', async () => {
+    const { coast, vexPuppet } = puppets();
+    await seated(coast, playerStage({ objects: [vexPuppet] }));
+    await waitFor(() => {
+      expect(props().own).toBeDefined();
+    });
+    const open = async () => {
+      act(() => {
+        props().own?.onPress(vexPuppet.id);
+      });
+      return within(await screen.findByRole('region', { name: /^Emotes/ }));
+    };
+
+    await open();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: /^Emotes/ })).toBeNull();
+
+    fireEvent.click((await open()).getByRole('button', { name: 'Close emotes' }));
+    expect(screen.queryByRole('region', { name: /^Emotes/ })).toBeNull();
+
+    await open();
+    act(() => {
+      props().own?.onClose();
+    });
+    expect(screen.queryByRole('region', { name: /^Emotes/ })).toBeNull();
+    expect(socket.requests.filter((sent) => sent.event === PLAY_SOCKET.emote)).toHaveLength(0);
+  });
+
+  it('gives the GM no emote card of their own', async () => {
+    const { coast, vexPuppet } = puppets('gm');
+    await seated(coast, gmStage());
+    expect(props().own).toBeUndefined();
+    expect(vexPuppet.characterId).toBe(VEX);
+  });
+
+  it('shows the puppet of whoever is talking, and the emotes played', async () => {
+    const { coast, vexPuppet, marta } = puppets();
+    await seated(coast, playerStage({ objects: [vexPuppet, marta] }));
+
+    serverSends(PLAY_SOCKET.presence, [
+      present(1, 'Mira', { characterId: VEX, characterName: 'Vex', speaking: true }),
+    ]);
+    expect([...(props().motion?.talking ?? [])]).toEqual([vexPuppet.id]);
+
+    const played = { id: uuid(), objectId: marta.id, emote: 'bow' };
+    serverSends(PLAY_SOCKET.emote, played);
+    expect(props().motion?.emotes[marta.id]).toEqual(played);
+  });
+
+  it('tells the server while T is held, but not while typing', async () => {
+    const { coast } = puppets();
+    await seated(coast, playerStage());
+    const spoken = () =>
+      socket.emitted
+        .filter((sent) => sent.event === PLAY_SOCKET.speaking)
+        .map((sent) => (sent.payload as { speaking: boolean }).speaking);
+
+    fireEvent.keyDown(window, { key: 't' });
+    expect(spoken()).toEqual([true]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SPEAKING_GAP_MS));
+    });
+    fireEvent.keyUp(window, { key: 't' });
+    expect(spoken()).toEqual([true, false]);
+
+    const field = document.createElement('textarea');
+    document.body.append(field);
+    fireEvent.keyDown(field, { key: 't' });
+    field.remove();
+    expect(spoken()).toEqual([true, false]);
   });
 });
