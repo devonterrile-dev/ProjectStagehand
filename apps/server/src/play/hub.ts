@@ -26,8 +26,9 @@ export class PlayHub {
     const seats = this.#campaigns.get(campaignId) ?? new Map<string, Seat>();
     const seat = seats.get(member.userId);
     if (seat !== undefined) {
-      // Their name or PC may have changed since they first came in.
-      seat.member = member;
+      // Their name or PC may have changed since they first came in; whether they are talking
+      // is this room's to know, not the new connection's.
+      seat.member = { ...member, speaking: seat.member.speaking };
       seat.sockets.add(socketId);
       return true;
     }
@@ -52,6 +53,17 @@ export class PlayHub {
     if (seat.sockets.size > 0) return false;
     seats.delete(userId);
     if (seats.size === 0) this.#campaigns.delete(campaignId);
+    return true;
+  }
+
+  /**
+   * Whether someone seated is talking (F3.7). True when that changed, so presence goes out
+   * again; false for someone not seated, or no change. It goes with their seat.
+   */
+  setSpeaking(campaignId: string, userId: string, speaking: boolean): boolean {
+    const seat = this.#campaigns.get(campaignId)?.get(userId);
+    if (seat === undefined || seat.member.speaking === speaking) return false;
+    seat.member = { ...seat.member, speaking };
     return true;
   }
 

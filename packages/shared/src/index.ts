@@ -194,6 +194,18 @@ export {
   type UpdateMeRequest,
 } from './me';
 export {
+  EMOTE_LABELS,
+  emotePlayedSchema,
+  emoteRequestSchema,
+  EMOTES,
+  emoteSchema,
+  speakingRequestSchema,
+  type Emote,
+  type EmotePlayed,
+  type EmoteRequest,
+  type SpeakingRequest,
+} from './motion';
+export {
   actionResultSchema,
   gmStageObjectSchema,
   gmStageSchema,

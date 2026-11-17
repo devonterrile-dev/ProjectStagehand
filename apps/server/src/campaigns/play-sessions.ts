@@ -650,6 +650,8 @@ export async function stagesOf(
           image,
           // What a player may inspect (F3.5): a record they have, never a PC.
           recordId: subject.kind === 'record' && subject.revealed ? subject.id : null,
+          // Whose puppet it is (F3.7): to emote it and to show who is talking.
+          characterId: subject.kind === 'pc' ? subject.id : null,
         },
       ];
     }),

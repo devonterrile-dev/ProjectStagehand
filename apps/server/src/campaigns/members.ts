@@ -61,7 +61,8 @@ export async function listMembers(db: Database, scope: CampaignScope): Promise<M
 
 /**
  * The scope's own user as the live room shows them to everyone in a session (F3.3): the name
- * Stagehand shows for them, their picture, their role and their PC's name.
+ * Stagehand shows for them, their picture, their role and their PC (by name, and by id for
+ * whose puppet talks, F3.7). Not talking yet: the hub keeps that.
  */
 export async function presenceMemberOf(
   db: Database,
@@ -73,6 +74,7 @@ export async function presenceMemberOf(
       displayName: users.displayName,
       image: users.image,
       characterName: characters.name,
+      characterId: characters.id,
     })
     .from(campaignMembers)
     .innerJoin(users, eq(users.id, campaignMembers.userId))
@@ -90,6 +92,8 @@ export async function presenceMemberOf(
     avatarUrl: row.image,
     role: scope.role,
     characterName: row.characterName,
+    characterId: row.characterId,
+    speaking: false,
   });
 }
 

@@ -12,11 +12,14 @@
  *   their own PC, and the dice are rolled here (`rollDie`), never in a browser (§9).
  * - Everything sent about one campaign goes out in turn (`inTurn`): a join's snapshot and the
  *   broadcasts around it can't overtake each other, so nobody is left holding an older stage.
+ * - Puppet motion (F3.7): an emote is sent once to everyone and never stored; who is talking is
+ *   kept with presence, in memory, and never touches the database.
  */
 import {
   actionResultSchema,
   addObjectRequestSchema,
   cancelRollRequestSchema,
+  emoteRequestSchema,
   joinRequestSchema,
   joinResultSchema,
   loadSceneRequestSchema,
@@ -28,18 +31,21 @@ import {
   rollCallRequestSchema,
   setFearRequestSchema,
   setHopeRequestSchema,
+  speakingRequestSchema,
   spendFearRequestSchema,
   type ActionResult,
+  type EmotePlayed,
   type CampaignRole,
   type JoinResult,
 } from '@stagehand/shared';
 import { fromNodeHeaders } from 'better-auth/node';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DefaultEventsMap, Namespace, Server, Socket } from 'socket.io';
 import type { z } from 'zod';
 
 import type { Auth } from '../auth/auth';
+import { checkEmote } from '../campaigns/emotes';
 import { presenceMemberOf } from '../campaigns/members';
 import {
   addLiveObject,
@@ -62,7 +68,7 @@ import {
 } from '../campaigns/rolls';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
 import type { Database } from '../db/client';
-import { reportError } from '../http/errors';
+import { httpError, reportError } from '../http/errors';
 
 import { PlayHub } from './hub';
 
@@ -104,7 +110,12 @@ interface Effects {
   logged?: boolean;
   /** PCs whose sheets changed: their players read them again. */
   sheets?: readonly string[];
+  /** False: nothing on the stage changed (an emote, F3.7), so it isn't sent again. */
+  stage?: false;
 }
+
+/** Who may take an action: the GM, a player, or either (an emote, F3.7). */
+type ActionRole = CampaignRole | 'either';
 
 /** A secure d12. */
 const secureDie: RollDie = () => randomInt(1, 13);
@@ -115,6 +126,8 @@ interface SocketData {
   seat: { campaignId: string; role: CampaignRole } | null;
   /** The campaign whose session this connection is waiting for (none running, or full). */
   waiting: string | null;
+  /** When this connection last asked for an emote (F3.7), for `EMOTE_GAP_MS`. */
+  lastEmoteAt: number;
 }
 
 type PlayNamespace = Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
@@ -131,6 +144,13 @@ const room = {
  * handful a minute; anything near this is a broken or hostile page, and is disconnected.
  */
 export const EVENT_BUDGET = { events: 60, perMs: 10_000 } as const;
+
+/**
+ * The shortest wait between two emotes from one connection (F3.7). An emote takes a second or
+ * so to play; faster than this is a page gone wrong, and is refused rather than disconnected.
+ */
+export const EMOTE_GAP_MS = 800;
+const TOO_QUICK = 'Too quick: wait a moment';
 
 const ONLY_GM = 'Only the GM can do that';
 const ONLY_PLAYERS = 'Only players can do that';
@@ -253,7 +273,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
    */
   async function act(
     socket: PlaySocket,
-    role: CampaignRole,
+    role: ActionRole,
     reply: (result: ActionResult) => void,
     run: (scope: CampaignScope) => Promise<Effects> | Promise<void>,
     reveals = false,
@@ -268,13 +288,13 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     }
     try {
       const scope = await loadCampaignScope(db, userId, seat.campaignId);
-      if (scope?.role !== role) {
-        refuse(role === 'gm' ? ONLY_GM : ONLY_PLAYERS);
+      if (scope === null || (role !== 'either' && scope.role !== role)) {
+        refuse(role === 'player' ? ONLY_PLAYERS : ONLY_GM);
         return;
       }
       const effects = (await run(scope)) ?? {};
       reply({ ok: true });
-      await sendStage(scope);
+      if (effects.stage !== false) await sendStage(scope);
       // Bringing something into sight may have revealed it (D-52): journals read again.
       if (reveals) sendJournalChanged(scope.campaignId);
       if (reveals || effects.logged === true) sendLogChanged(scope.campaignId);
@@ -300,6 +320,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         socket.data.userId = session.user.id;
         socket.data.seat = null;
         socket.data.waiting = null;
+        socket.data.lastEmoteAt = 0;
         next();
       })
       .catch((error: unknown) => {
@@ -356,7 +377,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
 
     /** An action with a payload: checked against `schema`, refused with `invalid` if it fails. */
     function on<T>(
-      role: CampaignRole,
+      role: ActionRole,
       event: string,
       schema: z.ZodType<T>,
       invalid: string,
@@ -494,6 +515,43 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         return { logged: true, sheets: [characterId] };
       },
     );
+
+    // Puppet motion (F3.7). An emote: the GM on any raised puppet, a player on their own PC's.
+    on(
+      'either',
+      PLAY_SOCKET.emote,
+      emoteRequestSchema,
+      'Choose a puppet and an emote',
+      async (scope, request) => {
+        const now = Date.now();
+        if (now - socket.data.lastEmoteAt < EMOTE_GAP_MS) throw httpError(429, TOO_QUICK);
+        socket.data.lastEmoteAt = now;
+        await checkEmote(db, scope, request.id);
+        const played: EmotePlayed = {
+          id: randomUUID(),
+          objectId: request.id,
+          emote: request.emote,
+        };
+        // In turn, so it can't overtake the stage that brought the puppet up.
+        await inTurn(scope.campaignId, 'emote broadcast failed', () => {
+          nsp
+            .to(room.gm(scope.campaignId))
+            .to(room.player(scope.campaignId))
+            .emit(PLAY_SOCKET.emote, played);
+        });
+        return { stage: false };
+      },
+    );
+
+    // Talking (F3.7): never answered, never stored; everyone gets it as presence.
+    socket.on(PLAY_SOCKET.speaking, (payload: unknown) => {
+      const parsed = speakingRequestSchema.safeParse(payload);
+      const { seat, userId } = socket.data;
+      if (!parsed.success || seat === null) return;
+      if (hub.setSpeaking(seat.campaignId, userId, parsed.data.speaking)) {
+        sendPresence(seat.campaignId);
+      }
+    });
 
     socket.on('disconnect', () => {
       vacate(socket);

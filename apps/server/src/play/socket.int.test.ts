@@ -2,7 +2,8 @@
  * The live room (F3.3b, governance §13 and §14 "Live events", D-50), with real connections to
  * a listening server and a real Postgres: who may connect, joining and waiting, each role's
  * view of the stage, the GM's actions and a player trying them, the 6-player cap, coming back
- * after a drop, ending, and a removed member; and rolls, Hope and Fear (F3.6), with fixed dice.
+ * after a drop, ending, and a removed member; rolls, Hope and Fear (F3.6), with fixed dice; and
+ * puppet motion (F3.7): emotes and who is talking.
  */
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -13,6 +14,7 @@ import {
   type ActionResult,
   type Campaign,
   type CampaignRecord,
+  type EmotePlayed,
   type GmStage,
   type JoinResult,
   type LiveStage,
@@ -34,9 +36,9 @@ import {
   signIn,
 } from '../../test/auth-helpers';
 import type { DbHandle } from '../db/client';
-import { assets, campaignMembers, records, users } from '../db/schema';
+import { assets, campaignMembers, characters, records, users } from '../db/schema';
 
-import { EVENT_BUDGET } from './socket';
+import { EMOTE_GAP_MS, EVENT_BUDGET } from './socket';
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -60,6 +62,8 @@ interface Client {
   sheets: string[];
   /** Times the GM was told the log grew (F3.6). */
   logs: number;
+  /** Emotes played (F3.7). */
+  emotes: EmotePlayed[];
 }
 
 /** The next dice the server rolls (F3.6), Hope die first; a 6 when none are queued. */
@@ -237,6 +241,7 @@ describe('The live room', () => {
       journal: 0,
       sheets: [],
       logs: 0,
+      emotes: [],
     };
     socket.on(PLAY_SOCKET.stage, (stage: LiveStage) => client.stages.push(stage));
     socket.on(PLAY_SOCKET.presence, (presence: Presence) => client.presences.push(presence));
@@ -247,6 +252,7 @@ describe('The live room', () => {
       client.sheets.push(changed.characterId),
     );
     socket.on(PLAY_SOCKET.logChanged, () => (client.logs += 1));
+    socket.on(PLAY_SOCKET.emote, (played: EmotePlayed) => client.emotes.push(played));
     return new Promise((resolve, reject) => {
       socket.once('connect', () => {
         resolve(client);
@@ -371,6 +377,8 @@ describe('The live room', () => {
         avatarUrl: expect.stringContaining('https://') as string,
         role: 'player',
         characterName: null,
+        characterId: null,
+        speaking: false,
       });
 
       const second = await seated(players[1] ?? gm, campaign);
@@ -1269,6 +1277,241 @@ describe('The live room', () => {
       ).toEqual({ ok: false, message: 'PC not found' });
       expect(await hopeOf(campaign, mira)).toBe(2);
       await end(other);
+      await end(campaign);
+    });
+  });
+
+  describe('puppet motion (F3.7)', () => {
+    /** A PC for `player`, with an image in use so it can be drawn on the stage. */
+    async function drawnPc(campaign: Campaign, player: Person, name: string) {
+      const made = await call('POST', `/api/campaigns/${campaign.id}/characters`, gm, {
+        name,
+        assignToUserId: player.id,
+      });
+      expect(made.statusCode, made.body).toBe(201);
+      const { id } = made.json<{ id: string }>();
+      const [asset] = await handle.db
+        .insert(assets)
+        .values({
+          campaignId: campaign.id,
+          characterId: id,
+          createdBy: gm.id,
+          kind: 'character',
+          status: 'approved',
+          prompt: 'a test image',
+          model: 'test/model',
+          styleBibleVersion: 1,
+          quality: 'medium',
+          aspectRatio: '2:3',
+          originalPath: `test/${randomUUID()}/original.png`,
+          mediaType: 'image/png',
+          processedPath: `test/${randomUUID()}/processed.webp`,
+          processedWidth: 640,
+          processedHeight: 1024,
+          processingVersion: 3,
+        })
+        .returning({ id: assets.id });
+      await handle.db
+        .update(characters)
+        .set({ visualAssetId: asset?.id ?? null })
+        .where(eq(characters.id, id));
+      return id;
+    }
+
+    const pause = () => new Promise((resolve) => setTimeout(resolve, EMOTE_GAP_MS));
+
+    /**
+     * A running session with Mira's puppet (player 1) and Bram's (player 2) raised, Old Marta
+     * raised, a well in sight and a trapdoor hidden; all three people seated.
+     */
+    async function motionTable(name: string) {
+      const campaign = await table(name, 2);
+      const mira = await drawnPc(campaign, players[0] ?? gm, 'Mira');
+      const bram = await drawnPc(campaign, players[1] ?? gm, 'Bram');
+      const market = await marketScene(campaign);
+      await start(campaign);
+      const director = await seated(gm, campaign);
+      const first = await seated(players[0] ?? gm, campaign);
+      const second = await seated(players[1] ?? gm, campaign);
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: market.id })).toEqual({
+        ok: true,
+      });
+      const ids = { mira: randomUUID(), bram: randomUUID() };
+      for (const [objectId, characterId] of [
+        [ids.mira, mira],
+        [ids.bram, bram],
+      ] as const) {
+        expect(
+          await act(director.client, PLAY_SOCKET.addObject, { id: objectId, characterId }),
+        ).toEqual({ ok: true });
+        expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: objectId })).toEqual({
+          ok: true,
+        });
+      }
+      const [well, trapdoor, marta] = market.objects;
+      expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: marta?.id })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => {
+        expect((last(first.client.stages) as PlayerStage | undefined)?.objects).toHaveLength(4);
+      });
+      return {
+        campaign,
+        mira,
+        bram,
+        director,
+        first,
+        second,
+        objects: {
+          ...ids,
+          well: well?.id ?? '',
+          trapdoor: trapdoor?.id ?? '',
+          marta: marta?.id ?? '',
+        },
+      };
+    }
+
+    it('tells players whose puppet each PC is, and nothing for anything else', async () => {
+      const { campaign, mira, bram, first, objects } = await motionTable('Whose Puppet');
+
+      const stage = last(first.client.stages) as PlayerStage;
+      const whose = Object.fromEntries(stage.objects.map((o) => [o.id, o.characterId]));
+      expect(whose).toEqual({
+        [objects.well]: null,
+        [objects.marta]: null,
+        [objects.mira]: mira,
+        [objects.bram]: bram,
+      });
+      await end(campaign);
+    });
+
+    it('plays a player’s emote on their own puppet for everyone, once', async () => {
+      const { campaign, director, first, second, objects } = await motionTable('Own Emote');
+      const stagesBefore = director.client.stages.length;
+
+      expect(
+        await act(first.client, PLAY_SOCKET.emote, { id: objects.mira, emote: 'wave' }),
+      ).toEqual({ ok: true });
+
+      for (const client of [director.client, first.client, second.client]) {
+        await vi.waitFor(() => {
+          expect(client.emotes).toHaveLength(1);
+        });
+        expect(client.emotes[0]).toMatchObject({ objectId: objects.mira, emote: 'wave' });
+      }
+      // The same play everywhere; nothing on the stage changed, so it isn't sent again.
+      expect(new Set([director, first, second].map((s) => s.client.emotes[0]?.id)).size).toBe(1);
+      expect(director.client.stages).toHaveLength(stagesBefore);
+      await end(campaign);
+    });
+
+    it('lets the GM emote any raised puppet, and nothing else', async () => {
+      const { campaign, director, first, objects } = await motionTable('GM Emotes');
+
+      for (const id of [objects.marta, objects.bram]) {
+        expect(await act(director.client, PLAY_SOCKET.emote, { id, emote: 'bow' })).toEqual({
+          ok: true,
+        });
+        await pause();
+      }
+      await vi.waitFor(() => {
+        expect(first.client.emotes.map((played) => played.objectId)).toEqual([
+          objects.marta,
+          objects.bram,
+        ]);
+      });
+
+      expect(
+        await act(director.client, PLAY_SOCKET.emote, { id: objects.well, emote: 'bow' }),
+      ).toEqual({ ok: false, message: 'Choose a puppet on the stage' });
+      await pause();
+      await act(director.client, PLAY_SOCKET.lowerPuppet, { id: objects.marta });
+      expect(
+        await act(director.client, PLAY_SOCKET.emote, { id: objects.marta, emote: 'bow' }),
+      ).toEqual({ ok: false, message: 'Raise that puppet first' });
+      await end(campaign);
+    });
+
+    it('refuses a player anyone else’s puppet, props, nonsense and emotes too quick', async () => {
+      const { campaign, director, first, objects } = await motionTable('Emote Refusals');
+
+      for (const id of [objects.bram, objects.marta]) {
+        expect(await act(first.client, PLAY_SOCKET.emote, { id, emote: 'hop' })).toEqual({
+          ok: false,
+          message: 'That puppet isn’t yours',
+        });
+        await pause();
+      }
+      for (const id of [objects.well, objects.trapdoor, randomUUID()]) {
+        expect(await act(first.client, PLAY_SOCKET.emote, { id, emote: 'hop' })).toEqual({
+          ok: false,
+          message: 'Choose a puppet on the stage',
+        });
+        await pause();
+      }
+      expect(
+        await act(first.client, PLAY_SOCKET.emote, { id: objects.mira, emote: 'moonwalk' }),
+      ).toEqual({ ok: false, message: 'Choose a puppet and an emote' });
+
+      // Lowered, a player's own puppet is out of reach like anything else out of sight.
+      await act(director.client, PLAY_SOCKET.lowerPuppet, { id: objects.mira });
+      expect(
+        await act(first.client, PLAY_SOCKET.emote, { id: objects.mira, emote: 'hop' }),
+      ).toEqual({ ok: false, message: 'Choose a puppet on the stage' });
+      await act(director.client, PLAY_SOCKET.raisePuppet, { id: objects.mira });
+
+      await pause();
+      expect(
+        await act(first.client, PLAY_SOCKET.emote, { id: objects.mira, emote: 'hop' }),
+      ).toEqual({ ok: true });
+      expect(
+        await act(first.client, PLAY_SOCKET.emote, { id: objects.mira, emote: 'nod' }),
+      ).toEqual({ ok: false, message: 'Too quick: wait a moment' });
+      await vi.waitFor(() => {
+        expect(director.client.emotes).toHaveLength(1);
+      });
+      expect(director.client.emotes[0]?.emote).toBe('hop');
+      expect(director.client.emotes[0]?.objectId).toBe(objects.mira);
+
+      await end(campaign);
+      await pause();
+      expect(
+        await act(director.client, PLAY_SOCKET.emote, { id: objects.mira, emote: 'hop' }),
+      ).toEqual({ ok: false, message: 'Join the session first' });
+    });
+
+    it('passes on who is talking with presence, only when it changes', async () => {
+      const { campaign, mira, director, first, second } = await motionTable('Talking');
+      const talking = (client: Client) =>
+        last(client.presences)
+          ?.filter((person) => person.speaking)
+          .map((person) => person.displayName);
+      const before = director.client.presences.length;
+
+      first.client.socket.emit(PLAY_SOCKET.speaking, { speaking: true });
+      await vi.waitFor(() => {
+        expect(talking(second.client)).toEqual(['Live Player 1']);
+      });
+      expect(last(director.client.presences)?.find((p) => p.speaking)?.characterId).toBe(mira);
+      // Saying it again changes nothing, and nonsense is ignored.
+      first.client.socket.emit(PLAY_SOCKET.speaking, { speaking: true });
+      first.client.socket.emit(PLAY_SOCKET.speaking, { speaking: 'loud' });
+      first.client.socket.emit(PLAY_SOCKET.speaking, { speaking: false });
+      await vi.waitFor(() => {
+        expect(talking(director.client)).toEqual([]);
+      });
+      expect(director.client.presences.length - before).toBe(2);
+
+      // Leaving while talking stops it for everyone else.
+      second.client.socket.emit(PLAY_SOCKET.speaking, { speaking: true });
+      await vi.waitFor(() => {
+        expect(talking(director.client)).toEqual(['Live Player 2']);
+      });
+      second.client.socket.disconnect();
+      await vi.waitFor(() => {
+        expect(names(last(director.client.presences))).toEqual(['Live GM', 'Live Player 1']);
+      });
+      expect(talking(director.client)).toEqual([]);
       await end(campaign);
     });
   });

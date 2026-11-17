@@ -13,6 +13,8 @@ function member(n: number, overrides: Partial<PresenceMember> = {}): PresenceMem
     avatarUrl: null,
     role: 'player',
     characterName: null,
+    characterId: null,
+    speaking: false,
     ...overrides,
   };
 }
@@ -113,5 +115,35 @@ describe('PlayHub', () => {
 
     expect(hub.presence(CAMPAIGN)).toEqual([]);
     expect(hub.enter(CAMPAIGN, member(7), 'socket-7')).toBe(true);
+  });
+
+  it('keeps who is talking with their seat, and says when it changed', () => {
+    const hub = new PlayHub();
+    hub.enter(CAMPAIGN, member(1), 's1');
+
+    expect(hub.setSpeaking(CAMPAIGN, id(1), true)).toBe(true);
+    expect(hub.setSpeaking(CAMPAIGN, id(1), true)).toBe(false);
+    expect(hub.presence(CAMPAIGN)[0]?.speaking).toBe(true);
+
+    // A second tab doesn't stop them talking.
+    hub.enter(CAMPAIGN, member(1), 's1b');
+    expect(hub.presence(CAMPAIGN)[0]?.speaking).toBe(true);
+
+    expect(hub.setSpeaking(CAMPAIGN, id(1), false)).toBe(true);
+    expect(hub.presence(CAMPAIGN)[0]?.speaking).toBe(false);
+
+    // Nobody seated: nothing changes.
+    expect(hub.setSpeaking(CAMPAIGN, id(2), true)).toBe(false);
+    expect(hub.setSpeaking('campaign-b', id(1), true)).toBe(false);
+  });
+
+  it('forgets talking when the last connection goes', () => {
+    const hub = new PlayHub();
+    hub.enter(CAMPAIGN, member(1), 's1');
+    hub.setSpeaking(CAMPAIGN, id(1), true);
+    hub.leave(CAMPAIGN, id(1), 's1');
+    hub.enter(CAMPAIGN, member(1), 's1');
+
+    expect(hub.presence(CAMPAIGN)[0]?.speaking).toBe(false);
   });
 });

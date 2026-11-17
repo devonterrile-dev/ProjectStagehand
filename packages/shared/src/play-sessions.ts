@@ -61,6 +61,11 @@ export const playerStageObjectSchema = z.object({
   ...placement,
   image: stageImageSchema,
   recordId: z.uuid().nullable(),
+  /**
+   * The PC a puppet is (F3.7), so a player finds their own puppet to emote and everyone sees
+   * who is talking; null for anything else. Which PC is whose is no secret.
+   */
+  characterId: z.uuid().nullable(),
 });
 export type PlayerStageObject = z.infer<typeof playerStageObjectSchema>;
 
@@ -132,6 +137,10 @@ export const presenceMemberSchema = z.object({
   role: campaignRoleSchema,
   /** The player's PC, by name; null for the GM and for a player without one. */
   characterName: z.string().nullable(),
+  /** The player's PC (F3.7): their puppet is the one that talks. */
+  characterId: z.uuid().nullable(),
+  /** Talking right now (F3.7, `motion.ts`). */
+  speaking: z.boolean(),
 });
 export type PresenceMember = z.infer<typeof presenceMemberSchema>;
 
@@ -157,6 +166,12 @@ export type Presence = z.infer<typeof presenceSchema>;
  *   (`revealRollRequestSchema`), `spendFear` (`spendFearRequestSchema`), `setFear`
  *   (`setFearRequestSchema`), `setHope` (`setHopeRequestSchema`). A player, for their own PC
  *   only: `makeRoll` (`makeRollRequestSchema`).
+ * - `emote` (F3.7, `motion.ts`): `emoteRequestSchema` → `actionResultSchema`. The GM on any
+ *   raised puppet; a player on their own PC's. At most one a connection every 800 ms.
+ *
+ * Browser to server, never answered:
+ * - `speaking` (F3.7): `speakingRequestSchema`, whenever the sender starts or stops talking.
+ *   Everyone gets it as presence.
  *
  * Whatever comes into sight while the curtain is open, or is in sight when it opens, is revealed
  * to players (§7): only at that moment, so a record the GM un-reveals stays hidden.
@@ -170,6 +185,7 @@ export type Presence = z.infer<typeof presenceSchema>;
  *   it again.
  * - `sheetChanged`: a PC's sheet changed (`sheetChangedSchema`, F3.6); its player reads it again.
  * - `logChanged`: to the GM only, the session's log grew (F3.6); the desk reads it again.
+ * - `emote`: an emote plays (`emotePlayedSchema`, F3.7); sent once, never stored.
  */
 export const PLAY_SOCKET = {
   /** Socket.IO's default path, the one Discord's proxy was tried with (D-48). */
@@ -200,6 +216,8 @@ export const PLAY_SOCKET = {
   setHope: 'hope:adjust',
   sheetChanged: 'sheet:changed',
   logChanged: 'log:changed',
+  emote: 'emote',
+  speaking: 'speaking',
 } as const;
 
 export const joinRequestSchema = z.strictObject({ campaignId: z.uuid() });

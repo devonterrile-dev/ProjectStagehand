@@ -428,6 +428,8 @@ describe('Live sessions API', () => {
           image: { assetId: well.assetId, width: 640, height: 1024, version: 3 },
           // Opening the curtain on it revealed it, so players may inspect it (F3.5).
           recordId: well.record.id,
+          // Not a PC's puppet (F3.7).
+          characterId: null,
         },
       ]);
 

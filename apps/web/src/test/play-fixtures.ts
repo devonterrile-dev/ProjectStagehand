@@ -1,4 +1,4 @@
-/** Live stages for the play tests (F3.3, F3.4): what the server would send each role. */
+/** Live stages for the play tests (F3.3, F3.4, F3.7): what the server would send each role. */
 import type {
   GmStage,
   GmStageObject,
@@ -36,6 +36,7 @@ export function playerObject(
     mount: 'stand',
     image: stageImage(n),
     recordId: id(300 + n),
+    characterId: null,
     ...overrides,
   };
 }
@@ -113,6 +114,8 @@ export function present(
     avatarUrl: null,
     role: 'player',
     characterName: null,
+    characterId: null,
+    speaking: false,
     ...overrides,
   };
 }

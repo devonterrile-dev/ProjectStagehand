@@ -55,6 +55,7 @@ describe('the players’ stage', () => {
           ...placed,
           image,
           recordId: id(4),
+          characterId: null,
           shown: true,
           record: { id: id(4), type: 'prop', name: 'The cursed well' },
           hiddenDetails: 'A key at the bottom',
@@ -66,7 +67,7 @@ describe('the players’ stage', () => {
       role: 'player',
       ...stage,
       party: undefined,
-      objects: [{ ...placed, image, recordId: id(4) }],
+      objects: [{ ...placed, image, recordId: id(4), characterId: null }],
     });
     expect(parsed).not.toHaveProperty('party');
     expect(JSON.stringify(parsed)).not.toContain('cursed');
@@ -154,7 +155,15 @@ describe('the live room’s messages', () => {
       status: 'joined',
       stage: { role: 'player', ...stage, objects: [] },
       presence: [
-        { userId: id(5), displayName: 'Mara', avatarUrl: null, role: 'gm', characterName: null },
+        {
+          userId: id(5),
+          displayName: 'Mara',
+          avatarUrl: null,
+          role: 'gm',
+          characterName: null,
+          characterId: null,
+          speaking: false,
+        },
       ],
     });
 
@@ -213,11 +222,16 @@ describe('the live room’s messages', () => {
         avatarUrl: 'https://cdn.discordapp.com/avatars/1/a.png',
         role: 'player',
         characterName: 'Vex Tidecaller',
+        characterId: id(6),
+        speaking: true,
         email: 'sam@example.com',
       },
     ]);
 
     expect(presence[0]).not.toHaveProperty('email');
     expect(presence[0]?.characterName).toBe('Vex Tidecaller');
+    expect(presence[0]?.speaking).toBe(true);
+    // Who is talking is part of presence (F3.7): a member without it is refused.
+    expect(presenceSchema.safeParse([{ ...presence[0], speaking: undefined }]).success).toBe(false);
   });
 });
