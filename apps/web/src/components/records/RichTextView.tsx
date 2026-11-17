@@ -12,6 +12,7 @@ export function RichTextView({
   value,
   className,
   mentionHref,
+  onMention,
 }: {
   value: RichText;
   className?: string;
@@ -20,17 +21,43 @@ export function RichTextView({
    * mentions of records players don't have into plain text). Without it, mentions are text.
    */
   mentionHref?: (recordId: string) => string;
+  /**
+   * Called when a mention is pressed, for a view with no router (the binder at the table,
+   * F3.5b). Like `mentionHref`, for text whose hidden mentions the server already made plain.
+   */
+  onMention?: (recordId: string) => void;
 }) {
+  const mention: Mention =
+    mentionHref !== undefined
+      ? (id, label) => (
+          <Link to={mentionHref(id)} className="underline">
+            {label}
+          </Link>
+        )
+      : onMention !== undefined
+        ? (id, label) => (
+            <button
+              type="button"
+              className="underline"
+              onClick={() => {
+                onMention(id);
+              }}
+            >
+              {label}
+            </button>
+          )
+        : undefined;
   return (
     <div className={`rich-text-view space-y-2 ${className ?? ''}`}>
-      {blocks(value.content, mentionHref)}
+      {blocks(value.content, mention)}
     </div>
   );
 }
 
-type MentionHref = ((recordId: string) => string) | undefined;
+/** How a mention is drawn; without one, it is its label as plain text. */
+type Mention = ((recordId: string, label: string) => ReactNode) | undefined;
 
-function blocks(content: readonly RichTextBlock[], href: MentionHref): ReactNode[] {
+function blocks(content: readonly RichTextBlock[], href: Mention): ReactNode[] {
   return content.map((block, index) => {
     switch (block.type) {
       case 'paragraph':
@@ -71,21 +98,17 @@ function blocks(content: readonly RichTextBlock[], href: MentionHref): ReactNode
   });
 }
 
-function inline(content: readonly RichTextInline[], href: MentionHref): ReactNode[] {
+function inline(content: readonly RichTextInline[], href: Mention): ReactNode[] {
   return content.map((node, index) => {
     if (node.type === 'hardBreak') return <br key={index} />;
     // A mention is plain text here unless the caller says where it leads: this view is what
     // players see, and a mention must not lead them to a record they haven't been shown (D-24).
     let element: ReactNode =
-      node.type !== 'mention' ? (
-        node.text
-      ) : href === undefined ? (
-        node.attrs.label
-      ) : (
-        <Link to={href(node.attrs.id)} className="underline">
-          {node.attrs.label}
-        </Link>
-      );
+      node.type !== 'mention'
+        ? node.text
+        : href === undefined
+          ? node.attrs.label
+          : href(node.attrs.id, node.attrs.label);
     for (const mark of node.marks ?? []) {
       switch (mark.type) {
         case 'bold':

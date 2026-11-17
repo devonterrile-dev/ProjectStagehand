@@ -45,6 +45,8 @@ export interface SceneObjectsProps {
    */
   glide?: boolean;
   snapId?: string | null;
+  /** When a press counts (`Cutout`): a player's theater selects on a whole click (F3.5b). */
+  pressOn?: 'down' | 'click';
 }
 
 /**
@@ -60,6 +62,7 @@ export function SceneObjects({
   onDragChange,
   glide = false,
   snapId = null,
+  pressOn = 'down',
 }: SceneObjectsProps) {
   const camera = useThree((state) => state.camera);
   const canvas = useThree((state) => state.gl.domElement);
@@ -78,7 +81,7 @@ export function SceneObjects({
     [],
   );
 
-  function press(event: ThreeEvent<PointerEvent>, id: string, base: Point3) {
+  function press(event: ThreeEvent<MouseEvent>, id: string, base: Point3) {
     // The nearest cutout under the pointer takes the press.
     event.stopPropagation();
     onSelect?.(id);
@@ -138,6 +141,7 @@ export function SceneObjects({
                 mount={object.mount}
                 faded={object.faded}
                 selected={object.id === selectedId}
+                pressOn={pressOn}
                 glide={glides}
                 {...(rises
                   ? { enterFrom: cutoutPosition({ ...object, lowered: true }, index) }

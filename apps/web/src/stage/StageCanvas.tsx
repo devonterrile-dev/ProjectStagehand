@@ -2,7 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { Component, Suspense, type ReactNode } from 'react';
 
 import { Backdrop } from './Backdrop';
-import { fitStageCamera, STAGE_FOV } from './camera';
+import { fitStageCamera, STAGE_FOV, type StageView } from './camera';
 import { STAGE_COLORS } from './colors';
 import { Curtain } from './Curtain';
 import { MAX_PIXEL_RATIO } from './quality';
@@ -29,6 +29,10 @@ export interface StageCanvasProps {
    * camera (F3.2c). Players always get the locked one.
    */
   cameraRig?: ReactNode;
+  /** Where the locked camera rests (F3.5b): the theater, or something on the table. */
+  view?: StageView;
+  /** The locked camera has arrived at `view` (F3.5b). */
+  onCameraSettle?: (view: StageView) => void;
 }
 
 /** Shown instead of the stage when the browser can't start WebGL, or the scene crashes. */
@@ -66,6 +70,8 @@ export function StageCanvas({
   children,
   onPointerMissed,
   cameraRig,
+  view = 'stage',
+  onCameraSettle,
 }: StageCanvasProps) {
   return (
     <StageErrorBoundary>
@@ -85,7 +91,12 @@ export function StageCanvas({
         <ambientLight intensity={1.9} />
         <directionalLight position={[1.5, 3, 4]} intensity={1.6} />
 
-        {cameraRig ?? <StageCamera />}
+        {cameraRig ?? (
+          <StageCamera
+            view={view}
+            {...(onCameraSettle === undefined ? {} : { onSettle: onCameraSettle })}
+          />
+        )}
         {/* Each textured piece waits for its own image, so none holds the others back. */}
         <Suspense fallback={null}>
           <Room />

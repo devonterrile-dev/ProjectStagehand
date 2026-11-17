@@ -489,15 +489,16 @@ The stage is a stick-puppet theater at the far end of a tabletop, rendered in th
 | Piece | What it is | Behavior |
 | --- | --- | --- |
 | Room | A plain room around the table, out of focus: a blurred picture on a large sphere (D-46) | Fixed; never in focus |
-| Table | The tabletop the players sit at, low-poly, built once | Fixed; holds the theater, the inspect stage and each player's sheet |
+| Table | The tabletop the players sit at, low-poly, built once | Fixed; holds the theater, the inspect stage, the binder and each player's sheet |
 | Theater box | A puppet theater on the far side of the table: a back wall, two side walls and a roof, open at the front and at the bottom | Fixed geometry; walls and roof can be tinted per scene |
 | Backdrop | The Spot's backdrop image, 16:9, filling the back wall | Swapped when a scene loads; scrolls in a loop in transition scenes (Phase 4) |
 | Front curtain | A curtain across the front of the theater, facing the table | Closes and opens on scene changes; the GM can also close and open it by hand |
 | The void | Black, open space below the scene | Puppets wait here, out of sight, and are raised up through it |
 | Props | Cardboard cutouts of Prop and Item records on small stands, placed inside the box | Placed by the GM; clickable by players to inspect |
 | Puppets | PC, NPC and monster cutouts on sticks | Raised and lowered by the GM; animated procedurally |
-| Inspect stage | A small theater with its own closed curtain, on the table beside the main one | Opens on one prop for the player who clicked it |
-| Sheet page | The player's character sheet, drawn as a sheet of paper on the table in front of them | Read and pressed directly; see "The sheet page" below |
+| Inspect stage | A small theater with its own closed curtain, on the table to the right of the main one, with a pad of sticky notes in front of it | Opens on one prop, item or NPC for the player who clicked it (F3.5b, D-53) |
+| Binder | A three-ring binder lying on the strip of table in front of the theater, with a pad of sticky notes beside it | The journal: picked up to read it; see "The journal binder" below (F3.5b, D-53) |
+| Sheet page | The player's character sheet, drawn as a sheet of paper on the table in front of them | Read and pressed directly; see "The sheet page" below (F3.6, D-53) |
 
 ### Placing things in the scene
 
@@ -514,27 +515,40 @@ The theater is the same for everyone and always in sync. Where a player is looki
 | View | What the player sees | How they get there |
 | --- | --- | --- |
 | Stage | The whole theater, front on, from their seat at the table. The default | Start of the session; closing any other view |
-| Sheet | The camera tilts down to the sheet page on the table | Look down (a key, a scroll down, or clicking the page's edge) |
-| Inspect | The camera turns to the inspect stage | Clicking a prop |
+| Sheet | The camera tilts down to the sheet page on the table (F3.6) | Look down (a key, a scroll down, or clicking the page's edge) |
+| Inspect | The camera turns to the inspect stage | Clicking a revealed prop, item or NPC |
+| Note | The camera looks down a little, at the sticky pad in front of the inspect stage | **Post note** on the inspect stage |
+| Binder | The camera looks down at the open binder and the sticky pad beside it | Clicking the binder, or the **Journal** button in the corner |
 
 - The camera moves smoothly between views and is otherwise locked: no orbit, no zoom, no leaving the table.
-- While a player is on the sheet or the inspect stage, the theater keeps playing; they can turn back at any time.
+- While a player is on the sheet, the inspect stage or the binder, the theater keeps playing; they can turn back at any time. Escape, a click away, or the **Back** button in the corner steps back one view at a time (F3.5b).
 - The GM sees the same theater, with the control desk beside it. The scene builder starts on the players' locked view. **Look around** switches it to an editing camera that orbits the box, always from the front side, with the wheel to zoom; **Preview** is always from the locked view.
 
 ### Inspecting a prop
 
-1. A player clicks a prop on the stage.
+1. A player clicks a prop, an item or an NPC puppet on the stage, once players have its record (a PC isn't inspected).
 2. Their camera turns from the theater to the inspect stage on the table, whose curtain is closed.
-3. The curtain opens on that prop, larger, with a text box below it holding the prop's public description: what the player can see.
-4. Closing it (a click away, Escape, or the close mark on the text box) closes the curtain and turns the camera back to the stage.
+3. The curtain opens on that cutout, larger, with the record's name on a paper sign above it and its public description on a paper card in front of it: what the player can see.
+4. **Post note** on the card turns the camera down to the sticky pad. The player writes on the top note and presses **Post**: it is posted to the record like a note written on the site, peels off the pad and away, and a blank one is under it. **Back** returns to the inspect stage.
+5. Closing it (a click away, Escape, or the close mark on the card) closes the curtain and turns the camera back to the stage. If the GM un-reveals the record meanwhile, it closes by itself.
 
-The inspect stage is the player's own; other players don't see it open (open question 19.10). It only ever shows public text (open question 19.11).
+The inspect stage is the player's own; other players don't see it open (open question 19.10). It only ever shows public text (open question 19.11). The GM doesn't inspect: clicking a cutout in the GM's theater picks it for the desk (D-53).
+
+### The journal binder
+
+The journal at the table is a three-ring binder (F3.5b, D-53, answering 19.13). Its pages are HTML laid on the table (drei `Html` with `transform`), made from the same routes as the site's journal, and read again whenever the server says the journal changed (`journal:changed`, §13).
+
+- **The key** (the first page): Player entries first, then each record type with something revealed, with counts.
+- **A type's page**: every revealed record of that type, scrolling if there are many. Player entries' page lists the entries, and a player can write a **New entry** on a blank page.
+- **A record's or entry's page**: the image, name and public description (or an entry's title, author and description) on the top half; the three newest notes on sticky notes along the bottom half, left to right, with arrows in the corner for the next three older or newer. **Post note** writes one on the pad beside the binder. A mention of another revealed record turns to its page.
+- **Back** turns back one page; from the key it closes the binder. Notes and entries are written and read at the table, and changed or deleted on the site.
+- The GM has the binder too, to read and post notes, but writes no entries.
 
 ### The sheet page
 
 - The player's PC sheet is a page on the table in front of them. It is drawn as HTML placed on a plane in the scene (drei `Html` with `transform`), so the text stays sharp and the F1.4 sheet components are reused.
 - Options are pressed right on the page where they apply: spend Hope before a called roll (F3.6), and later pick combat options (F4.2).
-- The player journal sits beside it as a notebook on the table (open question 19.13).
+- The sheet page arrives with F3.6 (D-53). The journal is the binder on the table (see above).
 
 ### Puppet motion (no sprite sheets)
 
@@ -842,7 +856,7 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.10 | Do other players see when someone is inspecting a prop? | No; the inspect stage is private to the player who opened it | Phase 3 |
 | 19.11 | Can inspecting a prop show more than its public description (hidden details, a roll to notice more)? | No; it shows the public description only. The GM shares more by editing that description or by calling a roll | Phase 3 |
 | 19.12 | Where do dice appear when a roll is made? | Rolled on the table in front of the theater, seen by everyone | Phase 3 |
-| 19.13 | Where does the player journal live in the table view? | A notebook on the table beside the sheet page | Phase 3 |
+| 19.13 | Where does the player journal live in the table view? | Answered by D-53: a three-ring binder on the table in front of the theater | Phase 3 |
 
 ## Sources
 

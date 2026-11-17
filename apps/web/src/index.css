@@ -185,3 +185,43 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* The table (F3.5b): a posted sticky note peels up off its pad and away (`PEEL_MS`), and a
+   binder page turns in when it opens. Reduced motion skips both. */
+@keyframes sticky-peel {
+  from {
+    transform: none;
+    opacity: 1;
+  }
+  to {
+    transform: translate(40%, -70%) rotate(18deg);
+    opacity: 0;
+  }
+}
+@keyframes binder-turn {
+  from {
+    transform: perspective(1200px) rotateY(-70deg);
+    transform-origin: left center;
+    opacity: 0.2;
+  }
+  to {
+    transform: none;
+    transform-origin: left center;
+    opacity: 1;
+  }
+}
+.sticky-peel {
+  animation: sticky-peel 600ms ease-in forwards;
+}
+.binder-turn {
+  animation: binder-turn 320ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sticky-peel,
+  .binder-turn {
+    animation: none;
+  }
+  .sticky-peel {
+    opacity: 0;
+  }
+}

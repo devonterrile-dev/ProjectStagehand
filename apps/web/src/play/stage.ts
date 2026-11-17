@@ -53,6 +53,7 @@ export function theaterView(
       mount: isProp ? (object.mount ?? 'stand') : 'stick',
       faded: !shown,
       lowered: false,
+      ...(stage.role === 'player' && 'recordId' in object ? { recordId: object.recordId } : {}),
     });
   }
   return {

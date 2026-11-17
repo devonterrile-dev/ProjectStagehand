@@ -267,6 +267,19 @@ describe('the live room, from the browser', () => {
     });
   });
 
+  describe('the journal (F3.5b)', () => {
+    it('counts each time the journal may have changed: a join, and the server saying so', async () => {
+      socket.receive(PLAY_SOCKET.journalChanged);
+      expect(state().journal).toBe(0);
+
+      await joined();
+      expect(state().journal).toBe(1);
+      socket.receive(PLAY_SOCKET.journalChanged);
+      socket.receive(PLAY_SOCKET.journalChanged);
+      expect(state().journal).toBe(3);
+    });
+  });
+
   describe('losing the connection', () => {
     it('keeps the stage on screen, then takes the fresh one after rejoining', async () => {
       const before = playerStage();
@@ -477,6 +490,7 @@ describe('the live room, from the browser', () => {
         view: null,
         presence: [],
         pending: {},
+        journal: 0,
       });
 
       // Nothing that arrives late changes a closed room.

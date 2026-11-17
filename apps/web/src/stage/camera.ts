@@ -3,9 +3,18 @@
  * Three.js: `StageCamera` applies them.
  *
  * A player never steers the camera. It rests on one of a few fixed views and moves smoothly
- * between them. F3.1 has the Stage view only; the Sheet and Inspect views arrive with F3.5.
+ * between them: the Stage view (F3.1), and the Inspect, Note and Binder views at the table (F3.5b).
+ * The Sheet view arrives with F3.6.
  */
 import { FRAME, OPENING, type Point3 } from './dimensions';
+import {
+  BINDER,
+  BINDER_PAD,
+  INSPECT_CARD,
+  INSPECT_PAD,
+  INSPECT_STAGE,
+  INSPECT_TITLE,
+} from './table-layout';
 
 /** Vertical field of view, in degrees. Narrow, so the theater's perspective stays gentle. */
 export const STAGE_FOV = 30;
@@ -35,8 +44,11 @@ export interface CameraPose {
   fov: number;
 }
 
-/** The views a player's camera can rest on. F3.5 adds `sheet` and `inspect`. */
-export const STAGE_VIEWS = ['stage'] as const;
+/**
+ * The views a player's camera can rest on: the theater; the inspect stage; the sticky pad in
+ * front of it, looked down at; and the binder with its pad, looked down at (F3.5b).
+ */
+export const STAGE_VIEWS = ['stage', 'inspect', 'note', 'binder'] as const;
 export type StageView = (typeof STAGE_VIEWS)[number];
 
 /**
@@ -60,8 +72,82 @@ export function fitStageCamera(aspect: number): CameraPose {
   return { position: [0, centerY, distance], target: [0, centerY, 0], fov: STAGE_FOV };
 }
 
+/** Air around a table view's framing, as a share of its size. */
+export const TABLE_MARGIN = 0.12;
+
+/**
+ * Something on the table to frame: the point to look at, the direction the camera looks from
+ * (toward the camera; any length), and the size to fit across and up, as seen from there.
+ */
+export interface Framing {
+  target: Point3;
+  from: Point3;
+  width: number;
+  height: number;
+}
+
+/** The camera that fits `framing` in a window of this shape. */
+export function fitFraming(framing: Framing, aspect: number): CameraPose {
+  if (!Number.isFinite(aspect) || aspect <= 0) {
+    throw new RangeError(`Not a window shape: ${String(aspect)}`);
+  }
+  const halfFov = Math.tan((STAGE_FOV * Math.PI) / 360);
+  const width = framing.width * (1 + TABLE_MARGIN);
+  const height = framing.height * (1 + TABLE_MARGIN);
+  const distance = Math.max(height / 2 / halfFov, width / 2 / (halfFov * aspect));
+  const [fx, fy, fz] = framing.from;
+  const length = Math.hypot(fx, fy, fz);
+  const [tx, ty, tz] = framing.target;
+  return {
+    position: [
+      tx + (fx / length) * distance,
+      ty + (fy / length) * distance,
+      tz + (fz / length) * distance,
+    ],
+    target: framing.target,
+    fov: STAGE_FOV,
+  };
+}
+
+const TOP = INSPECT_STAGE.floorY;
+const cardDepth = INSPECT_CARD.heightPx * INSPECT_CARD.unitsPerPx;
+
+/** The inspect stage, from a little above: its sign above, its card in front. */
+export const INSPECT_FRAMING: Framing = {
+  target: [INSPECT_STAGE.x, (TOP + INSPECT_TITLE.center[1]) / 2 - 0.05, INSPECT_STAGE.z + 0.2],
+  from: [0, 0.45, 1],
+  width: Math.max(
+    INSPECT_STAGE.opening.width + 2 * INSPECT_STAGE.post,
+    INSPECT_CARD.widthPx * INSPECT_CARD.unitsPerPx,
+  ),
+  height: INSPECT_TITLE.center[1] + 0.12 - TOP + cardDepth * 0.5,
+};
+
+/** The sticky pad in front of the inspect stage, looked down at. */
+export const NOTE_FRAMING: Framing = {
+  target: INSPECT_PAD.center,
+  from: [0, 1.6, 0.9],
+  width: INSPECT_PAD.size * 1.3,
+  height: INSPECT_PAD.size * 1.3,
+};
+
+/** The open binder and the pad beside it, looked down at. */
+export const BINDER_FRAMING: Framing = {
+  target: [
+    (BINDER.center[0] - BINDER.page.width + BINDER_PAD.center[0] + BINDER_PAD.size / 2) / 2,
+    BINDER.center[1] + BINDER.thickness,
+    BINDER.center[2],
+  ],
+  from: [0, 2.2, 0.8],
+  width: BINDER_PAD.center[0] + BINDER_PAD.size / 2 - (BINDER.center[0] - BINDER.page.width),
+  height: BINDER.page.depth,
+};
+
 const VIEW_POSES: Record<StageView, (aspect: number) => CameraPose> = {
   stage: fitStageCamera,
+  inspect: (aspect) => fitFraming(INSPECT_FRAMING, aspect),
+  note: (aspect) => fitFraming(NOTE_FRAMING, aspect),
+  binder: (aspect) => fitFraming(BINDER_FRAMING, aspect),
 };
 
 /** Where the camera rests for a view, in a window of this shape. */

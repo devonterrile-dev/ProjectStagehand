@@ -60,7 +60,13 @@ export interface CutoutProps {
   /** Scene builder only: framed, as the object being edited. */
   selected?: boolean;
   /** Called when the image is pressed. Without it the cutout ignores the pointer. */
-  onPress?: (event: ThreeEvent<PointerEvent>) => void;
+  onPress?: (event: ThreeEvent<MouseEvent>) => void;
+  /**
+   * When a press counts: as the pointer goes down (picking, then dragging, in the builder and
+   * the GM's theater), or on a whole click (a player inspecting, F3.5b, so the camera turning
+   * away mid-press can't make the release look like a click on nothing).
+   */
+  pressOn?: 'down' | 'click';
   /**
    * Live play (F3.4): the cutout glides to a new position instead of jumping there, and
    * starts out at `enterFrom` when given (a puppet rising out of the void).
@@ -117,6 +123,7 @@ export function Cutout({
   faded = false,
   selected = false,
   onPress,
+  pressOn = 'down',
   glide = false,
   enterFrom,
   sway = false,
@@ -219,7 +226,11 @@ export function Cutout({
         <mesh
           position={[0, h / 2, 0]}
           scale={[mirror, 1, 1]}
-          {...(onPress === undefined ? {} : { onPointerDown: onPress })}
+          {...(onPress === undefined
+            ? {}
+            : pressOn === 'down'
+              ? { onPointerDown: onPress }
+              : { onClick: onPress })}
         >
           <planeGeometry args={[w, h]} />
           {faded ? (

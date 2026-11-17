@@ -172,6 +172,11 @@ export interface StageCutout {
   faded: boolean;
   /** A puppet waiting in the void, as players first see the scene: out of sight. */
   lowered: boolean;
+  /**
+   * Live play, a player's theater (F3.5b): the revealed record it shows, which pressing it
+   * inspects. Absent or null: nothing to inspect.
+   */
+  recordId?: string | null;
 }
 
 /**

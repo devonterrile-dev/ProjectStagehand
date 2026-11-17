@@ -1,12 +1,14 @@
 import { DEPTH_TICKS, type Campaign, type ObjectChanges } from '@stagehand/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { useStore } from 'zustand';
 
 import { GmDesk } from '@/components/play/GmDesk';
 import { PresenceList } from '@/components/play/PresenceList';
+import { useTable } from '@/components/table/useTable';
 import { Button } from '@/components/ui/button';
-import { useCampaign, useEndPlaySession, useStartPlaySession } from '@/lib/queries';
+import { journalKey, useCampaign, useEndPlaySession, useStartPlaySession } from '@/lib/queries';
 import { keyAction, type KeyPlacement } from '@/lib/scenes';
 import { createPlayRoom } from '@/play/room';
 import { EMPTY_THEATER, theaterView } from '@/play/stage';
@@ -38,8 +40,10 @@ function Notice({ children }: { children: ReactNode }) {
 /**
  * `/campaigns/:campaignId/play`: the table during a live session (F3.3, F3.4, governance §13).
  * The theater fills the window, like every stage page, and is loaded lazily so Three.js stays
- * out of the main bundle. Players see only the theater; the GM has the control desk beside it,
- * and can pick and drag what is on stage in the theater itself.
+ * out of the main bundle. Players see the theater and the table in front of it (F3.5b): a
+ * revealed record's cutout is pressed to inspect it, and the binder holds the journal. The GM has
+ * the control desk beside the theater, picks and drags what is on stage in it, and has the binder
+ * too.
  */
 export function PlayPage() {
   const { campaignId = '' } = useParams();
@@ -78,7 +82,35 @@ function Table({ campaign }: { campaign: Campaign }) {
     };
   }, [room]);
 
-  const { phase, connected, stage, view, presence, pending } = useStore(room.store);
+  const { phase, connected, stage, view, presence, pending, journal } = useStore(room.store);
+  const table = useTable(campaign);
+  const atStage = table.state.at === 'stage';
+  const { back: tableBack } = table;
+
+  // The journal may have changed (a reveal, a note, an entry): read it again.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (journal === 0) return;
+    void queryClient.invalidateQueries({ queryKey: journalKey(campaign.id) });
+  }, [journal, queryClient, campaign.id]);
+
+  // Escape steps back from the table toward the theater, wherever focus is.
+  useEffect(() => {
+    if (atStage) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const { target } = event;
+      if (target instanceof Element && target.closest('[role="dialog"], [role="alertdialog"]')) {
+        return;
+      }
+      event.preventDefault();
+      tableBack();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [atStage, tableBack]);
   // The desk can be put away: in a small window or Activity frame the theater needs the room.
   const [deskOpen, setDeskOpen] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -111,7 +143,8 @@ function Table({ campaign }: { campaign: Campaign }) {
   // The builder's keys for the object the GM picked: arrows across and up, [ and ] in depth,
   // Escape to let go. Not while typing, in a dialog or in a menu.
   useEffect(() => {
-    if (selected === null) return;
+    // Not while the GM is reading the binder: its keys are its own.
+    if (selected === null || !atStage) return;
     const { id } = selected;
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -138,7 +171,7 @@ function Table({ campaign }: { campaign: Campaign }) {
     return () => {
       window.removeEventListener('keydown', onKey);
     };
-  }, [room, selected]);
+  }, [room, selected, atStage]);
 
   const back = (
     <Link to={`/campaigns/${campaign.id}`} className="underline">
@@ -244,32 +277,41 @@ function Table({ campaign }: { campaign: Campaign }) {
           backdropUrl={theater.backdropUrl}
           objects={theater.cutouts}
           curtainOpen={view?.curtainOpen ?? false}
-          {...(isGm ? { selectedId: picked, onSelect: setSelectedId, onMove } : {})}
+          {...(isGm
+            ? { selectedId: picked, onSelect: setSelectedId, onMove }
+            : { onInspect: table.inspect })}
+          table={table.scene}
         />
         {!connected && (
           <p
             role="status"
-            className="absolute top-3 left-1/2 -translate-x-1/2 rounded-md bg-black/80 px-3 py-2 text-sm text-white"
+            className="absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-md bg-black/80 px-3 py-2 text-sm text-white"
           >
             Connection lost. Reconnecting…
           </p>
         )}
         {!isGm && (
-          <div className="absolute top-3 left-3 max-w-56 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
+          <div className="absolute top-3 left-3 z-20 max-w-56 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
             {/* In a narrow window the list would cover the theater: only the way out stays. */}
             <div className="hidden w-50 sm:block">
               <PresenceList presence={presence} />
             </div>
+            <TableButton atStage={atStage} onOpen={table.openBinder} onBack={tableBack} />
             <Link to={`/campaigns/${campaign.id}`} className="block text-xs underline">
               Leave the table
             </Link>
           </div>
         )}
         {isGm && (
+          <div className="absolute top-3 left-3 z-20 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
+            <TableButton atStage={atStage} onOpen={table.openBinder} onBack={tableBack} />
+          </div>
+        )}
+        {isGm && (
           <Button
             size="xs"
             variant="secondary"
-            className="absolute top-3 right-3"
+            className="absolute top-3 right-3 z-20"
             aria-expanded={deskOpen}
             onClick={() => {
               setDeskOpen((open) => !open);
@@ -295,5 +337,25 @@ function Table({ campaign }: { campaign: Campaign }) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The way to the binder from the theater, and back again, without finding it on the table: in a
+ * small window the table's strip is thin (F3.5b).
+ */
+function TableButton({
+  atStage,
+  onOpen,
+  onBack,
+}: {
+  atStage: boolean;
+  onOpen: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <Button size="xs" variant="secondary" onClick={atStage ? onOpen : onBack}>
+      {atStage ? 'Journal' : 'Back'}
+    </Button>
   );
 }

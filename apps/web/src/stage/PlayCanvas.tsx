@@ -1,10 +1,38 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, Suspense, useEffect, useState, type ReactNode } from 'react';
 
 import type { StageCutout } from '@/lib/scenes';
 
+import type { StageView } from './camera';
 import type { Place } from './placement';
 import { SceneObjects } from './SceneObjects';
 import { StageCanvas } from './StageCanvas';
+import { BINDER_PAD, INSPECT_PAD } from './table-layout';
+import { Binder, InspectStage, StickyPad, type InspectImage } from './TablePieces';
+
+/**
+ * The table around the theater (F3.5b): where the camera rests, and what is out on it. The
+ * HTML pieces are made by the page; each is null while it isn't in view.
+ */
+export interface TableScene {
+  view: StageView;
+  inspect: {
+    image: InspectImage | null;
+    /** The paper sign with the record's name. */
+    title: ReactNode;
+    /** The paper card with its public description. */
+    card: ReactNode;
+  } | null;
+  /** The sticky note being written on the pad in front of the inspect stage. */
+  inspectNote: ReactNode | null;
+  /** The binder's open page; null while it is closed. */
+  binderPage: ReactNode | null;
+  /** The sticky note being written on the pad beside the binder. */
+  binderNote: ReactNode | null;
+  /** The closed binder was picked up. */
+  onOpenBinder: () => void;
+  /** A press on the table that hit nothing: put down what is being looked at. */
+  onPutDown: () => void;
+}
 
 export interface PlayCanvasProps {
   /** The backdrop on the back wall; null leaves the wall bare. */
@@ -18,6 +46,10 @@ export interface PlayCanvasProps {
   onSelect?: (id: string | null) => void;
   /** The GM's theater: a pressed cutout is being dragged across and up its depth tick. */
   onMove?: (id: string, place: Place) => void;
+  /** A player's theater (F3.5b): a cutout of a revealed record was pressed, to inspect it. */
+  onInspect?: (recordId: string) => void;
+  /** The table around the theater (F3.5b). */
+  table?: TableScene;
 }
 
 /** How long a lowered puppet is still drawn, sinking into the void, once it has left the stage. */
@@ -60,9 +92,12 @@ function useLeaving(objects: readonly StageCutout[]): readonly StageCutout[] {
 /**
  * The theater during a live session (F3.3, F3.4): the locked player camera for everyone, the GM
  * included. Cutouts glide when they move, and puppets rise out of the void and sink back into
- * it. In the GM's theater a cutout can be picked and dragged. Everything it takes is plain
- * data, so the page around it never touches Three.js, and tests can put a stand-in in its
- * place. Memoized: the desk beside it re-rendering must not re-render the scene.
+ * it. In the GM's theater a cutout can be picked and dragged; in a player's, a revealed record's
+ * cutout can be pressed to inspect it. Around it is the table (F3.5b): the inspect stage, the
+ * sticky pads and the binder, and the camera turns to whichever is in use. Everything it takes
+ * is plain data or finished HTML, so the page around it never touches Three.js, and tests can
+ * put a stand-in in its place. Memoized: the desk beside it re-rendering must not re-render the
+ * scene.
  */
 export const PlayCanvas = memo(function PlayCanvas({
   backdropUrl,
@@ -71,30 +106,75 @@ export const PlayCanvas = memo(function PlayCanvas({
   selectedId = null,
   onSelect,
   onMove,
+  onInspect,
+  table,
 }: PlayCanvasProps) {
   const drawn = useLeaving(objects);
   const [dragging, setDragging] = useState(false);
+
+  // The papers on the table are laid out once the camera has arrived where they are: HTML on
+  // the table flickers while the camera moves past it.
+  const view = table?.view ?? 'stage';
+  const [arrivedAt, setArrivedAt] = useState<StageView | null>('stage');
+  const [headingTo, setHeadingTo] = useState(view);
+  if (view !== headingTo) {
+    setHeadingTo(view);
+    setArrivedAt(null);
+  }
+  const settled = arrivedAt === view;
+
+  // A press on a cutout: the GM picks it; a player inspects the record it shows, if any.
+  const press =
+    onSelect ??
+    (onInspect === undefined
+      ? undefined
+      : (id: string | null) => {
+          const recordId = drawn.find((object) => object.id === id)?.recordId;
+          if (recordId !== undefined && recordId !== null) onInspect(recordId);
+        });
 
   return (
     <StageCanvas
       backdropUrl={backdropUrl}
       curtainOpen={curtainOpen}
-      {...(onSelect === undefined
-        ? {}
-        : {
-            onPointerMissed: () => {
-              onSelect(null);
-            },
-          })}
+      view={view}
+      onCameraSettle={setArrivedAt}
+      onPointerMissed={() => {
+        onSelect?.(null);
+        // A click away puts down what is being looked at, once it is in view.
+        if (table !== undefined && view !== 'stage' && settled) table.onPutDown();
+      }}
     >
       <SceneObjects
         objects={drawn}
         selectedId={selectedId}
         glide
         snapId={dragging ? selectedId : null}
-        {...(onSelect === undefined ? {} : { onSelect })}
+        {...(press === undefined ? {} : { onSelect: press })}
+        // A player inspects on a whole click: the camera turns away as soon as it counts.
+        {...(onInspect !== undefined && onSelect === undefined
+          ? { pressOn: 'click' as const }
+          : {})}
         {...(onMove === undefined ? {} : { onMove, onDragChange: setDragging })}
       />
+      {table !== undefined && (
+        <Suspense fallback={null}>
+          <InspectStage
+            active={table.inspect !== null}
+            papers={settled}
+            image={table.inspect?.image ?? null}
+            title={table.inspect?.title ?? null}
+            card={table.inspect?.card ?? null}
+          />
+          <StickyPad pad={INSPECT_PAD} note={settled ? table.inspectNote : null} />
+          <Binder
+            open={table.binderPage !== null}
+            page={settled ? table.binderPage : null}
+            onOpen={table.onOpenBinder}
+          />
+          <StickyPad pad={BINDER_PAD} note={settled ? table.binderNote : null} />
+        </Suspense>
+      )}
     </StageCanvas>
   );
 });

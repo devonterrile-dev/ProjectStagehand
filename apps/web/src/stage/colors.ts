@@ -20,8 +20,13 @@ export const STAGE_COLORS = {
   selection: '#ffd24a',
   /** The scene builder's depth tick lines, other than the selected object's (F3.2c). */
   guide: '#ffffff',
-  /** The sheet page's stand-in on the table. */
+  /** Paper on the table: the binder's pages (F3.5b), and the sheet page's stand-in. */
   paper: '#f4efe2',
+  /** A pad of sticky notes (F3.5b). */
+  sticky: '#f6e27a',
+  /** The binder's cover and its metal rings (F3.5b). */
+  binder: '#2f4a6d',
+  ring: '#b8b8b8',
   /** The void: black, so nothing below the scene is seen. */
   void: '#000000',
 } as const;

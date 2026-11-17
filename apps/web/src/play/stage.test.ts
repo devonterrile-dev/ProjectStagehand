@@ -40,6 +40,19 @@ describe('theaterView', () => {
     }
   });
 
+  it('marks what a player may inspect: a revealed record, never a PC (F3.5b)', () => {
+    const view = theaterView(
+      CAMPAIGN,
+      playerStage({
+        objects: [playerObject(1), playerObject(2, { kind: 'puppet', recordId: null })],
+      }),
+    );
+    expect(view.cutouts.map((cutout) => cutout.recordId)).toEqual([playerObject(1).recordId, null]);
+    // The GM's theater picks cutouts instead.
+    const gm = theaterView(CAMPAIGN, gmStage({ objects: [gmObject(1, 'Stone Well')] }));
+    expect(gm.cutouts[0]?.recordId).toBeUndefined();
+  });
+
   it('shows the GM the theater as players see it: nothing hidden, nothing without an image', () => {
     const stage = gmStage({
       objects: [

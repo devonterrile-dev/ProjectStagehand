@@ -67,6 +67,12 @@ export interface RoomState {
    * desk show them at once, while the stage catches up.
    */
   pending: Readonly<Record<string, ObjectChanges>>;
+  /**
+   * Goes up each time the journal may have changed (F3.5b): the server said so
+   * (`journal:changed`), or the browser (re)joined and may have missed it. The page reads the
+   * journal again when it does.
+   */
+  journal: number;
 }
 
 export interface PlayRoom {
@@ -118,6 +124,7 @@ const INITIAL: RoomState = {
   view: null,
   presence: [],
   pending: {},
+  journal: 0,
 };
 
 /** Whether the stage already shows every change in `changes`, or no longer has the object. */
@@ -299,7 +306,11 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
         }
         const result = parsed.data;
         if (result.status === 'joined') {
-          store.setState({ phase: 'joined', presence: result.presence });
+          store.setState({
+            phase: 'joined',
+            presence: result.presence,
+            journal: store.getState().journal + 1,
+          });
           receive(result.stage);
           return;
         }
@@ -364,6 +375,11 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     const parsed = presenceSchema.safeParse(payload);
     if (!isOpen || !parsed.success || store.getState().phase !== 'joined') return;
     store.setState({ presence: parsed.data });
+  });
+
+  socket.on(PLAY_SOCKET.journalChanged, () => {
+    if (!isOpen || store.getState().phase !== 'joined') return;
+    store.setState({ journal: store.getState().journal + 1 });
   });
 
   socket.on(PLAY_SOCKET.started, () => {
