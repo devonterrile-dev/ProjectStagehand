@@ -104,7 +104,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F3.2 Scene builder: backdrop from a Spot, props placed left/right, up/down and on a depth tick, optional NPC puppets waiting below, save and load scenes (static location scenes)
 - [x] F3.3 Live sessions: start, join (6-player cap), presence, reconnect, the stage in sync for everyone (section 13)
 - [x] F3.4 GM control desk: change scenes behind the curtain, add PCs, NPCs and props live, raise, lower and move puppets, show and hide props, reveal records. Emotes moved to F3.7 (D-52)
-- [ ] F3.5 Player journal and table: revealed records for players on the site, shared player notes, player entries (F3.5a); at the table, the inspect stage for props, items and NPCs with sticky notes, and the journal as a three-ring binder (F3.5b). The sheet page moved to F3.6 (D-53)
+- [x] F3.5 Player journal and table: revealed records for players on the site, shared player notes, player entries (F3.5a); at the table, the inspect stage for props, items and NPCs with sticky notes, and the journal as a three-ring binder (F3.5b). The sheet page moved to F3.6 (D-53)
 - [ ] F3.6 The sheet as a page on the table (moved from F3.5, D-53); players spend Hope from it; GM calls rolls; Hope and Fear tracking; roll log (section 9)
 - [ ] F3.7 Puppet motion: idle sway, talking (rise and brighten), preset emotes (the `emote` event, the GM's emote buttons on the desk, D-52), and an on-stage emote menu on a player's own puppet. Raising and lowering already glide (F3.4)
 - [ ] F3.8 GM "take over" an NPC puppet
