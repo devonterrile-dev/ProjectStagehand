@@ -17,6 +17,12 @@ import {
   inviteListResponseSchema,
   invitePreviewSchema,
   inviteSchema,
+  journalRecordListResponseSchema,
+  journalRecordSchema,
+  playerEntryListResponseSchema,
+  playerEntrySchema,
+  playerNoteListResponseSchema,
+  playerNoteSchema,
   memberListResponseSchema,
   meResponseSchema,
   playerCharacterSheetSchema,
@@ -52,6 +58,13 @@ import {
   type CharacterSheet,
   type CharacterSheetPatch,
   type CreateCharacterRequest,
+  type CreateEntryRequest,
+  type JournalRecord,
+  type JournalRecordListQuery,
+  type JournalRecordSummary,
+  type PlayerEntry,
+  type PlayerNote,
+  type UpdateEntryRequest,
   type CreateRecordRequest,
   type CreateStatBlockRequest,
   type Invite,
@@ -732,4 +745,113 @@ export async function fetchStageRecords(campaignId: string): Promise<StageRecord
   return stageRecordsResponseSchema.parse(
     await getJson(campaignPath(campaignId, '/stage-records')),
   );
+}
+
+// --- The player journal (F3.5) ------------------------------------------------------------
+
+const journalPath = (campaignId: string, rest = '') => campaignPath(campaignId, `/journal${rest}`);
+
+/** Where a record's or an entry's notes live. */
+export type NoteSubjectRef = { recordId: string } | { entryId: string };
+
+const notesPath = (campaignId: string, subject: NoteSubjectRef) =>
+  'recordId' in subject
+    ? journalPath(campaignId, `/records/${subject.recordId}/notes`)
+    : journalPath(campaignId, `/entries/${subject.entryId}/notes`);
+
+/** Revealed records, by name or by how well they match `q`. Any member. */
+export async function fetchJournalRecords(
+  campaignId: string,
+  filter: JournalRecordListQuery = {},
+): Promise<JournalRecordSummary[]> {
+  const params = new URLSearchParams();
+  if (filter.type !== undefined) params.set('type', filter.type);
+  if (filter.q !== undefined && filter.q.trim() !== '') params.set('q', filter.q.trim());
+  const query = params.toString();
+  return journalRecordListResponseSchema.parse(
+    await getJson(journalPath(campaignId, `/records${query === '' ? '' : `?${query}`}`)),
+  ).records;
+}
+
+/** A revealed record's public layer, or null when players don't have it. */
+export async function fetchJournalRecord(
+  campaignId: string,
+  recordId: string,
+): Promise<JournalRecord | null> {
+  const response = await request(journalPath(campaignId, `/records/${recordId}`));
+  if (response.status === 404) return null;
+  if (!response.ok) throw await errorFrom(response);
+  return journalRecordSchema.parse(await response.json());
+}
+
+export async function fetchEntries(campaignId: string): Promise<PlayerEntry[]> {
+  return playerEntryListResponseSchema.parse(await getJson(journalPath(campaignId, '/entries')))
+    .entries;
+}
+
+/** One player entry, or null when it was deleted. */
+export async function fetchEntry(campaignId: string, entryId: string): Promise<PlayerEntry | null> {
+  const response = await request(journalPath(campaignId, `/entries/${entryId}`));
+  if (response.status === 404) return null;
+  if (!response.ok) throw await errorFrom(response);
+  return playerEntrySchema.parse(await response.json());
+}
+
+/** A new entry. Players only; refused while archived. */
+export async function createEntry(
+  campaignId: string,
+  input: CreateEntryRequest,
+): Promise<PlayerEntry> {
+  const response = await send(journalPath(campaignId, '/entries'), 'POST', input);
+  return playerEntrySchema.parse(await response.json());
+}
+
+/** Its author changes an entry. */
+export async function updateEntry(
+  campaignId: string,
+  entryId: string,
+  patch: UpdateEntryRequest,
+): Promise<PlayerEntry> {
+  const response = await send(journalPath(campaignId, `/entries/${entryId}`), 'PATCH', patch);
+  return playerEntrySchema.parse(await response.json());
+}
+
+/** Its author, or the GM, deletes an entry and its notes. */
+export async function deleteEntry(campaignId: string, entryId: string): Promise<void> {
+  await send(journalPath(campaignId, `/entries/${entryId}`), 'DELETE');
+}
+
+/** A record's or entry's notes, newest first; null when it is gone or no longer revealed. */
+export async function fetchNotes(
+  campaignId: string,
+  subject: NoteSubjectRef,
+): Promise<PlayerNote[] | null> {
+  const response = await request(notesPath(campaignId, subject));
+  if (response.status === 404) return null;
+  if (!response.ok) throw await errorFrom(response);
+  return playerNoteListResponseSchema.parse(await response.json()).notes;
+}
+
+export async function createNote(
+  campaignId: string,
+  subject: NoteSubjectRef,
+  body: string,
+): Promise<PlayerNote> {
+  const response = await send(notesPath(campaignId, subject), 'POST', { body });
+  return playerNoteSchema.parse(await response.json());
+}
+
+/** Its author changes a note. */
+export async function updateNote(
+  campaignId: string,
+  noteId: string,
+  body: string,
+): Promise<PlayerNote> {
+  const response = await send(campaignPath(campaignId, `/notes/${noteId}`), 'PATCH', { body });
+  return playerNoteSchema.parse(await response.json());
+}
+
+/** Its author, or the GM, deletes a note. */
+export async function deleteNote(campaignId: string, noteId: string): Promise<void> {
+  await send(campaignPath(campaignId, `/notes/${noteId}`), 'DELETE');
 }

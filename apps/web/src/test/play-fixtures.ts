@@ -35,6 +35,7 @@ export function playerObject(
     flipped: false,
     mount: 'stand',
     image: stageImage(n),
+    recordId: id(300 + n),
     ...overrides,
   };
 }

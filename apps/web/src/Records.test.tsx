@@ -66,12 +66,13 @@ describe('Records on the campaign page', () => {
     expect(link).toHaveProperty('href', expect.stringContaining(listUrl(coast)));
   });
 
-  it('tells players the workshop is the GM’s', async () => {
+  it('links players to the journal (F3.5)', async () => {
     const { coast } = world({ role: 'player' });
     renderAt(`/campaigns/${coast.id}`);
 
-    expect(await screen.findByText(/Records are the GM/)).toBeDefined();
-    expect(screen.queryByRole('link', { name: 'Open records' })).toBeNull();
+    expect(await screen.findByText(/Everything your GM has revealed/)).toBeDefined();
+    const link = screen.getByRole('link', { name: 'Open records' });
+    expect(link).toHaveProperty('href', expect.stringContaining(listUrl(coast)));
   });
 });
 
@@ -111,11 +112,11 @@ describe('Records list', () => {
     expect(screen.getByRole('button', { name: 'New record' })).toBeDefined();
   });
 
-  it('shows players the note and never asks for records', async () => {
+  it('shows players the journal and never asks for the GM’s records', async () => {
     const { coast, fetchMock } = world({ role: 'player' });
     renderAt(listUrl(coast));
 
-    expect(await screen.findByText(/Records are the GM/)).toBeDefined();
+    expect(await screen.findByText(/Nothing has been revealed yet/)).toBeDefined();
     expect(calledWith(fetchMock, `/api${listUrl(coast)}`, 'GET')).toBe(false);
   });
 });
@@ -416,11 +417,11 @@ describe('Editing a record', () => {
     expect(await screen.findByRole('heading', { name: 'Record not found' })).toBeDefined();
   });
 
-  it('shows players the note instead of a record', async () => {
+  it('shows players a record they don’t have as not found, never the GM’s copy', async () => {
     const { coast, vex, fetchMock } = world({ role: 'player' });
     renderAt(recordUrl(coast, vex));
 
-    expect(await screen.findByText(/Records are the GM/)).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'Record not found' })).toBeDefined();
     expect(calledWith(fetchMock, `/api${recordUrl(coast, vex)}`, 'GET')).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import type {
   CharacterSheet,
   CharacterSheetPatch,
   CreateCharacterRequest,
+  CreateEntryRequest,
   CreateRecordRequest,
   CreateSceneRequest,
   CreateStatBlockRequest,
@@ -14,6 +15,7 @@ import type {
   PatchProposalRequest,
   StartImportRequest,
   InviteExpiry,
+  JournalRecordListQuery,
   MeResponse,
   PlaySession,
   Provider,
@@ -21,6 +23,7 @@ import type {
   RecordType,
   Scene,
   SceneObjectInput,
+  UpdateEntryRequest,
   UpdateMeRequest,
   UpdateRecordRequest,
   UpdateSceneRequest,
@@ -43,12 +46,16 @@ import {
   commitImport,
   createCampaign,
   createCharacter,
+  createEntry,
   createInvite,
+  createNote,
   createRecord,
   createScene,
   createStatBlock,
   deleteProviderKey,
   deleteCharacter,
+  deleteEntry,
+  deleteNote,
   deleteRecord,
   deleteScene,
   deleteStatBlock,
@@ -66,13 +73,18 @@ import {
   fetchCampaigns,
   fetchCharacters,
   fetchCharacterSheet,
+  fetchEntries,
+  fetchEntry,
   fetchImport,
   fetchImports,
   generateImportRecords,
   fetchInvitePreview,
   fetchInvites,
+  fetchJournalRecord,
+  fetchJournalRecords,
   fetchMe,
   fetchMembers,
+  fetchNotes,
   fetchOwnCharacterSheet,
   fetchPlaySession,
   fetchProviderCredentials,
@@ -99,7 +111,10 @@ import {
   retryImport,
   startImport,
   startPlaySession,
+  updateEntry,
   updateMe,
+  updateNote,
+  type NoteSubjectRef,
   type RecordListFilter,
 } from './api';
 import { signOut } from './auth-client';
@@ -212,7 +227,8 @@ type CampaignPart =
   | 'imports'
   | 'scenes'
   | 'stage-records'
-  | 'play-session';
+  | 'play-session'
+  | 'journal';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
 
@@ -409,6 +425,7 @@ export function usePatchRecord(campaignId: string, recordId: string) {
   const refetchStatBlocks = useRefetchStatBlocks(campaignId);
   const staleBacklinks = useStaleBacklinks(campaignId);
   const refetchStage = useRefetch(campaignId, 'scenes', 'stage-records');
+  const refetchJournal = useRefetch(campaignId, 'journal');
   return useMutation({
     mutationFn: ({ patch, keepalive }: { patch: UpdateRecordRequest; keepalive?: boolean }) =>
       patchRecord(campaignId, recordId, patch, { keepalive }),
@@ -416,6 +433,7 @@ export function usePatchRecord(campaignId: string, recordId: string) {
       queryClient.setQueryData(recordKey(campaignId, recordId), record);
       refetchLists();
       staleBacklinks();
+      if (record.revealedAt !== null) refetchJournal();
       if (patch.statBlockId !== undefined) refetchStatBlocks();
       if (patch.name !== undefined) {
         // Scenes and the builder's tray show record names.
@@ -437,7 +455,7 @@ export function usePatchRecord(campaignId: string, recordId: string) {
  */
 export function useRevealRecord(campaignId: string) {
   const queryClient = useQueryClient();
-  const refetchLists = useRefetch(campaignId, 'records');
+  const refetchLists = useRefetch(campaignId, 'records', 'journal');
   return useMutation({
     mutationFn: ({ recordId, revealed }: { recordId: string; revealed: boolean }) =>
       setRecordRevealed(campaignId, recordId, revealed),
@@ -581,7 +599,7 @@ export function useDeleteStatBlock(campaignId: string) {
 export function useDeleteRecord(campaignId: string) {
   const queryClient = useQueryClient();
   // A deleted record leaves every scene it was placed in.
-  const refetchLists = useRefetch(campaignId, 'records', 'scenes', 'stage-records');
+  const refetchLists = useRefetch(campaignId, 'records', 'scenes', 'stage-records', 'journal');
   return useMutation({
     mutationFn: (recordId: string) => deleteRecord(campaignId, recordId),
     onSuccess: (_result, recordId) => {
@@ -1003,5 +1021,118 @@ export function usePlaySessions(campaignIds: readonly string[]) {
       queryFn: () => fetchPlaySession(campaignId),
       refetchInterval: PLAY_SESSION_REFRESH_MS,
     })),
+  });
+}
+
+// --- The player journal (F3.5) ------------------------------------------------------------
+
+/**
+ * Everything of one campaign's journal: revealed records, entries and notes. The play room
+ * marks it stale when the server says the journal changed (`journal:changed`).
+ */
+export const journalKey = (campaignId: string) => partKey(campaignId, 'journal');
+
+/** Revealed records, optionally narrowed by type and search. Any member. */
+export function useJournalRecords(
+  campaignId: string,
+  filter: JournalRecordListQuery,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...journalKey(campaignId), 'records', filter],
+    queryFn: () => fetchJournalRecords(campaignId, filter),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+/** A revealed record's public layer (`null` when players don't have it). */
+export function useJournalRecord(campaignId: string, recordId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...journalKey(campaignId), 'record', recordId],
+    queryFn: () => fetchJournalRecord(campaignId, recordId),
+    enabled,
+  });
+}
+
+export function useEntries(campaignId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...journalKey(campaignId), 'entries'],
+    queryFn: () => fetchEntries(campaignId),
+    enabled,
+  });
+}
+
+/** One player entry (`null` when it was deleted). */
+export function useEntry(campaignId: string, entryId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...journalKey(campaignId), 'entry', entryId],
+    queryFn: () => fetchEntry(campaignId, entryId),
+    enabled,
+  });
+}
+
+/** A record's or entry's notes, newest first (`null` when it is gone or no longer revealed). */
+export function useNotes(campaignId: string, subject: NoteSubjectRef, enabled = true) {
+  return useQuery({
+    queryKey: [...journalKey(campaignId), 'notes', subject],
+    queryFn: () => fetchNotes(campaignId, subject),
+    enabled,
+  });
+}
+
+/** Refetches the journal after a change to it. */
+function useRefetchJournal(campaignId: string) {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: journalKey(campaignId) });
+  };
+}
+
+export function useCreateNote(campaignId: string, subject: NoteSubjectRef) {
+  return useMutation({
+    mutationFn: (body: string) => createNote(campaignId, subject, body),
+    onSuccess: useRefetchJournal(campaignId),
+  });
+}
+
+export function useUpdateNote(campaignId: string) {
+  return useMutation({
+    mutationFn: ({ noteId, body }: { noteId: string; body: string }) =>
+      updateNote(campaignId, noteId, body),
+    onSuccess: useRefetchJournal(campaignId),
+  });
+}
+
+export function useDeleteNote(campaignId: string) {
+  return useMutation({
+    mutationFn: (noteId: string) => deleteNote(campaignId, noteId),
+    onSuccess: useRefetchJournal(campaignId),
+  });
+}
+
+export function useCreateEntry(campaignId: string) {
+  return useMutation({
+    mutationFn: (input: CreateEntryRequest) => createEntry(campaignId, input),
+    onSuccess: useRefetchJournal(campaignId),
+  });
+}
+
+export function useUpdateEntry(campaignId: string, entryId: string) {
+  return useMutation({
+    mutationFn: (patch: UpdateEntryRequest) => updateEntry(campaignId, entryId, patch),
+    onSuccess: useRefetchJournal(campaignId),
+  });
+}
+
+export function useDeleteEntry(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchJournal(campaignId);
+  return useMutation({
+    mutationFn: (entryId: string) => deleteEntry(campaignId, entryId),
+    onSuccess: (_result, entryId) => {
+      queryClient.removeQueries({ queryKey: [...journalKey(campaignId), 'entry', entryId] });
+      refetch();
+    },
   });
 }

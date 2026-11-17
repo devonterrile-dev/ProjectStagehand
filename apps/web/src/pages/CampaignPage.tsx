@@ -9,9 +9,8 @@ import { CharactersPanel } from '@/components/campaigns/CharactersPanel';
 import { InvitesPanel } from '@/components/campaigns/InvitesPanel';
 import { MembersPanel } from '@/components/campaigns/MembersPanel';
 import { SessionCard } from '@/components/play/SessionCard';
-import { PlayersNote } from '@/components/records/PlayersNote';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -124,20 +123,15 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
               <h2 className="text-xl">Records</h2>
             </CardTitle>
             <CardDescription>
-              NPCs, places, factions, lore, story beats, items and session notes.
+              {isGm
+                ? 'NPCs, places, factions, lore, story beats, items and session notes.'
+                : 'Everything your GM has revealed, the table’s notes on it, and the players’ own entries.'}
             </CardDescription>
           </div>
-          {isGm && (
-            <Button asChild size="sm" variant="outline">
-              <Link to={recordsPath(campaign.id)}>Open records</Link>
-            </Button>
-          )}
+          <Button asChild size="sm" variant="outline">
+            <Link to={recordsPath(campaign.id)}>Open records</Link>
+          </Button>
         </CardHeader>
-        {!isGm && (
-          <CardContent>
-            <PlayersNote />
-          </CardContent>
-        )}
       </Card>
 
       {isGm && !isArchived && (

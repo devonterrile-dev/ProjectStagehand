@@ -32,7 +32,7 @@ const placed = {
 const stage = { session, sceneLoad: 1, curtainOpen: true, backdrop: image };
 
 describe('the players’ stage', () => {
-  it('keeps an image and a place for each object, and drops everything else', () => {
+  it('keeps an image, a place and the record to inspect for each object, and drops the rest', () => {
     const parsed = playerStageSchema.parse({
       role: 'player',
       ...stage,
@@ -42,6 +42,7 @@ describe('the players’ stage', () => {
         {
           ...placed,
           image,
+          recordId: id(4),
           shown: true,
           record: { id: id(4), type: 'prop', name: 'The cursed well' },
           hiddenDetails: 'A key at the bottom',
@@ -49,7 +50,11 @@ describe('the players’ stage', () => {
       ],
     });
 
-    expect(parsed).toEqual({ role: 'player', ...stage, objects: [{ ...placed, image }] });
+    expect(parsed).toEqual({
+      role: 'player',
+      ...stage,
+      objects: [{ ...placed, image, recordId: id(4) }],
+    });
     expect(JSON.stringify(parsed)).not.toContain('cursed');
     expect(JSON.stringify(parsed)).not.toContain('ambush');
   });

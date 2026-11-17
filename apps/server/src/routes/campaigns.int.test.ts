@@ -26,8 +26,8 @@ interface CampaignRoute {
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
  * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`,
  * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts`,
- * `ai-imports.int.test.ts`, `visuals.int.test.ts`, `scenes.int.test.ts` and
- * `play-sessions.int.test.ts`.
+ * `ai-imports.int.test.ts`, `visuals.int.test.ts`, `scenes.int.test.ts`,
+ * `play-sessions.int.test.ts` and `journal.int.test.ts`.
  */
 const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId', gmOnly: false },
@@ -228,6 +228,57 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId/play-session', gmOnly: false },
   { method: 'POST', path: '/api/campaigns/:campaignId/play-session', gmOnly: true },
   { method: 'POST', path: '/api/campaigns/:campaignId/play-session/end', gmOnly: true },
+  // The player journal (F3.5): every member; who may change what is in `journal.int.test.ts`.
+  { method: 'GET', path: '/api/campaigns/:campaignId/journal/records', gmOnly: false },
+  { method: 'GET', path: '/api/campaigns/:campaignId/journal/records/:recordId', gmOnly: false },
+  {
+    method: 'GET',
+    path: '/api/campaigns/:campaignId/journal/records/:recordId/notes',
+    gmOnly: false,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/journal/records/:recordId/notes',
+    gmOnly: false,
+    payload: { body: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/journal/entries', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/journal/entries',
+    gmOnly: false,
+    payload: { title: 'Hijacked', description: '' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/journal/entries/:entryId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/journal/entries/:entryId',
+    gmOnly: false,
+    payload: { title: 'Hijacked' },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/campaigns/:campaignId/journal/entries/:entryId',
+    gmOnly: false,
+  },
+  {
+    method: 'GET',
+    path: '/api/campaigns/:campaignId/journal/entries/:entryId/notes',
+    gmOnly: false,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/journal/entries/:entryId/notes',
+    gmOnly: false,
+    payload: { body: 'Hijacked' },
+  },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/notes/:noteId',
+    gmOnly: false,
+    payload: { body: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/notes/:noteId', gmOnly: false },
 ];
 
 /** `METHOD /full/path` for every route in Fastify's printed route tree (HEAD omitted). */
@@ -413,7 +464,9 @@ describe('Campaigns API', () => {
         .replace(':importId', '00000000-0000-4000-8000-000000000005')
         .replace(':proposalId', '00000000-0000-4000-8000-000000000006')
         .replace(':assetId', '00000000-0000-4000-8000-000000000007')
-        .replace(':sceneId', '00000000-0000-4000-8000-000000000008');
+        .replace(':sceneId', '00000000-0000-4000-8000-000000000008')
+        .replace(':entryId', '00000000-0000-4000-8000-000000000009')
+        .replace(':noteId', '00000000-0000-4000-8000-00000000000a');
     }
 
     it('lists every campaign route in the isolation table', () => {

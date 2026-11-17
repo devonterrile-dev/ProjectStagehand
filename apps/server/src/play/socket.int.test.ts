@@ -54,6 +54,8 @@ interface Client {
   /** How many times each of these arrived. */
   started: number;
   ended: number;
+  /** Times the journal changed (F3.5). */
+  journal: number;
 }
 
 const WAIT_MS = 3000;
@@ -219,11 +221,19 @@ describe('The live room', () => {
       extraHeaders: { ...(who === null ? {} : { cookie: who.cookie }), ...headers },
     });
     open.push(socket);
-    const client: Client = { socket, stages: [], presences: [], started: 0, ended: 0 };
+    const client: Client = {
+      socket,
+      stages: [],
+      presences: [],
+      started: 0,
+      ended: 0,
+      journal: 0,
+    };
     socket.on(PLAY_SOCKET.stage, (stage: LiveStage) => client.stages.push(stage));
     socket.on(PLAY_SOCKET.presence, (presence: Presence) => client.presences.push(presence));
     socket.on(PLAY_SOCKET.started, () => (client.started += 1));
     socket.on(PLAY_SOCKET.ended, () => (client.ended += 1));
+    socket.on(PLAY_SOCKET.journalChanged, () => (client.journal += 1));
     return new Promise((resolve, reject) => {
       socket.once('connect', () => {
         resolve(client);
@@ -421,6 +431,64 @@ describe('The live room', () => {
         expect(last(player.client.stages)?.curtainOpen).toBe(false);
       });
       expect(last(player.client.stages)?.sceneLoad).toBe(1);
+      await end(campaign);
+    });
+
+    it('tells everyone the journal changed: a reveal on stage, a note, an entry (F3.5)', async () => {
+      const campaign = await table('Journal Table');
+      const market = await marketScene(campaign);
+      await start(campaign);
+      const director = await seated(gm, campaign);
+      const player = await seated(players[0] ?? gm, campaign);
+      const both = [director.client, player.client];
+
+      // Loading behind a closed curtain may reveal nothing, but journals read again anyway.
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: market.id })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => {
+        for (const client of both) expect(client.journal).toBe(1);
+      });
+      // Opening the curtain reveals the well.
+      expect(await act(director.client, PLAY_SOCKET.openCurtain)).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        for (const client of both) expect(client.journal).toBe(2);
+      });
+      const seen = last(player.client.stages);
+      const well = seen?.role === 'player' ? seen.objects[0] : undefined;
+      expect(well?.recordId).toEqual(expect.any(String));
+
+      // Closing the curtain and moving reveal nothing.
+      expect(await act(director.client, PLAY_SOCKET.closeCurtain)).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect(last(player.client.stages)?.curtainOpen).toBe(false);
+      });
+      expect(player.client.journal).toBe(2);
+
+      // A note and an entry through the site reach the table.
+      const note = await call(
+        'POST',
+        `/api/campaigns/${campaign.id}/journal/records/${String(well?.recordId)}/notes`,
+        players[0] ?? gm,
+        { body: 'It hums' },
+      );
+      expect(note.statusCode, note.body).toBe(201);
+      await vi.waitFor(() => {
+        for (const client of both) expect(client.journal).toBe(3);
+      });
+      const entry = await call(
+        'POST',
+        `/api/campaigns/${campaign.id}/journal/entries`,
+        players[0] ?? gm,
+        {
+          title: 'Market map',
+          description: '',
+        },
+      );
+      expect(entry.statusCode, entry.body).toBe(201);
+      await vi.waitFor(() => {
+        for (const client of both) expect(client.journal).toBe(4);
+      });
       await end(campaign);
     });
 

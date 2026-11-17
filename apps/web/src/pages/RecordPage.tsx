@@ -2,8 +2,9 @@ import { isVisualSubject, RECORD_TYPE_LABELS } from '@stagehand/shared';
 import { EyeIcon, EyeOffIcon, SparklesIcon, TheaterIcon } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
+import { JournalRecordView } from '@/components/journal/JournalRecordView';
+import { NotesSection } from '@/components/journal/NotesSection';
 import { BacklinksPanel } from '@/components/records/BacklinksPanel';
-import { PlayersNote } from '@/components/records/PlayersNote';
 import { RecordForm } from '@/components/records/RecordForm';
 import { RecordNavigationProvider } from '@/components/records/RecordNavigationProvider';
 import { Badge } from '@/components/ui/badge';
@@ -125,14 +126,8 @@ export function RecordPage() {
     </Link>
   );
 
-  if (!isGm) {
-    return (
-      <div className="space-y-4">
-        {backLink}
-        <PlayersNote />
-      </div>
-    );
-  }
+  // Players read the record's public layer, from the journal (F3.5).
+  if (!isGm) return <JournalRecordView campaign={campaign} recordId={recordId} />;
   if (recordQuery.isPending) return <p className="text-muted-foreground">Loading record…</p>;
   if (recordQuery.isError) {
     return <p role="alert">Could not load this record. Try again in a moment.</p>;
@@ -185,19 +180,35 @@ export function RecordPage() {
 
       <RecordNavigationProvider campaignId={campaign.id}>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
-          <Card>
-            <CardContent className="pt-6">
-              <RecordForm
-                key={record.id}
-                campaign={campaign}
-                record={record}
-                records={records ?? []}
-                onDeleted={() => {
-                  void navigate(recordsPath(campaign.id, record.type), { replace: true });
-                }}
-              />
-            </CardContent>
-          </Card>
+          <div className="min-w-0 space-y-6">
+            <Card>
+              <CardContent className="pt-6">
+                <RecordForm
+                  key={record.id}
+                  campaign={campaign}
+                  record={record}
+                  records={records ?? []}
+                  onDeleted={() => {
+                    void navigate(recordsPath(campaign.id, record.type), { replace: true });
+                  }}
+                />
+              </CardContent>
+            </Card>
+            {/* The table's notes, while players have the record (F3.5). */}
+            {record.revealedAt !== null && (
+              <Card>
+                <CardContent className="pt-6">
+                  <NotesSection
+                    key={record.id}
+                    campaignId={campaign.id}
+                    subject={{ recordId: record.id }}
+                    isGm
+                    readOnly={campaign.archivedAt !== null}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
           <aside className="space-y-6 lg:sticky lg:top-6">
             {isVisualSubject(record.type) && (
               <VisualCard

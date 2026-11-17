@@ -9,9 +9,10 @@ import { PlusIcon, SearchIcon, SparklesIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
+import { EntryList } from '@/components/journal/JournalList';
+import { JournalView } from '@/components/journal/JournalView';
 import { AreaSelect } from '@/components/records/AreaSelect';
 import { NewRecordDialog } from '@/components/records/NewRecordDialog';
-import { PlayersNote } from '@/components/records/PlayersNote';
 import { RecordList } from '@/components/records/RecordList';
 import { RecordTypeFilter } from '@/components/records/RecordTypeFilter';
 import { TagFilter } from '@/components/records/TagFilter';
@@ -19,7 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { importPath } from '@/lib/ai-import';
-import { useCampaign, useRecordSearch, useRecords } from '@/lib/queries';
+import { ENTRIES_FILTER, entriesParams, matchesWords } from '@/lib/journal';
+import { useCampaign, useEntries, useRecordSearch, useRecords } from '@/lib/queries';
 import {
   filtersToParams,
   hasSearchFilters,
@@ -32,7 +34,10 @@ import { CampaignNotFound } from '@/pages/CampaignPage';
 /** How long typing pauses before the search runs. */
 const SEARCH_DEBOUNCE_MS = 250;
 
-/** `/campaigns/:campaignId/records`: the GM's records, searched and filtered (F1.6b). */
+/**
+ * `/campaigns/:campaignId/records`: the GM's records, searched and filtered (F1.6b), and the
+ * players' entries (F3.5). A player gets the journal here instead.
+ */
 export function RecordsPage() {
   const { campaignId = '' } = useParams();
   const { data: campaign, isPending, isError } = useCampaign(campaignId);
@@ -64,6 +69,8 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
     },
     isGm && filtering,
   );
+  const entries = useEntries(campaign.id, isGm);
+  const showEntries = searchParams.get('type') === ENTRIES_FILTER;
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
 
@@ -79,9 +86,13 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
     const next = text.trim();
     if (next === filters.q) return;
     const timer = window.setTimeout(() => {
-      setSearchParams((current) => filtersToParams({ ...parseRecordFilters(current), q: next }), {
-        replace: true,
-      });
+      setSearchParams(
+        (current) =>
+          current.get('type') === ENTRIES_FILTER
+            ? entriesParams(next)
+            : filtersToParams({ ...parseRecordFilters(current), q: next }),
+        { replace: true },
+      );
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       window.clearTimeout(timer);
@@ -104,6 +115,12 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
     (record) => filters.type === null || record.type === filters.type,
   );
   const areas = (records ?? []).filter((record) => record.type === 'area');
+  const shownEntries = (entries.data ?? []).filter(
+    (entry) => filters.q === '' || matchesWords(`${entry.title}\n${entry.description}`, filters.q),
+  );
+  const chooseEntries = () => {
+    setSearchParams(entriesParams(filters.q));
+  };
 
   return (
     <div className="space-y-4">
@@ -140,7 +157,7 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-          {!isGm && <PlayersNote />}
+          {!isGm && <JournalView campaign={campaign} />}
           {isGm && (
             <>
               <div className="relative">
@@ -172,6 +189,11 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
                 total={matches?.length ?? 0}
                 onChange={(type) => {
                   apply({ ...filters, type, areaId: type === 'spot' ? filters.areaId : null });
+                }}
+                entries={{
+                  count: shownEntries.length,
+                  selected: showEntries,
+                  onSelect: chooseEntries,
                 }}
               />
               <TagFilter
@@ -226,7 +248,15 @@ function RecordsView({ campaign }: { campaign: Campaign }) {
           {isGm && records !== undefined && filtering && search.isPending && (
             <p className="text-muted-foreground">Searching…</p>
           )}
-          {isGm && records !== undefined && matches !== undefined && (
+          {isGm && showEntries && (
+            <EntryList
+              campaignId={campaign.id}
+              entries={shownEntries}
+              terms={searchTerms(filters.q)}
+              searching={filters.q !== ''}
+            />
+          )}
+          {isGm && !showEntries && records !== undefined && matches !== undefined && (
             <RecordList
               campaignId={campaign.id}
               records={shown}

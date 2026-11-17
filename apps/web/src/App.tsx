@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
+import { EntryPage } from '@/pages/EntryPage';
 import { HomePage } from '@/pages/HomePage';
 import { ImportPage } from '@/pages/ImportPage';
 import { ImportReviewPage } from '@/pages/ImportReviewPage';
@@ -99,6 +100,14 @@ export function App() {
           element={
             <RequireAuth>
               <RecordPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/entries/:entryId"
+          element={
+            <RequireAuth>
+              <EntryPage />
             </RequireAuth>
           }
         />

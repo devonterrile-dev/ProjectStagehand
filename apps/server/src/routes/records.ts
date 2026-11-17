@@ -26,8 +26,8 @@ import type { PlayLive } from '../play/socket';
 /**
  * Narrative records (F1.3): list, create, read, partial update and delete, plus each
  * record's backlinks (F1.5). A record's own links are read and written with the record.
- * Reveal and Un-reveal (F3.4, §7) say whether players may have it; what players then see of a
- * revealed record arrives with the player journal (F3.5). GM only. Every route here is
+ * Reveal and Un-reveal (F3.4, §7) say whether players may have it; players read revealed records
+ * through the journal's routes (F3.5, `routes/journal.ts`). GM only. Every route here is
  * campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerRecordRoutes(
@@ -94,7 +94,10 @@ export function registerRecordRoutes(
       const parsed = updateRecordRequestSchemaFor(type).safeParse(request.body);
       if (!parsed.success) return sendValidationError(reply, parsed.error);
 
-      return updateRecord(deps.db, scope, id, parsed.data);
+      const record = await updateRecord(deps.db, scope, id, parsed.data);
+      // What players read of it may have changed (F3.5).
+      if (record.revealedAt !== null) deps.live.journalChanged(scope.campaignId);
+      return record;
     },
   );
 
@@ -115,6 +118,7 @@ export function registerRecordRoutes(
 
         await setRecordRevealed(deps.db, scope, id, revealed);
         deps.live.stageChanged(scope);
+        deps.live.journalChanged(scope.campaignId);
         return getRecord(deps.db, scope, id);
       },
     );
@@ -129,6 +133,8 @@ export function registerRecordRoutes(
       assertWritable(scope);
 
       await deleteRecord(deps.db, scope, recordId(request));
+      // It may have been in players' journals (F3.5).
+      deps.live.journalChanged(scope.campaignId);
       return reply.code(204).send();
     },
   );

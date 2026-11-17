@@ -191,7 +191,7 @@ describe('Quick jump', () => {
     const { coast } = world({ role: 'player' });
     renderAt(campaignUrl(coast));
 
-    await screen.findByText(/Records are the GM/);
+    await screen.findByText(/Everything your GM has revealed/);
     expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
     pressShortcut();
     expect(screen.queryByRole('dialog')).toBeNull();

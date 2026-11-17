@@ -30,6 +30,7 @@ import { registerSecurityHeaders } from './http/security-headers';
 import { registerCampaignRoutes } from './routes/campaigns';
 import { registerCharacterRoutes } from './routes/characters';
 import { registerInviteRoutes } from './routes/invites';
+import { registerJournalRoutes } from './routes/journal';
 import { registerMeRoutes } from './routes/me';
 import { registerMemberRoutes } from './routes/members';
 import { registerPlaySessionRoutes } from './routes/play-sessions';
@@ -202,6 +203,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerInviteRoutes(app, { auth: options.auth, db: handle.db });
     registerCharacterRoutes(app, { auth: options.auth, db: handle.db });
     registerRecordRoutes(app, { auth: options.auth, db: handle.db, live });
+    registerJournalRoutes(app, { auth: options.auth, db: handle.db, live });
     registerStatBlockRoutes(app, { auth: options.auth, db: handle.db });
     registerImportRoutes(app, {
       auth: options.auth,

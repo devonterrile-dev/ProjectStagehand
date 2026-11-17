@@ -13,6 +13,7 @@ export * from './assets';
 export * from './auth';
 export * from './campaigns';
 export * from './invites';
+export * from './journal';
 export * from './play-sessions';
 export * from './provider-credentials';
 export * from './record-links';

@@ -244,7 +244,7 @@ describe('Starting an AI import', () => {
     const coast = campaign({ name: 'Shattered Coast', role: 'player' });
     mockApi(MIRA, [coast]);
     renderAt(importUrl(coast));
-    expect(await screen.findByText(/Records are the GM's workshop/)).toBeDefined();
+    expect(await screen.findByText(/This is the GM's workshop/)).toBeDefined();
     expect(screen.queryByLabelText('Your notes')).toBeNull();
   });
 });

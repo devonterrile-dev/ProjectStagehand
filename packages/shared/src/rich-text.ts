@@ -311,3 +311,37 @@ export function mentionIdsOf(doc: RichText): string[] {
   doc.content.forEach(visit);
   return [...ids];
 }
+
+/**
+ * The document with every mention of a record outside `keep` turned into plain text: its label,
+ * with the mention's marks. What a player gets of a revealed record's text (F3.5, §7 rule 4):
+ * the words the GM wrote stay, but a record the player hasn't been shown keeps its id.
+ */
+export function withMentionsOnly(doc: RichText, keep: ReadonlySet<string>): RichText {
+  const inline = (node: RichTextInline): RichTextInline => {
+    if (node.type !== 'mention' || keep.has(node.attrs.id)) return node;
+    return {
+      type: 'text',
+      text: node.attrs.label,
+      ...(node.marks === undefined ? {} : { marks: node.marks }),
+    };
+  };
+  const block = (node: RichTextBlock): RichTextBlock => {
+    switch (node.type) {
+      case 'paragraph':
+      case 'heading':
+        return node.content === undefined ? node : { ...node, content: node.content.map(inline) };
+      case 'bulletList':
+      case 'orderedList':
+        return {
+          ...node,
+          content: node.content.map((item) => ({ ...item, content: item.content.map(block) })),
+        };
+      case 'blockquote':
+        return { ...node, content: node.content.map(block) };
+      case 'horizontalRule':
+        return node;
+    }
+  };
+  return { type: 'doc', content: doc.content.map(block) };
+}

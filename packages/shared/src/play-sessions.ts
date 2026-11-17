@@ -51,8 +51,16 @@ const placement = {
   mount: propMountSchema.nullable(),
 };
 
-/** One object in sight, as a player's browser gets it: an image and a place, nothing else. */
-export const playerStageObjectSchema = z.object({ ...placement, image: stageImageSchema });
+/**
+ * One object in sight, as a player's browser gets it: an image and a place, and (F3.5) the
+ * record it shows when players have that record, so they can inspect it. Null for a PC, and for
+ * a record the GM has un-revealed.
+ */
+export const playerStageObjectSchema = z.object({
+  ...placement,
+  image: stageImageSchema,
+  recordId: z.uuid().nullable(),
+});
 export type PlayerStageObject = z.infer<typeof playerStageObjectSchema>;
 
 /**
@@ -148,6 +156,8 @@ export type Presence = z.infer<typeof presenceSchema>;
  * - `presence`: who is connected (`presenceSchema`), after every change.
  * - `started`: a session began; sent to members who were waiting, who then `join`.
  * - `ended`: the GM ended the session.
+ * - `journalChanged`: something in the journal changed (a reveal, a note, an entry; F3.5): read
+ *   it again.
  */
 export const PLAY_SOCKET = {
   /** Socket.IO's default path, the one Discord's proxy was tried with (D-48). */
@@ -168,6 +178,7 @@ export const PLAY_SOCKET = {
   presence: 'presence',
   started: 'session:started',
   ended: 'session:ended',
+  journalChanged: 'journal:changed',
 } as const;
 
 export const joinRequestSchema = z.strictObject({ campaignId: z.uuid() });

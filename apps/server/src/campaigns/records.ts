@@ -110,7 +110,7 @@ async function requireArea(tx: DbOrTx, scope: CampaignScope, areaId: string): Pr
 }
 
 /** Escapes `%`, `_` and `\` for a LIKE pattern (backslash is Postgres's default escape). */
-function likeLiteral(text: string): string {
+export function likeLiteral(text: string): string {
   return text.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 

@@ -420,17 +420,19 @@ describe('Live sessions API', () => {
           flipped: false,
           mount: 'stand',
           image: { assetId: well.assetId, width: 640, height: 1024, version: 3 },
+          // Opening the curtain on it revealed it, so players may inspect it (F3.5).
+          recordId: well.record.id,
         },
       ]);
 
-      // Nothing of the hidden prop or the puppet waiting below, and no names or record ids.
+      // Nothing of the hidden prop or the puppet waiting below, and no names; the only record
+      // id is the revealed well's.
       const sent = JSON.stringify(forPlayers);
       for (const secret of [
         trapdoor.assetId,
         trapdoor.record.id,
         fishmonger.assetId,
         fishmonger.record.id,
-        well.record.id,
         market.id,
         marketScene.id,
         'cursed',
@@ -775,6 +777,11 @@ describe('Live sessions API', () => {
       const [, hidden] = deskScene.objects;
       await setRecordRevealed(handle.db, deskScope, crate.record.id, false);
       expect(await revealedAt(crate.record.id)).toBeNull();
+      // Still in sight, but no longer something players may inspect (F3.5).
+      const inSight = (await stages(desk)).player.objects.find(
+        (object) => object.id === hidden?.id,
+      );
+      expect(inSight).toMatchObject({ recordId: null });
       expect(await events()).toContainEqual({
         kind: 'unreveal',
         actorUserId: gm.id,
@@ -827,10 +834,14 @@ describe('Live sessions API', () => {
       const saved = await call('GET', `/api/campaigns/${desk.id}/scenes/${deskScene.id}`, gm);
       expect(saved.json<Scene>().objects).toHaveLength(3);
 
-      // A PC raised reaches players, as an image and a place only.
+      // A PC raised reaches players, as an image and a place only: nothing to inspect.
       await setLiveObjectShown(handle.db, deskScope, miraId, 'puppet', true);
       const raised = (await stages(desk)).player.objects.find((object) => object.id === miraId);
-      expect(raised).toMatchObject({ kind: 'puppet', image: { assetId: mira.assetId } });
+      expect(raised).toMatchObject({
+        kind: 'puppet',
+        image: { assetId: mira.assetId },
+        recordId: null,
+      });
       expect(JSON.stringify(raised)).not.toContain('Mira');
     });
 
@@ -1060,6 +1071,16 @@ describe('Live sessions API', () => {
     it('never serves a player the original, even of something in sight', async () => {
       expect(await status(anchor.assetId, player, '?v=original')).toBe(404);
       expect(await status(backdropAsset, player, '?v=original')).toBe(404);
+    });
+
+    it('serves the image of a record in the journal, on stage or not (F3.5)', async () => {
+      const gmScope = await scopeOf(gm);
+      await setRecordRevealed(handle.db, gmScope, unused.record.id, true);
+      expect(await status(unused.assetId, player)).toBe(200);
+      expect(await status(unused.assetId, player, '?v=original')).toBe(404);
+
+      await setRecordRevealed(handle.db, gmScope, unused.record.id, false);
+      expect(await status(unused.assetId, player)).toBe(404);
     });
 
     it('still serves the GM everything', async () => {

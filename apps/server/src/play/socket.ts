@@ -59,6 +59,11 @@ export interface PlayLive {
    * page: everyone in the session gets the stage again.
    */
   stageChanged(scope: CampaignScope): void;
+  /**
+   * Something in the journal changed (F3.5): a reveal, a note, an entry, a revealed record's
+   * text. Everyone in the session is told, and reads it again.
+   */
+  journalChanged(campaignId: string): void;
 }
 
 export interface PlaySocketDeps {
@@ -142,6 +147,11 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     });
   }
 
+  /** Tells everyone in the session that the journal changed (F3.5), so it is read again. */
+  function sendJournalChanged(campaignId: string): void {
+    nsp.to(room.gm(campaignId)).to(room.player(campaignId)).emit(PLAY_SOCKET.journalChanged);
+  }
+
   /** Takes a connection out of whatever session or wait it is in. */
   function vacate(socket: PlaySocket): void {
     const { seat, waiting, userId } = socket.data;
@@ -193,6 +203,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     socket: PlaySocket,
     reply: (result: ActionResult) => void,
     run: (scope: CampaignScope) => Promise<void>,
+    reveals = false,
   ): Promise<void> {
     const refuse = (message: string) => {
       reply(actionResultSchema.parse({ ok: false, message }));
@@ -211,6 +222,8 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       await run(scope);
       reply({ ok: true });
       await sendStage(scope);
+      // Bringing something into sight may have revealed it (D-52): journals read again.
+      if (reveals) sendJournalChanged(scope.campaignId);
     } catch (error) {
       const report = reportError(error);
       if (report.statusCode >= 500) log.error({ err: report.log }, 'live action failed');
@@ -290,6 +303,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       schema: z.ZodType<T>,
       invalid: string,
       run: (scope: CampaignScope, request: T) => Promise<void>,
+      reveals = false,
     ): void {
       socket.on(event, (payload: unknown, reply: unknown) => {
         if (typeof reply !== 'function') return;
@@ -299,7 +313,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
           answer({ ok: false, message: invalid });
           return;
         }
-        void gmAction(socket, answer, (scope) => run(scope, parsed.data));
+        void gmAction(socket, answer, (scope) => run(scope, parsed.data), reveals);
       });
     }
 
@@ -308,6 +322,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       loadSceneRequestSchema,
       'Choose a scene to load',
       (scope, request) => loadSceneLive(db, scope, request.sceneId),
+      true,
     );
 
     // The control desk (F3.4).
@@ -316,6 +331,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       addObjectRequestSchema,
       'Choose a record or a PC to add',
       (scope, request) => addLiveObject(db, scope, request),
+      true,
     );
     onGm(
       PLAY_SOCKET.moveObject,
@@ -332,8 +348,12 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       [PLAY_SOCKET.raisePuppet, 'puppet', true],
       [PLAY_SOCKET.lowerPuppet, 'puppet', false],
     ] as const) {
-      onGm(event, objectRequestSchema, NOT_ON_STAGE, (scope, { id }) =>
-        setLiveObjectShown(db, scope, id, kind, shown),
+      onGm(
+        event,
+        objectRequestSchema,
+        NOT_ON_STAGE,
+        (scope, { id }) => setLiveObjectShown(db, scope, id, kind, shown),
+        shown,
       );
     }
 
@@ -343,8 +363,11 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     ] as const) {
       socket.on(event, (reply: unknown) => {
         if (typeof reply !== 'function') return;
-        void gmAction(socket, reply as (result: ActionResult) => void, (scope) =>
-          setCurtain(db, scope, open),
+        void gmAction(
+          socket,
+          reply as (result: ActionResult) => void,
+          (scope) => setCurtain(db, scope, open),
+          open,
         );
       });
     }
@@ -390,6 +413,10 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
 
     stageChanged(scope) {
       void sendStage(scope);
+    },
+
+    journalChanged(campaignId) {
+      sendJournalChanged(campaignId);
     },
   };
 }

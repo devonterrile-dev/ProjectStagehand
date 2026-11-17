@@ -46,6 +46,7 @@ import { httpError } from '../http/errors';
 import type { DbOrTx } from './members';
 import { sceneForStage } from './scenes';
 import type { CampaignScope } from './scope';
+import { isRevealedRecordImage } from './journal';
 import { stageImagesOf } from './visuals';
 
 type SessionRow = typeof playSessions.$inferSelect;
@@ -637,7 +638,7 @@ export async function stagesOf(
   const player = playerStageSchema.parse({
     role: 'player',
     ...shared,
-    objects: placed.flatMap(({ object, visualAssetId }) => {
+    objects: placed.flatMap(({ object, subject, visualAssetId }) => {
       const image = imageOf(visualAssetId);
       if (!object.shown || image === null) return [];
       return [
@@ -651,6 +652,8 @@ export async function stagesOf(
           flipped: object.flipped,
           mount: object.mount,
           image,
+          // What a player may inspect (F3.5): a record they have, never a PC.
+          recordId: subject.kind === 'record' && subject.revealed ? subject.id : null,
         },
       ];
     }),
@@ -660,15 +663,16 @@ export async function stagesOf(
 }
 
 /**
- * Whether a player may load an asset's image (F3.3): only while it is, right now, the backdrop
- * or an object in sight on the campaign's live stage. Everything else a campaign has drawn stays
- * with the GM.
+ * Whether a player may load an asset's image: the image in use of a record in their journal
+ * (F3.5), or, while it is, right now, the backdrop or an object in sight on the campaign's live
+ * stage (F3.3). Everything else a campaign has drawn stays with the GM.
  */
 export async function playerCanSeeAsset(
   db: Database,
   scope: CampaignScope,
   assetId: string,
 ): Promise<boolean> {
+  if (await isRevealedRecordImage(db, scope, assetId)) return true;
   const stages = await stagesOf(db, scope);
   if (stages === null) return false;
   const { backdrop, objects } = stages.player;

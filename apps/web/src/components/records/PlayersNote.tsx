@@ -1,9 +1,9 @@
-/** What players see where the GM's records would be, until the reveal flow (F3.5). */
+/** What players see on the GM's workshop pages (AI import): their records are the journal. */
 export function PlayersNote() {
   return (
     <p className="text-sm text-muted-foreground">
-      Records are the GM&apos;s workshop. Revealed records will appear for players in a later
-      update.
+      This is the GM&apos;s workshop. Everything revealed to you is under the campaign&apos;s
+      Records.
     </p>
   );
 }

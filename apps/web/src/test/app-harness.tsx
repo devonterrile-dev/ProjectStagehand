@@ -50,6 +50,7 @@ import { vi } from 'vitest';
 import { App } from '@/App';
 
 import { importsWorld, type ImportsWorldOptions } from './imports-world';
+import { journalWorld, type JournalWorldOptions } from './journal-world';
 import { scenesWorld, type ScenesWorldOptions } from './scenes-world';
 import { visualsWorld, type VisualsWorldOptions } from './visuals-world';
 
@@ -234,7 +235,8 @@ type CampaignSeed = Partial<Omit<CampaignData, 'characters'>> & {
   characters?: Partial<CharacterSheet>[];
 };
 
-export interface FakeWorld extends ImportsWorldOptions, VisualsWorldOptions, ScenesWorldOptions {
+export interface FakeWorld
+  extends ImportsWorldOptions, VisualsWorldOptions, ScenesWorldOptions, JournalWorldOptions {
   /** Extra members, PCs, invites, records and stat blocks per campaign id. Each campaign also has `me` as a member. */
   campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
@@ -345,6 +347,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     notFound,
   });
   const scenes = scenesWorld(world, { refused, notFound, invalid });
+  const journal = journalWorld(world, { me, refused, notFound, invalid });
   /** The running session of each campaign that has one, and how many each has had. */
   const playSessions = new Map(Object.entries(world.playSessions ?? {}));
   const sessionsPlayed = new Map(
@@ -909,6 +912,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
 
       const visual = visuals.respond(found, d, rest, method, rawBody);
       if (visual !== null) return visual;
+      const written = journal.respond(found, d.records, rest, method, rawBody);
+      if (written !== null) return written;
       const staged = scenes.respond(found, d.records, rest, method, rawBody);
       if (staged !== null) return staged;
       const records = respondRecords(found, d, rest, method, rawBody);
