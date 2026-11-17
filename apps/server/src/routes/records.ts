@@ -119,6 +119,8 @@ export function registerRecordRoutes(
         await setRecordRevealed(deps.db, scope, id, revealed);
         deps.live.stageChanged(scope);
         deps.live.journalChanged(scope.campaignId);
+        // During a session the change is in the session's log (F3.6).
+        deps.live.logChanged(scope.campaignId);
         return getRecord(deps.db, scope, id);
       },
     );

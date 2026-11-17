@@ -2,7 +2,7 @@
  * The live room (F3.3b, governance §13 and §14 "Live events", D-50), with real connections to
  * a listening server and a real Postgres: who may connect, joining and waiting, each role's
  * view of the stage, the GM's actions and a player trying them, the 6-player cap, coming back
- * after a drop, ending, and a removed member.
+ * after a drop, ending, and a removed member; and rolls, Hope and Fear (F3.6), with fixed dice.
  */
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -56,7 +56,14 @@ interface Client {
   ended: number;
   /** Times the journal changed (F3.5). */
   journal: number;
+  /** PCs whose sheets the server said changed (F3.6). */
+  sheets: string[];
+  /** Times the GM was told the log grew (F3.6). */
+  logs: number;
 }
+
+/** The next dice the server rolls (F3.6), Hope die first; a 6 when none are queued. */
+const dice: number[] = [];
 
 const WAIT_MS = 3000;
 
@@ -70,7 +77,7 @@ describe('The live room', () => {
   const open: Socket[] = [];
 
   beforeAll(async () => {
-    ({ app, handle } = await buildTestApp());
+    ({ app, handle } = await buildTestApp({ rollDie: () => dice.shift() ?? 6 }));
     await app.listen({ port: 0, host: '127.0.0.1' });
     ({ port } = app.server.address() as AddressInfo);
 
@@ -228,12 +235,18 @@ describe('The live room', () => {
       started: 0,
       ended: 0,
       journal: 0,
+      sheets: [],
+      logs: 0,
     };
     socket.on(PLAY_SOCKET.stage, (stage: LiveStage) => client.stages.push(stage));
     socket.on(PLAY_SOCKET.presence, (presence: Presence) => client.presences.push(presence));
     socket.on(PLAY_SOCKET.started, () => (client.started += 1));
     socket.on(PLAY_SOCKET.ended, () => (client.ended += 1));
     socket.on(PLAY_SOCKET.journalChanged, () => (client.journal += 1));
+    socket.on(PLAY_SOCKET.sheetChanged, (changed: { characterId: string }) =>
+      client.sheets.push(changed.characterId),
+    );
+    socket.on(PLAY_SOCKET.logChanged, () => (client.logs += 1));
     return new Promise((resolve, reject) => {
       socket.once('connect', () => {
         resolve(client);
@@ -799,6 +812,463 @@ describe('The live room', () => {
       expect(staying.client.socket.connected).toBe(true);
       const back = await connect(players[1] ?? null);
       expect(await join(back, campaign.id)).toEqual({ status: 'not-found' });
+      await end(campaign);
+    });
+  });
+
+  describe('rolls, Hope and Fear (F3.6)', () => {
+    /** A PC for `player`, with Agility +2 and the Hope given. */
+    async function pc(campaign: Campaign, player: Person, name: string, hope = 2) {
+      const made = await call('POST', `/api/campaigns/${campaign.id}/characters`, gm, {
+        name,
+        assignToUserId: player.id,
+      });
+      expect(made.statusCode, made.body).toBe(201);
+      const { id } = made.json<{ id: string }>();
+      const patched = await call('PATCH', `/api/campaigns/${campaign.id}/characters/${id}`, gm, {
+        traits: { agility: 2, strength: 1, finesse: 0, instinct: -1, presence: 0, knowledge: 0 },
+        hope,
+      });
+      expect(patched.statusCode, patched.body).toBe(200);
+      return id;
+    }
+
+    async function hopeOf(campaign: Campaign, characterId: string) {
+      const sheet = await call(
+        'GET',
+        `/api/campaigns/${campaign.id}/characters/${characterId}`,
+        gm,
+      );
+      return sheet.json<{ hope: number }>().hope;
+    }
+
+    async function logOf(campaign: Campaign, who = gm) {
+      const response = await call('GET', `/api/campaigns/${campaign.id}/play-session/log`, who);
+      return response;
+    }
+
+    /** A running session with Mira (player 1) and Bram (player 2), both seated. */
+    async function rollTable(name: string) {
+      const campaign = await table(name, 2);
+      const mira = await pc(campaign, players[0] ?? gm, 'Mira');
+      const bram = await pc(campaign, players[1] ?? gm, 'Bram', 0);
+      await start(campaign);
+      const director = await seated(gm, campaign);
+      const first = await seated(players[0] ?? gm, campaign);
+      const second = await seated(players[1] ?? gm, campaign);
+      return { campaign, mira, bram, director, first, second };
+    }
+
+    const gmView = (client: Client) => last(client.stages) as GmStage;
+    const playerView = (client: Client) => last(client.stages) as PlayerStage;
+
+    it('starts with the GM’s Fear and nothing called, and only the GM sees the party', async () => {
+      const { campaign, mira, bram, director, first } = await rollTable('Roll Basics');
+
+      expect(director.stage).toMatchObject({
+        fear: 3,
+        fearCap: 12,
+        calls: [],
+        lastRoll: null,
+        lastFearSpend: null,
+        party: [
+          { characterId: bram, name: 'Bram', playerName: 'Live Player 2', hope: 0 },
+          { characterId: mira, name: 'Mira', playerName: 'Live Player 1', hope: 2 },
+        ],
+      });
+      expect(first.stage).toMatchObject({ fear: 3, calls: [], lastRoll: null });
+      expect(first.stage).not.toHaveProperty('party');
+      await end(campaign);
+    });
+
+    it('calls a roll, and its player rolls it, spending Hope for +3', async () => {
+      const { campaign, mira, director, first, second } = await rollTable('Climbing');
+
+      expect(
+        await act(director.client, PLAY_SOCKET.callRoll, {
+          characterIds: [mira],
+          trait: 'agility',
+          difficulty: 12,
+          hidden: false,
+          label: 'Climb the wall',
+        }),
+      ).toEqual({ ok: true });
+      await waitForCalls(second.client, 1);
+      const [called] = await waitForCalls(first.client, 1);
+      expect(called).toMatchObject({
+        characterId: mira,
+        characterName: 'Mira',
+        trait: 'agility',
+        difficulty: 12,
+        hidden: false,
+        label: 'Climb the wall',
+      });
+
+      dice.push(9, 4);
+      expect(
+        await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: true }),
+      ).toEqual({ ok: true });
+
+      await vi.waitFor(() => {
+        expect(playerView(second.client).lastRoll).not.toBeNull();
+        expect(first.client.sheets).toContain(mira);
+        expect(director.client.logs).toBeGreaterThan(0);
+      });
+      expect(playerView(second.client)).toMatchObject({
+        calls: [],
+        fear: 3,
+        lastRoll: {
+          characterName: 'Mira',
+          trait: 'agility',
+          label: 'Climb the wall',
+          dice: { hope: 9, fear: 4 },
+          modifier: 2,
+          hopeBonus: 3,
+          total: 18,
+          critical: false,
+          success: true,
+          gained: 'hope',
+          difficulty: 12,
+          hidden: false,
+        },
+      });
+      // 2 Hope, 1 spent, 1 gained from the Hope die.
+      expect(await hopeOf(campaign, mira)).toBe(2);
+
+      const log = await logOf(campaign);
+      expect(log.statusCode).toBe(200);
+      expect(
+        log.json<{ entries: { kind: string; text: string; actorName: string }[] }>().entries[0],
+      ).toMatchObject({
+        kind: 'roll',
+        actorName: 'Live Player 1',
+        text: 'Mira rolled Agility (Climb the wall): 9 + 4 + 2 + 3 = 18 vs 12: success with Hope',
+      });
+      await end(campaign);
+    });
+
+    it('gives the GM Fear when the Fear die is higher, and the party’s Hope follows', async () => {
+      const { campaign, mira, director, first } = await rollTable('Fear Die');
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'instinct',
+        difficulty: 20,
+        hidden: false,
+      });
+      const [called] = await waitForCalls(first.client, 1);
+
+      dice.push(2, 10);
+      expect(
+        await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: false }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect(gmView(director.client).fear).toBe(4);
+      });
+      expect(gmView(director.client).lastRoll).toMatchObject({
+        total: 11,
+        modifier: -1,
+        success: false,
+        gained: 'fear',
+        label: null,
+      });
+      expect(await hopeOf(campaign, mira)).toBe(2);
+      await end(campaign);
+    });
+
+    /** Waits until a client's stage holds `count` calls, and answers them. */
+    async function waitForCalls(client: Client, count: number) {
+      await vi.waitFor(() => {
+        expect(playerView(client).calls).toHaveLength(count);
+      });
+      return playerView(client).calls;
+    }
+
+    it('keeps a hidden difficulty and its result from players until the GM reveals it', async () => {
+      const { campaign, mira, director, first } = await rollTable('Hidden Roll');
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 15,
+        hidden: true,
+      });
+      const [called] = await waitForCalls(first.client, 1);
+      expect(called).toMatchObject({ difficulty: null, hidden: true });
+      expect(gmView(director.client).calls[0]).toMatchObject({ difficulty: 15 });
+
+      dice.push(3, 5);
+      await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: false });
+      await vi.waitFor(() => {
+        expect(playerView(first.client).lastRoll).not.toBeNull();
+      });
+      const hidden = playerView(first.client).lastRoll;
+      expect(hidden).toMatchObject({ total: 10, difficulty: null, success: null, revealed: false });
+      expect(JSON.stringify(playerView(first.client))).not.toMatch(/"difficulty":15/);
+      expect(gmView(director.client).lastRoll).toMatchObject({
+        difficulty: 15,
+        success: false,
+      });
+
+      expect(await act(director.client, PLAY_SOCKET.revealRoll, { rollId: hidden?.id })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => {
+        expect(playerView(first.client).lastRoll).toMatchObject({
+          difficulty: 15,
+          success: false,
+          revealed: true,
+        });
+      });
+      // Revealing twice is harmless and logs once.
+      expect(await act(director.client, PLAY_SOCKET.revealRoll, { rollId: hidden?.id })).toEqual({
+        ok: true,
+      });
+      const kinds = (await logOf(campaign)).json<{ entries: { kind: string }[] }>().entries;
+      expect(kinds.filter((entry) => entry.kind === 'roll_reveal')).toHaveLength(1);
+      await end(campaign);
+    });
+
+    it('tells players a critical success, even with a hidden difficulty', async () => {
+      const { campaign, mira, director, first } = await rollTable('Hidden Critical');
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 40,
+        hidden: true,
+      });
+      const [called] = await waitForCalls(first.client, 1);
+
+      dice.push(6, 6);
+      await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: false });
+      await vi.waitFor(() => {
+        expect(playerView(first.client).lastRoll).toMatchObject({
+          critical: true,
+          success: true,
+          difficulty: null,
+          gained: 'hope',
+        });
+      });
+      expect(await hopeOf(campaign, mira)).toBe(3);
+      await end(campaign);
+    });
+
+    it('calls a roll for several PCs at once, replaces a call, and takes one back', async () => {
+      const { campaign, mira, bram, director, first } = await rollTable('Group Call');
+      const everyone = { trait: 'instinct', difficulty: 10, hidden: false };
+      await act(director.client, PLAY_SOCKET.callRoll, { characterIds: [mira, bram], ...everyone });
+      const calls = await waitForCalls(first.client, 2);
+      expect(calls.map((entry) => entry.characterName).sort()).toEqual(['Bram', 'Mira']);
+      const miraCall = calls.find((entry) => entry.characterId === mira);
+
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'strength',
+        difficulty: 8,
+        hidden: false,
+      });
+      await vi.waitFor(() => {
+        const now = playerView(first.client).calls;
+        expect(now.find((entry) => entry.characterId === mira)?.trait).toBe('strength');
+      });
+      expect(playerView(first.client).calls).toHaveLength(2);
+      // The replaced call can't be rolled.
+      expect(
+        await act(first.client, PLAY_SOCKET.makeRoll, { callId: miraCall?.id, spendHope: false }),
+      ).toEqual({ ok: false, message: 'That roll is no longer called' });
+
+      const bramCall = gmView(director.client).calls.find((entry) => entry.characterId === bram);
+      expect(await act(director.client, PLAY_SOCKET.cancelRoll, { callId: bramCall?.id })).toEqual({
+        ok: true,
+      });
+      await waitForCalls(first.client, 1);
+      expect(await act(director.client, PLAY_SOCKET.cancelRoll, { callId: bramCall?.id })).toEqual({
+        ok: false,
+        message: 'That roll is no longer called',
+      });
+      await end(campaign);
+    });
+
+    it('refuses what a player or the GM may not do', async () => {
+      const { campaign, mira, bram, director, first, second } = await rollTable('Refusals');
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira, bram],
+        trait: 'agility',
+        difficulty: 12,
+        hidden: false,
+      });
+      const calls = await waitForCalls(first.client, 2);
+      const miraCall = calls.find((entry) => entry.characterId === mira);
+      const bramCall = calls.find((entry) => entry.characterId === bram);
+
+      expect(
+        await act(second.client, PLAY_SOCKET.makeRoll, { callId: miraCall?.id, spendHope: false }),
+      ).toEqual({ ok: false, message: 'That roll is for another player' });
+      expect(
+        await act(director.client, PLAY_SOCKET.makeRoll, {
+          callId: miraCall?.id,
+          spendHope: false,
+        }),
+      ).toEqual({ ok: false, message: 'Only players can do that' });
+      // Bram has no Hope to spend; his call waits.
+      expect(
+        await act(second.client, PLAY_SOCKET.makeRoll, { callId: bramCall?.id, spendHope: true }),
+      ).toEqual({ ok: false, message: 'You have no Hope to spend' });
+      expect(playerView(second.client).calls).toHaveLength(2);
+
+      for (const [event, payload] of [
+        [
+          PLAY_SOCKET.callRoll,
+          { characterIds: [mira], trait: 'agility', difficulty: 9, hidden: false },
+        ],
+        [PLAY_SOCKET.spendFear, { amount: 1 }],
+        [PLAY_SOCKET.setFear, { fear: 9 }],
+        [PLAY_SOCKET.setHope, { characterId: mira, hope: 6 }],
+        [PLAY_SOCKET.cancelRoll, { callId: miraCall?.id }],
+      ] as const) {
+        expect(await act(first.client, event, payload)).toEqual({
+          ok: false,
+          message: 'Only the GM can do that',
+        });
+      }
+
+      expect(
+        await act(director.client, PLAY_SOCKET.callRoll, {
+          characterIds: [mira],
+          trait: 'luck',
+          difficulty: 9,
+          hidden: false,
+        }),
+      ).toEqual({ ok: false, message: 'Choose one of the traits' });
+      const loner = (
+        await call('POST', `/api/campaigns/${campaign.id}/characters`, gm, { name: 'Nobody’s PC' })
+      ).json<{ id: string }>().id;
+      expect(
+        await act(director.client, PLAY_SOCKET.callRoll, {
+          characterIds: [loner],
+          trait: 'agility',
+          difficulty: 9,
+          hidden: false,
+        }),
+      ).toEqual({ ok: false, message: 'Choose PCs that have a player' });
+      expect(
+        await act(director.client, PLAY_SOCKET.callRoll, {
+          characterIds: [mira],
+          trait: 'agility',
+          difficulty: 100,
+          hidden: false,
+        }),
+      ).toEqual({ ok: false, message: 'Choose PCs, a trait and a difficulty' });
+      expect(await act(director.client, PLAY_SOCKET.spendFear, { amount: 4 })).toEqual({
+        ok: false,
+        message: 'There is only 3 Fear to spend',
+      });
+      expect(await act(director.client, PLAY_SOCKET.setFear, { fear: 13 })).toEqual({
+        ok: false,
+        message: 'Fear is from 0 to 12',
+      });
+      expect(
+        await act(director.client, PLAY_SOCKET.setHope, { characterId: mira, hope: 7 }),
+      ).toEqual({ ok: false, message: 'Hope is from 0 to 6' });
+      expect(await act(director.client, PLAY_SOCKET.revealRoll, { rollId: randomUUID() })).toEqual({
+        ok: false,
+        message: 'That roll is not in this session',
+      });
+
+      expect((await logOf(campaign, players[0] ?? gm)).statusCode).toBe(403);
+      await end(campaign);
+    });
+
+    it('spends Fear with a reason, and corrects Fear and Hope, all logged', async () => {
+      const { campaign, mira, director, first } = await rollTable('Fear and Hope');
+
+      expect(
+        await act(director.client, PLAY_SOCKET.spendFear, {
+          amount: 2,
+          reason: 'The bridge gives way',
+        }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect(playerView(first.client)).toMatchObject({
+          fear: 1,
+          lastFearSpend: { amount: 2, reason: 'The bridge gives way' },
+        });
+      });
+
+      await act(director.client, PLAY_SOCKET.setFear, { fear: 5 });
+      await act(director.client, PLAY_SOCKET.setHope, { characterId: mira, hope: 4 });
+      await vi.waitFor(() => {
+        expect(gmView(director.client).party.find((pc) => pc.characterId === mira)?.hope).toBe(4);
+        expect(first.client.sheets).toContain(mira);
+        expect(playerView(first.client).fear).toBe(5);
+      });
+      expect(await hopeOf(campaign, mira)).toBe(4);
+
+      const entries = (await logOf(campaign)).json<{ entries: { text: string }[] }>().entries;
+      expect(entries.map((entry) => entry.text).slice(0, 3)).toEqual([
+        "Set Mira's Hope from 2 to 4",
+        'Set Fear from 1 to 5',
+        'Spent 2 Fear (3 → 1): The bridge gives way',
+      ]);
+      await end(campaign);
+    });
+
+    it('tells the table when the GM edits a sheet on the site', async () => {
+      const { campaign, mira, director, first } = await rollTable('Site Edit');
+      const patched = await call('PATCH', `/api/campaigns/${campaign.id}/characters/${mira}`, gm, {
+        hope: 5,
+      });
+      expect(patched.statusCode).toBe(200);
+      await vi.waitFor(() => {
+        expect(first.client.sheets).toContain(mira);
+        expect(gmView(director.client).party.find((pc) => pc.characterId === mira)?.hope).toBe(5);
+      });
+      await end(campaign);
+    });
+
+    it('drops the calls nobody rolled when the session ends, and starts the next one clean', async () => {
+      const { campaign, mira, director, first } = await rollTable('Next Session');
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 12,
+        hidden: false,
+      });
+      const [called] = await waitForCalls(first.client, 1);
+      dice.push(1, 2);
+      await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: false });
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 12,
+        hidden: false,
+      });
+      await end(campaign);
+      await start(campaign);
+
+      const again = await seated(gm, campaign);
+      expect(again.stage).toMatchObject({ fear: 3, calls: [], lastRoll: null });
+      expect((await logOf(campaign)).json<{ entries: unknown[] }>().entries).toEqual([]);
+      await end(campaign);
+    });
+
+    it('keeps another campaign’s calls out of reach', async () => {
+      const { campaign, mira, director } = await rollTable('Own Table');
+      const other = await table('Other Table', 1);
+      const theirs = await pc(other, players[0] ?? gm, 'Stranger');
+      await start(other);
+
+      expect(
+        await act(director.client, PLAY_SOCKET.callRoll, {
+          characterIds: [theirs],
+          trait: 'agility',
+          difficulty: 9,
+          hidden: false,
+        }),
+      ).toEqual({ ok: false, message: 'Choose PCs that have a player' });
+      expect(
+        await act(director.client, PLAY_SOCKET.setHope, { characterId: theirs, hope: 1 }),
+      ).toEqual({ ok: false, message: 'PC not found' });
+      expect(await hopeOf(campaign, mira)).toBe(2);
+      await end(other);
       await end(campaign);
     });
   });

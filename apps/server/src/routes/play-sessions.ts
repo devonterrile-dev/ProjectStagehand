@@ -7,14 +7,22 @@
  * POST …/play-session       start one (201), or answer the one already running (200). GM only;
  *                           refused while the campaign is archived.
  * POST …/play-session/end   end it. GM only; allowed while archived, since it only closes.
+ * GET  …/play-session/log   the running session's log in words, newest first (F3.6). GM only;
+ *                           empty when none is running.
  * (… is /api/campaigns/:campaignId)
  */
-import { playSessionResponseSchema, type PlaySessionResponse } from '@stagehand/shared';
+import {
+  playSessionResponseSchema,
+  sessionLogResponseSchema,
+  type PlaySessionResponse,
+  type SessionLogResponse,
+} from '@stagehand/shared';
 import type { FastifyInstance } from 'fastify';
 
 import type { Auth } from '../auth/auth';
 import { campaignOf, memberOnly } from '../campaigns/guard';
 import { endSession, getActiveSession, startSession } from '../campaigns/play-sessions';
+import { sessionLog } from '../campaigns/rolls';
 import { assertGm, assertWritable } from '../campaigns/scope';
 import type { Database } from '../db/client';
 import type { PlayLive } from '../play/socket';
@@ -43,6 +51,16 @@ export function registerPlaySessionRoutes(
     if (started) deps.live.sessionStarted(scope.campaignId);
     return reply.code(started ? 201 : 200).send(playSessionResponseSchema.parse({ session }));
   });
+
+  app.get(
+    '/api/campaigns/:campaignId/play-session/log',
+    { preHandler },
+    async (request): Promise<SessionLogResponse> => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      return sessionLogResponseSchema.parse({ entries: await sessionLog(deps.db, scope) });
+    },
+  );
 
   app.post(
     '/api/campaigns/:campaignId/play-session/end',

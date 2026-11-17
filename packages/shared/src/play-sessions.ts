@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import { campaignRoleSchema } from './campaigns';
 import { recordRefSchema } from './record-links';
+import { partyMemberSchema, rollStage } from './rolls';
 import {
   propMountSchema,
   scaleSchema,
@@ -96,6 +97,8 @@ const stage = {
   curtainOpen: z.boolean(),
   /** The loaded scene's Spot's image in use; null leaves the back wall bare. */
   backdrop: stageImageSchema.nullable(),
+  /** Fear, the calls waiting and the last roll (F3.6); see `rolls.ts`. */
+  ...rollStage,
 };
 
 /** The theater as a player sees it. Objects are in list order: later ones are in front. */
@@ -113,6 +116,8 @@ export const gmStageSchema = z.object({
   /** The scene that was loaded, by its current name; null before any, or once it is deleted. */
   scene: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   objects: z.array(gmStageObjectSchema),
+  /** Every PC with a player, with its Hope (F3.6): what the desk calls rolls for. */
+  party: z.array(partyMemberSchema),
 });
 export type GmStage = z.infer<typeof gmStageSchema>;
 
@@ -147,6 +152,11 @@ export type Presence = z.infer<typeof presenceSchema>;
  * - The control desk (F3.4), each → `actionResultSchema`, GM only: `addObject`
  *   (`addObjectRequestSchema`), `moveObject` (`moveObjectRequestSchema`), and `removeObject`,
  *   `showProp`, `hideProp`, `raisePuppet`, `lowerPuppet` (`objectRequestSchema`).
+ * - Rolls, Hope and Fear (F3.6, `rolls.ts`), each → `actionResultSchema`. GM only: `callRoll`
+ *   (`rollCallRequestSchema`), `cancelRoll` (`cancelRollRequestSchema`), `revealRoll`
+ *   (`revealRollRequestSchema`), `spendFear` (`spendFearRequestSchema`), `setFear`
+ *   (`setFearRequestSchema`), `setHope` (`setHopeRequestSchema`). A player, for their own PC
+ *   only: `makeRoll` (`makeRollRequestSchema`).
  *
  * Whatever comes into sight while the curtain is open, or is in sight when it opens, is revealed
  * to players (§7): only at that moment, so a record the GM un-reveals stays hidden.
@@ -158,6 +168,8 @@ export type Presence = z.infer<typeof presenceSchema>;
  * - `ended`: the GM ended the session.
  * - `journalChanged`: something in the journal changed (a reveal, a note, an entry; F3.5): read
  *   it again.
+ * - `sheetChanged`: a PC's sheet changed (`sheetChangedSchema`, F3.6); its player reads it again.
+ * - `logChanged`: to the GM only, the session's log grew (F3.6); the desk reads it again.
  */
 export const PLAY_SOCKET = {
   /** Socket.IO's default path, the one Discord's proxy was tried with (D-48). */
@@ -179,6 +191,15 @@ export const PLAY_SOCKET = {
   started: 'session:started',
   ended: 'session:ended',
   journalChanged: 'journal:changed',
+  callRoll: 'roll:call',
+  cancelRoll: 'roll:cancel',
+  revealRoll: 'roll:reveal',
+  makeRoll: 'roll:make',
+  spendFear: 'fear:spend',
+  setFear: 'fear:adjust',
+  setHope: 'hope:adjust',
+  sheetChanged: 'sheet:changed',
+  logChanged: 'log:changed',
 } as const;
 
 export const joinRequestSchema = z.strictObject({ campaignId: z.uuid() });
@@ -252,7 +273,7 @@ export type ObjectChanges = Omit<MoveObjectRequest, 'id'>;
 export const objectRequestSchema = z.strictObject({ id: z.uuid() });
 export type ObjectRequest = z.infer<typeof objectRequestSchema>;
 
-/** What a GM's action is answered with; `message` says why it was refused. */
+/** What an action is answered with; `message` says why it was refused. */
 export const actionResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true) }),
   z.object({ ok: z.literal(false), message: z.string() }),

@@ -8,23 +8,33 @@
  * - The stage is always read from the database (`stagesOf`), so what is sent after a change is
  *   what a browser joining a moment later would get, and a restart of this process loses
  *   nothing. Who is connected is the only state kept here (`PlayHub`).
+ * - Rolls (F3.6): the GM calls them and corrects Hope and Fear; a player rolls only the call for
+ *   their own PC, and the dice are rolled here (`rollDie`), never in a browser (§9).
  * - Everything sent about one campaign goes out in turn (`inTurn`): a join's snapshot and the
  *   broadcasts around it can't overtake each other, so nobody is left holding an older stage.
  */
 import {
   actionResultSchema,
   addObjectRequestSchema,
+  cancelRollRequestSchema,
   joinRequestSchema,
   joinResultSchema,
   loadSceneRequestSchema,
+  makeRollRequestSchema,
   moveObjectRequestSchema,
   objectRequestSchema,
   PLAY_SOCKET,
+  revealRollRequestSchema,
+  rollCallRequestSchema,
+  setFearRequestSchema,
+  setHopeRequestSchema,
+  spendFearRequestSchema,
   type ActionResult,
   type CampaignRole,
   type JoinResult,
 } from '@stagehand/shared';
 import { fromNodeHeaders } from 'better-auth/node';
+import { randomInt } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DefaultEventsMap, Namespace, Server, Socket } from 'socket.io';
 import type { z } from 'zod';
@@ -40,6 +50,16 @@ import {
   setLiveObjectShown,
   stagesOf,
 } from '../campaigns/play-sessions';
+import {
+  callRolls,
+  cancelRollCall,
+  makeRoll,
+  revealRoll,
+  setFearLive,
+  setHopeLive,
+  spendFearLive,
+  type RollDie,
+} from '../campaigns/rolls';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
 import type { Database } from '../db/client';
 import { reportError } from '../http/errors';
@@ -64,13 +84,30 @@ export interface PlayLive {
    * text. Everyone in the session is told, and reads it again.
    */
   journalChanged(campaignId: string): void;
+  /** A PC's sheet changed (F3.6), such as the GM's edit on the site: its player reads it again. */
+  sheetChanged(campaignId: string, characterId: string): void;
+  /** The session's log grew outside the live room (a reveal from a record's page, F3.6). */
+  logChanged(campaignId: string): void;
 }
 
 export interface PlaySocketDeps {
   auth: Auth;
   db: Database;
   log: FastifyBaseLogger;
+  /** Rolls one d12 for a roll (F3.6): a secure random 1 to 12 unless a test passes its own. */
+  rollDie?: RollDie;
 }
+
+/** What an action did beyond the stage, for the room to pass on (F3.6). */
+interface Effects {
+  /** It wrote to the session's log: the GM's desk reads the log again. */
+  logged?: boolean;
+  /** PCs whose sheets changed: their players read them again. */
+  sheets?: readonly string[];
+}
+
+/** A secure d12. */
+const secureDie: RollDie = () => randomInt(1, 13);
 
 interface SocketData {
   userId: string;
@@ -96,11 +133,13 @@ const room = {
 export const EVENT_BUDGET = { events: 60, perMs: 10_000 } as const;
 
 const ONLY_GM = 'Only the GM can do that';
+const ONLY_PLAYERS = 'Only players can do that';
 const NOT_JOINED = 'Join the session first';
 const NOT_ON_STAGE = 'Choose something on the stage';
 
 export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
   const { auth, db, log } = deps;
+  const rollDie = deps.rollDie ?? secureDie;
   const nsp = io.of(PLAY_SOCKET.namespace) as PlayNamespace;
   const hub = new PlayHub();
 
@@ -152,6 +191,19 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     nsp.to(room.gm(campaignId)).to(room.player(campaignId)).emit(PLAY_SOCKET.journalChanged);
   }
 
+  /** Tells everyone in the session that a PC's sheet changed (F3.6). */
+  function sendSheetChanged(campaignId: string, characterId: string): void {
+    nsp
+      .to(room.gm(campaignId))
+      .to(room.player(campaignId))
+      .emit(PLAY_SOCKET.sheetChanged, { characterId });
+  }
+
+  /** Tells the GM the session's log grew (F3.6). */
+  function sendLogChanged(campaignId: string): void {
+    nsp.to(room.gm(campaignId)).emit(PLAY_SOCKET.logChanged);
+  }
+
   /** Takes a connection out of whatever session or wait it is in. */
   function vacate(socket: PlaySocket): void {
     const { seat, waiting, userId } = socket.data;
@@ -195,14 +247,15 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
   }
 
   /**
-   * One GM action: checks the sender is seated and is, right now, this campaign's GM, runs it,
-   * answers, and sends everyone the stage. A refusal is answered in our own words; a fault of
-   * ours with a fixed message.
+   * One action: checks the sender is seated and has, right now, the role it takes in this
+   * campaign, runs it, answers, and sends everyone the stage and whatever else it changed. A
+   * refusal is answered in our own words; a fault of ours with a fixed message.
    */
-  async function gmAction(
+  async function act(
     socket: PlaySocket,
+    role: CampaignRole,
     reply: (result: ActionResult) => void,
-    run: (scope: CampaignScope) => Promise<void>,
+    run: (scope: CampaignScope) => Promise<Effects> | Promise<void>,
     reveals = false,
   ): Promise<void> {
     const refuse = (message: string) => {
@@ -215,15 +268,19 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     }
     try {
       const scope = await loadCampaignScope(db, userId, seat.campaignId);
-      if (scope?.role !== 'gm') {
-        refuse(ONLY_GM);
+      if (scope?.role !== role) {
+        refuse(role === 'gm' ? ONLY_GM : ONLY_PLAYERS);
         return;
       }
-      await run(scope);
+      const effects = (await run(scope)) ?? {};
       reply({ ok: true });
       await sendStage(scope);
       // Bringing something into sight may have revealed it (D-52): journals read again.
       if (reveals) sendJournalChanged(scope.campaignId);
+      if (reveals || effects.logged === true) sendLogChanged(scope.campaignId);
+      for (const characterId of effects.sheets ?? []) {
+        sendSheetChanged(scope.campaignId, characterId);
+      }
     } catch (error) {
       const report = reportError(error);
       if (report.statusCode >= 500) log.error({ err: report.log }, 'live action failed');
@@ -297,12 +354,13 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       });
     });
 
-    /** A GM action with a payload: checked against `schema`, refused with `invalid` if it fails. */
-    function onGm<T>(
+    /** An action with a payload: checked against `schema`, refused with `invalid` if it fails. */
+    function on<T>(
+      role: CampaignRole,
       event: string,
       schema: z.ZodType<T>,
       invalid: string,
-      run: (scope: CampaignScope, request: T) => Promise<void>,
+      run: (scope: CampaignScope, request: T) => Promise<Effects> | Promise<void>,
       reveals = false,
     ): void {
       socket.on(event, (payload: unknown, reply: unknown) => {
@@ -313,8 +371,17 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
           answer({ ok: false, message: invalid });
           return;
         }
-        void gmAction(socket, answer, (scope) => run(scope, parsed.data), reveals);
+        void act(socket, role, answer, (scope) => run(scope, parsed.data), reveals);
       });
+    }
+    function onGm<T>(
+      event: string,
+      schema: z.ZodType<T>,
+      invalid: string,
+      run: (scope: CampaignScope, request: T) => Promise<Effects> | Promise<void>,
+      reveals = false,
+    ): void {
+      on('gm', event, schema, invalid, run, reveals);
     }
 
     onGm(
@@ -363,14 +430,70 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     ] as const) {
       socket.on(event, (reply: unknown) => {
         if (typeof reply !== 'function') return;
-        void gmAction(
+        void act(
           socket,
+          'gm',
           reply as (result: ActionResult) => void,
           (scope) => setCurtain(db, scope, open),
           open,
         );
       });
     }
+
+    // Rolls, Hope and Fear (F3.6).
+    onGm(
+      PLAY_SOCKET.callRoll,
+      rollCallRequestSchema,
+      'Choose PCs, a trait and a difficulty',
+      (scope, request) => callRolls(db, scope, request),
+    );
+    onGm(
+      PLAY_SOCKET.cancelRoll,
+      cancelRollRequestSchema,
+      'Choose a called roll',
+      (scope, request) => cancelRollCall(db, scope, request.callId),
+    );
+    onGm(
+      PLAY_SOCKET.revealRoll,
+      revealRollRequestSchema,
+      'Choose a roll',
+      async (scope, request) => {
+        await revealRoll(db, scope, request.rollId);
+        return { logged: true };
+      },
+    );
+    onGm(
+      PLAY_SOCKET.spendFear,
+      spendFearRequestSchema,
+      'Say how much Fear to spend',
+      async (scope, request) => {
+        await spendFearLive(db, scope, request);
+        return { logged: true };
+      },
+    );
+    onGm(PLAY_SOCKET.setFear, setFearRequestSchema, 'Say how much Fear', async (scope, request) => {
+      await setFearLive(db, scope, request.fear);
+      return { logged: true };
+    });
+    onGm(
+      PLAY_SOCKET.setHope,
+      setHopeRequestSchema,
+      'Choose a PC and their Hope',
+      async (scope, request) => {
+        const changed = await setHopeLive(db, scope, request);
+        return changed === null ? {} : { logged: true, sheets: [changed.characterId] };
+      },
+    );
+    on(
+      'player',
+      PLAY_SOCKET.makeRoll,
+      makeRollRequestSchema,
+      'Choose a called roll',
+      async (scope, request) => {
+        const { characterId } = await makeRoll(db, scope, request, rollDie);
+        return { logged: true, sheets: [characterId] };
+      },
+    );
 
     socket.on('disconnect', () => {
       vacate(socket);
@@ -417,6 +540,14 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
 
     journalChanged(campaignId) {
       sendJournalChanged(campaignId);
+    },
+
+    sheetChanged(campaignId, characterId) {
+      sendSheetChanged(campaignId, characterId);
+    },
+
+    logChanged(campaignId) {
+      sendLogChanged(campaignId);
     },
   };
 }

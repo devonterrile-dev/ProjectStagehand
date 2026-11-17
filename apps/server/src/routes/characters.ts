@@ -13,16 +13,19 @@ import {
 import { campaignOf, memberOnly, uuidParam } from '../campaigns/guard';
 import { assertGm, assertWritable } from '../campaigns/scope';
 import type { Database } from '../db/client';
+import type { PlayLive } from '../play/socket';
 import { sendValidationError } from '../http/errors';
 
 /**
  * PCs and their sheets (F1.2, F1.4). The GM lists, creates, reads, edits and deletes them.
  * A player can read only their own PC's sheet, through the player allow-list (D-23).
+ * An edit during a session reaches the table (F3.6): the GM's desk shows the party's Hope, and
+ * the PC's player reads their sheet page again.
  * Every route here is campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerCharacterRoutes(
   app: FastifyInstance,
-  deps: { auth: Auth; db: Database },
+  deps: { auth: Auth; db: Database; live: PlayLive },
 ): void {
   const preHandler = memberOnly(deps.auth, deps.db);
   const characterId = (request: FastifyRequest) =>
@@ -72,8 +75,11 @@ export function registerCharacterRoutes(
       assertGm(scope);
       assertWritable(scope);
 
-      const result = await updateCharacterSheet(deps.db, scope, characterId(request), request.body);
+      const id = characterId(request);
+      const result = await updateCharacterSheet(deps.db, scope, id, request.body);
       if ('error' in result) return sendValidationError(reply, result.error);
+      deps.live.stageChanged(scope);
+      deps.live.sheetChanged(scope.campaignId, id);
       return result.sheet;
     },
   );

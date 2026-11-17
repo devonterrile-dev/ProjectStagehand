@@ -53,6 +53,18 @@ export function gmObject(
   };
 }
 
+/** A session with no rolls yet and Fear where it starts (F3.6). */
+export const ROLL_STAGE: Pick<
+  PlayerStage,
+  'fear' | 'fearCap' | 'lastFearSpend' | 'calls' | 'lastRoll'
+> = {
+  fear: 3,
+  fearCap: 12,
+  lastFearSpend: null,
+  calls: [],
+  lastRoll: null,
+};
+
 export function playerStage(overrides: Partial<PlayerStage> = {}): PlayerStage {
   return {
     role: 'player',
@@ -60,6 +72,7 @@ export function playerStage(overrides: Partial<PlayerStage> = {}): PlayerStage {
     sceneLoad: 1,
     curtainOpen: true,
     backdrop: stageImage(0),
+    ...ROLL_STAGE,
     objects: [playerObject(1)],
     ...overrides,
   };
@@ -72,7 +85,9 @@ export function gmStage(overrides: Partial<GmStage> = {}): GmStage {
     sceneLoad: 1,
     curtainOpen: true,
     backdrop: stageImage(0),
+    ...ROLL_STAGE,
     scene: { id: id(400), name: 'Ambush at the market' },
+    party: [],
     objects: [
       gmObject(1, 'Stone Well'),
       gmObject(2, 'Secret Trapdoor', { shown: false }),

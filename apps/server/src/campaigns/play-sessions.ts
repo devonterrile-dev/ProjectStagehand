@@ -1,7 +1,7 @@
 /**
  * Live sessions (F3.3, F3.4, governance §13, D-50, D-52). Part of the campaign data-access
- * layer: every query is scoped to `scope.campaignId`. The only code that queries
- * `play_sessions`, `play_session_objects` and `session_events`.
+ * layer: every query is scoped to `scope.campaignId`. With `rolls.ts` (F3.6), the only code that
+ * queries `play_sessions`, `play_session_objects`, `play_roll_calls` and `session_events`.
  *
  * A campaign has at most one running session. Its stage is a copy of the scene that was loaded
  * (`loadSceneLive`), changed from then on by the control desk (`addLiveObject` and the rest),
@@ -35,6 +35,7 @@ import type { Database } from '../db/client';
 import {
   campaigns,
   characters,
+  playRollCalls,
   playSessionObjects,
   playSessions,
   records,
@@ -47,20 +48,22 @@ import type { DbOrTx } from './members';
 import { sceneForStage } from './scenes';
 import type { CampaignScope } from './scope';
 import { isRevealedRecordImage } from './journal';
+import { rollStageOf } from './rolls';
+import {
+  lockRunning,
+  logEvent,
+  NO_SESSION,
+  running,
+  type SessionRow,
+  type Tx,
+} from './session-core';
 import { stageImagesOf } from './visuals';
 
-type SessionRow = typeof playSessions.$inferSelect;
+export { NO_SESSION } from './session-core';
+
 type ObjectRow = typeof playSessionObjects.$inferSelect;
-/** A transaction: everything that changes a stage runs in one, holding the session row. */
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-export const NO_SESSION = 'No session is running';
 const NOT_ON_STAGE = 'That is no longer on the stage';
-
-/** `campaign_id = scope.campaignId and ended_at is null`: the campaign's running session. */
-function running(scope: CampaignScope) {
-  return and(eq(playSessions.campaignId, scope.campaignId), isNull(playSessions.endedAt));
-}
 
 function toPlaySession(row: SessionRow): PlaySession {
   return playSessionSchema.parse({
@@ -68,13 +71,6 @@ function toPlaySession(row: SessionRow): PlaySession {
     number: row.number,
     startedAt: row.startedAt.toISOString(),
   });
-}
-
-/** The running session, held until the transaction ends, so changes to one stage go in turn. */
-async function lockRunning(tx: Tx, scope: CampaignScope): Promise<SessionRow> {
-  const [session] = await tx.select().from(playSessions).where(running(scope)).for('update');
-  if (session === undefined) throw httpError(409, NO_SESSION);
-  return session;
 }
 
 /** One object of the running session's stage. 404 when it isn't there. */
@@ -180,7 +176,7 @@ export async function startSession(
   });
 }
 
-/** Ends the running session and clears its stage; its log stays. 404 when none is running. */
+/** Ends the running session and clears its stage and calls; its log stays. 404 when none is running. */
 export async function endSession(db: Database, scope: CampaignScope): Promise<void> {
   await db.transaction(async (tx) => {
     const [ended] = await tx
@@ -190,6 +186,8 @@ export async function endSession(db: Database, scope: CampaignScope): Promise<vo
       .returning({ id: playSessions.id });
     if (ended === undefined) throw httpError(404, NO_SESSION);
     await tx.delete(playSessionObjects).where(eq(playSessionObjects.playSessionId, ended.id));
+    // Rolls nobody made go with the stage (F3.6); the rolls made stay in the log.
+    await tx.delete(playRollCalls).where(eq(playRollCalls.playSessionId, ended.id));
   });
 }
 
@@ -239,10 +237,7 @@ export async function loadSceneLive(
         sceneLoads: sql`${playSessions.sceneLoads} + 1`,
       })
       .where(eq(playSessions.id, session.id));
-    await tx.insert(sessionEvents).values({
-      playSessionId: session.id,
-      campaignId: scope.campaignId,
-      kind: 'scene_load',
+    await logEvent(tx, scope, session, 'scene_load', {
       actorUserId: scope.userId,
       data: { sceneId, name: scene.name },
     });
@@ -480,10 +475,7 @@ export async function setRecordRevealed(
       .from(playSessions)
       .where(running(scope));
     if (session === undefined) return;
-    await tx.insert(sessionEvents).values({
-      playSessionId: session.id,
-      campaignId: scope.campaignId,
-      kind: revealed ? 'reveal' : 'unreveal',
+    await logEvent(tx, scope, session, revealed ? 'reveal' : 'unreveal', {
       actorUserId: scope.userId,
       recordId,
     });
@@ -611,10 +603,13 @@ export async function stagesOf(
     curtainOpen: session.curtainOpen,
     backdrop: imageOf(spot?.visualAssetId ?? null),
   };
+  // Fear, the calls waiting and the last roll (F3.6): each role's own copy.
+  const rolls = await rollStageOf(db, scope, session);
 
   const gm = gmStageSchema.parse({
     role: 'gm',
     ...shared,
+    ...rolls.gm,
     scene:
       session.sceneId === null || sceneName === null
         ? null
@@ -638,6 +633,7 @@ export async function stagesOf(
   const player = playerStageSchema.parse({
     role: 'player',
     ...shared,
+    ...rolls.player,
     objects: placed.flatMap(({ object, subject, visualAssetId }) => {
       const image = imageOf(visualAssetId);
       if (!object.shown || image === null) return [];

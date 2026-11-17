@@ -228,6 +228,7 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
   { method: 'GET', path: '/api/campaigns/:campaignId/play-session', gmOnly: false },
   { method: 'POST', path: '/api/campaigns/:campaignId/play-session', gmOnly: true },
   { method: 'POST', path: '/api/campaigns/:campaignId/play-session/end', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/play-session/log', gmOnly: true },
   // The player journal (F3.5): every member; who may change what is in `journal.int.test.ts`.
   { method: 'GET', path: '/api/campaigns/:campaignId/journal/records', gmOnly: false },
   { method: 'GET', path: '/api/campaigns/:campaignId/journal/records/:recordId', gmOnly: false },

@@ -17,6 +17,7 @@ import { createAuth } from '../src/auth/auth';
 import { createDb, type DbHandle } from '../src/db/client';
 import type { AnthropicProvider } from '../src/providers/anthropic';
 import type { OpenRouterProvider } from '../src/providers/openrouter';
+import type { RollDie } from '../src/campaigns/rolls';
 import type { CredentialDeps } from '../src/routes/provider-credentials';
 import { processStoredVisual, processVisualJob, type ImageProcessor } from '../src/visuals/job';
 import { createInlineQueue, type VisualQueue } from '../src/visuals/queue';
@@ -60,6 +61,8 @@ export async function buildTestApp(
     activity?: boolean;
     /** Turn on Better Auth's rate limit, which is otherwise for production only. */
     rateLimit?: boolean;
+    /** The live room's dice (F3.6); secure random ones unless a test fixes them. */
+    rollDie?: RollDie;
   } = {},
 ): Promise<{
   app: FastifyInstance;
@@ -139,6 +142,7 @@ export async function buildTestApp(
     importPrompt: loadImportSystemPrompt(),
     visuals: { queue, storage, bible: STYLE_BIBLE },
     activity: options.activity === true ? { clientId: DISCORD_CLIENT_ID } : undefined,
+    rollDie: options.rollDie,
     activityTest:
       options.activityTest === true
         ? { discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' } }

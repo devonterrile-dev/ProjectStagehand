@@ -370,6 +370,12 @@ describe('Live sessions API', () => {
         curtainOpen: false,
         backdrop: null,
         objects: [],
+        // Fear where it starts, and no rolls yet (F3.6).
+        fear: 3,
+        fearCap: 12,
+        lastFearSpend: null,
+        calls: [],
+        lastRoll: null,
       });
     });
 

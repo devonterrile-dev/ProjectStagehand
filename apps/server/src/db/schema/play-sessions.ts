@@ -15,6 +15,7 @@
  * Its events stay: they are the record of the night (§8 `session_events`).
  * Only `src/campaigns/play-sessions.ts` queries these tables.
  */
+import { SESSION_LOG_KINDS } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -26,6 +27,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  text,
   timestamp,
   uniqueIndex,
   uuid,
@@ -143,8 +145,11 @@ export const playSessionObjects = pgTable(
   ],
 );
 
-/** What a session's log holds so far (F3.4). Rolls and Hope and Fear arrive with F3.6. */
-export const SESSION_EVENT_KINDS = ['scene_load', 'reveal', 'unreveal'] as const;
+/**
+ * What a session's log holds: scene loads and reveals (F3.4), rolls, a hidden roll's result
+ * shown, Fear spent, and the GM's corrections to Fear and Hope (F3.6).
+ */
+export const SESSION_EVENT_KINDS = SESSION_LOG_KINDS;
 export const sessionEventKind = pgEnum('session_event_kind', SESSION_EVENT_KINDS);
 
 /**
@@ -172,9 +177,57 @@ export const sessionEvents = pgTable(
   },
   (table) => [
     index('session_events_session_at_idx').on(table.playSessionId, table.at),
+    /** The stage's last roll and last Fear spend (F3.6). */
+    index('session_events_session_kind_at_idx').on(table.playSessionId, table.kind, table.at),
     index('session_events_campaign_id_idx').on(table.campaignId),
     /** The set-nulls when a user or a record is deleted. */
     index('session_events_actor_user_id_idx').on(table.actorUserId),
     index('session_events_record_id_idx').on(table.recordId),
+  ],
+);
+
+/**
+ * Rolls the GM has called and their players haven't made yet (F3.6, governance §9). One per PC
+ * at a time: a new call replaces the one waiting. A call goes when it is rolled or taken back,
+ * and with its session's stage when the session ends; the roll itself is a `session_events` row.
+ */
+export const playRollCalls = pgTable(
+  'play_roll_calls',
+  {
+    id: uuid('id')
+      .default(sql`pg_catalog.gen_random_uuid()`)
+      .primaryKey(),
+    playSessionId: uuid('play_session_id')
+      .notNull()
+      .references(() => playSessions.id, { onDelete: 'cascade' }),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Deleting the PC takes its call along. */
+    characterId: uuid('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** A trait id of the campaign's ruleset. */
+    trait: text('trait').notNull(),
+    difficulty: integer('difficulty').notNull(),
+    /** Players see neither the difficulty nor the result until the GM reveals it. */
+    difficultyHidden: boolean('difficulty_hidden').notNull(),
+    label: text('label'),
+    calledBy: uuid('called_by').references(() => users.id, { onDelete: 'set null' }),
+    calledAt: timestamp('called_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('play_roll_calls_session_character_unique').on(
+      table.playSessionId,
+      table.characterId,
+    ),
+    index('play_roll_calls_campaign_id_idx').on(table.campaignId),
+    index('play_roll_calls_character_id_idx').on(table.characterId),
+    index('play_roll_calls_called_by_idx').on(table.calledBy),
+    check('play_roll_calls_difficulty', sql`${table.difficulty} between 1 and 99`),
+    check(
+      'play_roll_calls_label_length',
+      sql`${table.label} is null or char_length(${table.label}) between 1 and 80`,
+    ),
   ],
 );

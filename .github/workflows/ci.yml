@@ -59,6 +59,10 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Rules engine coverage
+        # §9: the rules engine is held at 100% coverage.
+        run: pnpm test:rules
+
       - name: Migrations are consistent
         run: pnpm db:check
 

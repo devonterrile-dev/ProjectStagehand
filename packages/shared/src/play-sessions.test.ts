@@ -29,7 +29,19 @@ const placed = {
   flipped: false,
   mount: 'stand',
 };
-const stage = { session, sceneLoad: 1, curtainOpen: true, backdrop: image };
+const stage = {
+  session,
+  sceneLoad: 1,
+  curtainOpen: true,
+  backdrop: image,
+  fear: 3,
+  fearCap: 12,
+  lastFearSpend: null,
+  calls: [],
+  lastRoll: null,
+  // The GM's alone; a player's copy drops it.
+  party: [],
+};
 
 describe('the players’ stage', () => {
   it('keeps an image, a place and the record to inspect for each object, and drops the rest', () => {
@@ -53,8 +65,10 @@ describe('the players’ stage', () => {
     expect(parsed).toEqual({
       role: 'player',
       ...stage,
+      party: undefined,
       objects: [{ ...placed, image, recordId: id(4) }],
     });
+    expect(parsed).not.toHaveProperty('party');
     expect(JSON.stringify(parsed)).not.toContain('cursed');
     expect(JSON.stringify(parsed)).not.toContain('ambush');
   });
