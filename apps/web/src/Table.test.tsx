@@ -1,4 +1,11 @@
-import { PLAY_SOCKET, type Campaign, type LiveStage, type RichText } from '@stagehand/shared';
+import {
+  PLAY_SOCKET,
+  type Campaign,
+  type LiveStage,
+  type RichText,
+  type RollCall,
+  type RollResult,
+} from '@stagehand/shared';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +16,7 @@ import type { NoteSeed } from '@/test/journal-world';
 import { gmStage, playerObject, playerStage, present } from '@/test/play-fixtures';
 
 // jsdom has no WebGL, so the 3D theater is replaced by a stand-in. It shows where the camera
-// rests and draws the table's HTML pieces as they would be laid on the table (F3.5b).
+// rests and draws the table's HTML pieces as they would be laid on the table (F3.5b, F3.6).
 let canvasProps: PlayCanvasProps | null = null;
 vi.mock('@/stage/PlayCanvas', () => ({
   PlayCanvas: (props: PlayCanvasProps) => {
@@ -26,6 +33,7 @@ vi.mock('@/stage/PlayCanvas', () => ({
         {table?.inspectNote}
         {table?.binderPage}
         {table?.binderNote}
+        {table?.sheet?.page}
       </div>
     );
   },
@@ -294,5 +302,165 @@ describe('The binder at the table (F3.5b)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Player entries/ }));
     expect(await screen.findByText('No player entries yet.')).toBeDefined();
     expect(screen.queryByRole('button', { name: '+ New entry' })).toBeNull();
+  });
+});
+
+describe('The sheet page and rolls at the table (F3.6)', () => {
+  const VEX = uuid();
+  const BRAM = uuid();
+
+  /** A campaign where Mira plays Vex, with Agility +2 and 2 Hope. */
+  function party(withPc = true) {
+    const coast = campaign({ name: 'Painted Coast', role: 'player' });
+    const vex = {
+      id: VEX,
+      name: 'Vex',
+      hope: 2,
+      traits: { agility: 2, strength: 0, finesse: 0, instinct: 0, presence: 0, knowledge: 0 },
+      assignedToUserId: MIRA.id,
+    };
+    const fetchMock = mockApi(MIRA, [coast], {
+      campaignData: { [coast.id]: { characters: withPc ? [vex] : [] } },
+    });
+    return { coast, fetchMock };
+  }
+
+  function called(overrides: Partial<RollCall> = {}): RollCall {
+    return {
+      id: uuid(),
+      characterId: VEX,
+      characterName: 'Vex',
+      trait: 'agility',
+      difficulty: 12,
+      hidden: false,
+      label: 'Climb the wall',
+      ...overrides,
+    };
+  }
+
+  it('looks down at the sheet from the Sheet button, with Hope as pips, and back', async () => {
+    const { coast } = party();
+    await seated(coast, playerStage());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    expect(view()).toBe('sheet');
+    const sheet = within(await screen.findByRole('region', { name: 'Your sheet' }));
+    expect(await sheet.findByLabelText('Hope: 2 of 6')).toBeDefined();
+    expect(sheet.queryByRole('group', { name: 'Called roll' })).toBeNull();
+
+    fireEvent.click(sheet.getByRole('button', { name: 'Put the sheet down' }));
+    expect(view()).toBe('stage');
+  });
+
+  it('gives a player without a PC no sheet', async () => {
+    const { coast } = party(false);
+    await seated(coast, playerStage());
+    expect(await screen.findByRole('button', { name: 'Journal' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Sheet' })).toBeNull();
+    expect(props().table?.sheet).toBeNull();
+  });
+
+  it('tells the player when the GM calls a roll, and rolls it from the sheet with Hope spent', async () => {
+    const { coast } = party();
+    const call = called();
+    await seated(coast, playerStage({ calls: [call] }));
+
+    expect(
+      await screen.findByText('The GM calls for a roll: Agility, Climb the wall'),
+    ).toBeDefined();
+    await waitFor(() => {
+      expect(props().table?.sheet?.waiting).toBe(true);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Go to sheet' }));
+    expect(view()).toBe('sheet');
+    expect(screen.queryByText('The GM calls for a roll: Agility, Climb the wall')).toBeNull();
+
+    const panel = within(await screen.findByRole('group', { name: 'Called roll' }));
+    expect(panel.getByText('Agility +2 · Climb the wall')).toBeDefined();
+    expect(panel.getByText('Difficulty 12')).toBeDefined();
+    fireEvent.click(await panel.findByRole('checkbox', { name: /Spend 1 Hope for \+3/ }));
+    fireEvent.click(panel.getByRole('button', { name: 'Roll' }));
+    expect(socket.last(PLAY_SOCKET.makeRoll).payload).toEqual({ callId: call.id, spendHope: true });
+
+    await answer(PLAY_SOCKET.makeRoll, { ok: true });
+    // Back to the theater, to watch the dice land.
+    await waitFor(() => {
+      expect(view()).toBe('stage');
+    });
+  });
+
+  it('says why a roll was refused, and keeps the sheet open', async () => {
+    const { coast } = party();
+    await seated(coast, playerStage({ calls: [called({ difficulty: null, hidden: true })] }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to sheet' }));
+    const panel = within(await screen.findByRole('group', { name: 'Called roll' }));
+    expect(panel.getByText('Difficulty hidden')).toBeDefined();
+
+    fireEvent.click(panel.getByRole('button', { name: 'Roll' }));
+    await answer(PLAY_SOCKET.makeRoll, { ok: false, message: 'That roll is no longer called' });
+    expect((await panel.findByRole('alert')).textContent).toBe('That roll is no longer called');
+    expect(view()).toBe('sheet');
+  });
+
+  it('says who else is rolling, and reads the sheet again when it changes', async () => {
+    const { coast, fetchMock } = party();
+    await seated(
+      coast,
+      playerStage({
+        calls: [called({ characterId: BRAM, characterName: 'Bram', trait: 'instinct' })],
+      }),
+    );
+    expect(await screen.findByText(/Bram is rolling Instinct/)).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Go to sheet' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sheet' }));
+    await screen.findByLabelText('Hope: 2 of 6');
+    const sheetPath = `/characters/${VEX}`;
+    const before = gets(fetchMock, sheetPath);
+    serverSends(PLAY_SOCKET.sheetChanged, { characterId: BRAM });
+    serverSends(PLAY_SOCKET.sheetChanged, { characterId: VEX });
+    await waitFor(() => {
+      expect(gets(fetchMock, sheetPath)).toBe(before + 1);
+    });
+  });
+
+  it('puts the dice and the Fear on the table, and tells the roll once the dice land', async () => {
+    const { coast } = party();
+    await seated(coast, playerStage({ fear: 4 }));
+    expect(props().table?.dice).toBeNull();
+    expect(props().table?.fear).toMatchObject({ count: 4, spendId: null });
+
+    const roll: RollResult = {
+      id: uuid(),
+      characterId: VEX,
+      characterName: 'Vex',
+      trait: 'agility',
+      label: 'Climb the wall',
+      dice: { hope: 9, fear: 4 },
+      modifier: 2,
+      hopeBonus: 3,
+      total: 18,
+      critical: false,
+      gained: 'hope',
+      difficulty: null,
+      success: null,
+      hidden: true,
+      revealed: false,
+      at: '2026-11-17T20:00:00.000Z',
+    };
+    serverSends(PLAY_SOCKET.stage, playerStage({ fear: 4, lastRoll: roll }));
+    await waitFor(() => {
+      expect(props().table?.dice).toEqual({ id: roll.id, hope: 9, fear: 4 });
+    });
+    const told = await screen.findByRole('status', { name: 'Roll result' }, { timeout: 3000 });
+    expect(told.textContent).toContain('Vex rolled Agility (Climb the wall)');
+    expect(told.textContent).toContain('9 + 4 + 2 + 3 = 18: result hidden with Hope');
+
+    const spend = { id: uuid(), amount: 2, reason: 'The bridge gives way' };
+    serverSends(PLAY_SOCKET.stage, playerStage({ fear: 2, lastRoll: roll, lastFearSpend: spend }));
+    await waitFor(() => {
+      expect(props().table?.fear).toMatchObject({ count: 2, spendId: spend.id });
+    });
+    expect(await screen.findByText('The GM spends 2 Fear: The bridge gives way')).toBeDefined();
   });
 });

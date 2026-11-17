@@ -3,8 +3,8 @@
  * Three.js: `StageCamera` applies them.
  *
  * A player never steers the camera. It rests on one of a few fixed views and moves smoothly
- * between them: the Stage view (F3.1), and the Inspect, Note and Binder views at the table (F3.5b).
- * The Sheet view arrives with F3.6.
+ * between them: the Stage view (F3.1), the Inspect, Note and Binder views at the table (F3.5b),
+ * and the Sheet view (F3.6).
  */
 import { FRAME, OPENING, type Point3 } from './dimensions';
 import {
@@ -14,6 +14,7 @@ import {
   INSPECT_PAD,
   INSPECT_STAGE,
   INSPECT_TITLE,
+  SHEET,
 } from './table-layout';
 
 /** Vertical field of view, in degrees. Narrow, so the theater's perspective stays gentle. */
@@ -46,9 +47,10 @@ export interface CameraPose {
 
 /**
  * The views a player's camera can rest on: the theater; the inspect stage; the sticky pad in
- * front of it, looked down at; and the binder with its pad, looked down at (F3.5b).
+ * front of it, looked down at; the binder with its pad, looked down at (F3.5b); and the
+ * player's sheet page in front of them (F3.6).
  */
-export const STAGE_VIEWS = ['stage', 'inspect', 'note', 'binder'] as const;
+export const STAGE_VIEWS = ['stage', 'inspect', 'note', 'binder', 'sheet'] as const;
 export type StageView = (typeof STAGE_VIEWS)[number];
 
 /**
@@ -143,11 +145,20 @@ export const BINDER_FRAMING: Framing = {
   height: BINDER.page.depth,
 };
 
+/** The player's sheet page, looked down at from their seat. */
+export const SHEET_FRAMING: Framing = {
+  target: SHEET.center,
+  from: [0, 2.4, 0.9],
+  width: SHEET.width,
+  height: SHEET.depth,
+};
+
 const VIEW_POSES: Record<StageView, (aspect: number) => CameraPose> = {
   stage: fitStageCamera,
   inspect: (aspect) => fitFraming(INSPECT_FRAMING, aspect),
   note: (aspect) => fitFraming(NOTE_FRAMING, aspect),
   binder: (aspect) => fitFraming(BINDER_FRAMING, aspect),
+  sheet: (aspect) => fitFraming(SHEET_FRAMING, aspect),
 };
 
 /** Where the camera rests for a view, in a window of this shape. */

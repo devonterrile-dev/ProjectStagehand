@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BINDER_FRAMING,
+  SHEET_FRAMING,
   fitFraming,
   fitStageCamera,
   INSPECT_FRAMING,
@@ -108,6 +109,7 @@ describe('the table views (F3.5b)', () => {
     ['inspect', INSPECT_FRAMING],
     ['note', NOTE_FRAMING],
     ['binder', BINDER_FRAMING],
+    ['sheet', SHEET_FRAMING],
   ] as const;
 
   it.each(framings)('fits the whole %s framing in every window shape', (view, framing) => {
@@ -135,7 +137,7 @@ describe('the table views (F3.5b)', () => {
     const inspect = viewPose('inspect', 16 / 9);
     expect(inspect.position[2]).toBeGreaterThan(inspect.target[2]);
     expect(inspect.position[0]).toBeCloseTo(inspect.target[0], 6);
-    for (const view of ['note', 'binder'] as const) {
+    for (const view of ['note', 'binder', 'sheet'] as const) {
       const pose = viewPose(view, 16 / 9);
       const drop = pose.position[1] - pose.target[1];
       const across = pose.position[2] - pose.target[2];

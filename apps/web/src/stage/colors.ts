@@ -27,6 +27,16 @@ export const STAGE_COLORS = {
   /** The binder's cover and its metal rings (F3.5b). */
   binder: '#2f4a6d',
   ring: '#b8b8b8',
+  /** The dice (F3.6): the Hope die warm gold, the Fear die deep purple, and their numbers. */
+  hopeDie: '#e2b33c',
+  hopeDieInk: '#3b2a08',
+  fearDie: '#5b3a8c',
+  fearDieInk: '#f4efe2',
+  /** The Fear bowl and its beads (F3.6). */
+  bowl: '#7a5a3e',
+  fearBead: '#7d4fc2',
+  /** The sheet page's edge while a called roll waits (F3.6). */
+  callGlow: '#ffb84a',
   /** The void: black, so nothing below the scene is seen. */
   void: '#000000',
 } as const;

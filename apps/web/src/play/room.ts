@@ -12,8 +12,10 @@ import {
   liveStageSchema,
   PLAY_SOCKET,
   presenceSchema,
+  sheetChangedSchema,
   type ActionResult,
   type AddObjectRequest,
+  type RollCallRequest,
   type LiveStage,
   type ObjectChanges,
   type Presence,
@@ -73,6 +75,16 @@ export interface RoomState {
    * journal again when it does.
    */
   journal: number;
+  /**
+   * Goes up each time a PC's sheet may have changed (F3.6): the server said so
+   * (`sheet:changed`, with the PC in `sheetChanged`), or the browser (re)joined. The page reads
+   * its own sheet again when it does.
+   */
+  sheet: number;
+  /** The PC the server last said changed; null after a (re)join, which may have missed any. */
+  sheetChanged: string | null;
+  /** Goes up each time the session's log grew (F3.6, the GM only). The desk reads it again. */
+  log: number;
 }
 
 export interface PlayRoom {
@@ -97,6 +109,14 @@ export interface PlayRoom {
   removeObject(id: string): Promise<ActionResult>;
   /** Shows or hides a prop, or raises or lowers a puppet. */
   setShown(object: { id: string; kind: SceneObjectKind }, shown: boolean): Promise<ActionResult>;
+  /** Rolls, Hope and Fear (F3.6). GM only, except `makeRoll`, for a player's own PC. */
+  callRolls(request: RollCallRequest): Promise<ActionResult>;
+  cancelRoll(callId: string): Promise<ActionResult>;
+  revealRoll(rollId: string): Promise<ActionResult>;
+  makeRoll(callId: string, spendHope: boolean): Promise<ActionResult>;
+  spendFear(amount: number, reason?: string): Promise<ActionResult>;
+  setFear(fear: number): Promise<ActionResult>;
+  setHope(characterId: string, hope: number): Promise<ActionResult>;
 }
 
 export interface RoomDeps {
@@ -125,6 +145,9 @@ const INITIAL: RoomState = {
   presence: [],
   pending: {},
   journal: 0,
+  sheet: 0,
+  sheetChanged: null,
+  log: 0,
 };
 
 /** Whether the stage already shows every change in `changes`, or no longer has the object. */
@@ -306,10 +329,14 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
         }
         const result = parsed.data;
         if (result.status === 'joined') {
+          const before = store.getState();
           store.setState({
             phase: 'joined',
             presence: result.presence,
-            journal: store.getState().journal + 1,
+            journal: before.journal + 1,
+            sheet: before.sheet + 1,
+            sheetChanged: null,
+            log: before.log + 1,
           });
           receive(result.stage);
           return;
@@ -382,6 +409,20 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     store.setState({ journal: store.getState().journal + 1 });
   });
 
+  socket.on(PLAY_SOCKET.sheetChanged, (payload) => {
+    const parsed = sheetChangedSchema.safeParse(payload);
+    if (!isOpen || !parsed.success || store.getState().phase !== 'joined') return;
+    store.setState({
+      sheet: store.getState().sheet + 1,
+      sheetChanged: parsed.data.characterId,
+    });
+  });
+
+  socket.on(PLAY_SOCKET.logChanged, () => {
+    if (!isOpen || store.getState().phase !== 'joined') return;
+    store.setState({ log: store.getState().log + 1 });
+  });
+
   socket.on(PLAY_SOCKET.started, () => {
     if (isOpen) join();
   });
@@ -427,5 +468,13 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     moveObject,
     removeObject: (id) => act(PLAY_SOCKET.removeObject, { id }),
     setShown: ({ id, kind }, shown) => act(SHOWN_EVENTS[kind][shown ? 'on' : 'off'], { id }),
+    callRolls: (request) => act(PLAY_SOCKET.callRoll, request),
+    cancelRoll: (callId) => act(PLAY_SOCKET.cancelRoll, { callId }),
+    revealRoll: (rollId) => act(PLAY_SOCKET.revealRoll, { rollId }),
+    makeRoll: (callId, spendHope) => act(PLAY_SOCKET.makeRoll, { callId, spendHope }),
+    spendFear: (amount, reason) =>
+      act(PLAY_SOCKET.spendFear, reason === undefined ? { amount } : { amount, reason }),
+    setFear: (fear) => act(PLAY_SOCKET.setFear, { fear }),
+    setHope: (characterId, hope) => act(PLAY_SOCKET.setHope, { characterId, hope }),
   };
 }

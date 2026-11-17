@@ -87,6 +87,7 @@ import {
   fetchNotes,
   fetchOwnCharacterSheet,
   fetchPlaySession,
+  fetchSessionLog,
   fetchProviderCredentials,
   fetchRecord,
   fetchRecords,
@@ -228,6 +229,7 @@ type CampaignPart =
   | 'scenes'
   | 'stage-records'
   | 'play-session'
+  | 'play-session-log'
   | 'journal';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
@@ -472,6 +474,10 @@ type SheetView = 'gm' | 'player';
 /** Like `recordKey`: singular, so refetching the PC lists never refetches the open sheet. */
 const characterKey = (campaignId: string, characterId: string, view: SheetView) =>
   [...CAMPAIGNS_KEY, campaignId, 'character', characterId, view] as const;
+
+/** Every view of a PC's sheet: read again when the live room says it changed (F3.6). */
+export const characterSheetKey = (campaignId: string, characterId: string) =>
+  [...CAMPAIGNS_KEY, campaignId, 'character', characterId] as const;
 
 /** A PC's full sheet (`null` when not found). GM only: pass `enabled: false` for players. */
 export function useCharacterSheet(campaignId: string, characterId: string, enabled: boolean) {
@@ -998,6 +1004,17 @@ export function useStartPlaySession(campaignId: string) {
     },
   });
 }
+
+/** The running session's log for the GM's desk (F3.6). */
+export function useSessionLog(campaignId: string) {
+  return useQuery({
+    queryKey: sessionLogKey(campaignId),
+    queryFn: () => fetchSessionLog(campaignId),
+  });
+}
+
+/** The key of the session's log: read again when the live room says it grew. */
+export const sessionLogKey = (campaignId: string) => partKey(campaignId, 'play-session-log');
 
 /** Ends the running session for everyone. GM only. */
 export function useEndPlaySession(campaignId: string) {

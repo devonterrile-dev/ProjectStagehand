@@ -280,6 +280,64 @@ describe('the live room, from the browser', () => {
     });
   });
 
+  describe('rolls, Hope and Fear (F3.6)', () => {
+    it('counts sheet changes with the PC they were for, and log changes', async () => {
+      const vex = '00000000-0000-4000-8000-000000000101';
+      socket.receive(PLAY_SOCKET.sheetChanged, { characterId: vex });
+      expect(state().sheet).toBe(0);
+
+      await joined();
+      // A join may have missed a change to any sheet.
+      expect(state()).toMatchObject({ sheet: 1, sheetChanged: null, log: 1 });
+      socket.receive(PLAY_SOCKET.sheetChanged, { characterId: vex });
+      expect(state()).toMatchObject({ sheet: 2, sheetChanged: vex });
+      socket.receive(PLAY_SOCKET.sheetChanged, 'nonsense');
+      expect(state().sheet).toBe(2);
+      socket.receive(PLAY_SOCKET.logChanged);
+      expect(state().log).toBe(2);
+    });
+
+    it('sends the rolls and corrections, and a player’s roll', async () => {
+      await joined(gmStage());
+
+      const calling = room.callRolls({
+        characterIds: ['pc-1', 'pc-2'],
+        trait: 'agility',
+        difficulty: 12,
+        hidden: true,
+      });
+      expect(socket.last(PLAY_SOCKET.callRoll).payload).toEqual({
+        characterIds: ['pc-1', 'pc-2'],
+        trait: 'agility',
+        difficulty: 12,
+        hidden: true,
+      });
+      socket.last(PLAY_SOCKET.callRoll).answer({ ok: true });
+      expect(await calling).toEqual({ ok: true });
+
+      void room.cancelRoll('call-1');
+      expect(socket.last(PLAY_SOCKET.cancelRoll).payload).toEqual({ callId: 'call-1' });
+      void room.revealRoll('roll-1');
+      expect(socket.last(PLAY_SOCKET.revealRoll).payload).toEqual({ rollId: 'roll-1' });
+      void room.makeRoll('call-2', true);
+      expect(socket.last(PLAY_SOCKET.makeRoll).payload).toEqual({
+        callId: 'call-2',
+        spendHope: true,
+      });
+      void room.spendFear(2, 'The bridge gives way');
+      expect(socket.last(PLAY_SOCKET.spendFear).payload).toEqual({
+        amount: 2,
+        reason: 'The bridge gives way',
+      });
+      void room.spendFear(1);
+      expect(socket.last(PLAY_SOCKET.spendFear).payload).toEqual({ amount: 1 });
+      void room.setFear(5);
+      expect(socket.last(PLAY_SOCKET.setFear).payload).toEqual({ fear: 5 });
+      void room.setHope('pc-1', 4);
+      expect(socket.last(PLAY_SOCKET.setHope).payload).toEqual({ characterId: 'pc-1', hope: 4 });
+    });
+  });
+
   describe('losing the connection', () => {
     it('keeps the stage on screen, then takes the fresh one after rejoining', async () => {
       const before = playerStage();
@@ -491,6 +549,9 @@ describe('the live room, from the browser', () => {
         presence: [],
         pending: {},
         journal: 0,
+        sheet: 0,
+        sheetChanged: null,
+        log: 0,
       });
 
       // Nothing that arrives late changes a closed room.

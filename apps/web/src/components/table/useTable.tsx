@@ -1,4 +1,11 @@
-import type { Campaign, CreateEntryRequest } from '@stagehand/shared';
+import {
+  rulesetFor,
+  type ActionResult,
+  type Campaign,
+  type CreateEntryRequest,
+  type LiveStage,
+  type RollCall,
+} from '@stagehand/shared';
 import { useCallback, useMemo, useState } from 'react';
 
 import { stageImageUrl } from '@/lib/scenes';
@@ -9,7 +16,10 @@ import {
   useEntry,
   useJournalRecord,
   useJournalRecords,
+  useMe,
+  useMembers,
   useNotes,
+  useOwnCharacterSheet,
 } from '@/lib/queries';
 import {
   AT_STAGE,
@@ -19,6 +29,7 @@ import {
   noteSubjectOf,
   openBinder,
   openPage,
+  openSheet,
   replacePage,
   startWriting,
   turnTo,
@@ -28,10 +39,23 @@ import type { TableScene } from '@/stage/PlayCanvas';
 
 import { BinderBook } from './BinderBook';
 import { InspectCard, InspectTitle } from './InspectPapers';
+import { SheetPaper } from './SheetPaper';
 import { StickyNoteForm } from './StickyNoteForm';
 
 /** A subject no query asks for: what the hooks get while nothing is open. */
 const NOTHING = '00000000-0000-4000-8000-000000000000';
+
+/** What the table needs from the live room (F3.6): the stage, and a way to roll. */
+export interface TableLive {
+  stage: LiveStage | null;
+  makeRoll: (callId: string, spendHope: boolean) => Promise<ActionResult>;
+}
+
+/** The same value while its contents stay the same, so the scene isn't made anew each stage. */
+function useSteady<T>(value: T): T {
+  const key = JSON.stringify(value);
+  return useMemo(() => JSON.parse(key) as T, [key]);
+}
 
 export interface Table {
   state: TableState;
@@ -40,19 +64,43 @@ export interface Table {
   /** A player pressed a revealed record's cutout. */
   inspect: (recordId: string) => void;
   openBinder: () => void;
+  /** Looks down at the sheet page (F3.6); does nothing without one. */
+  openSheet: () => void;
+  /** The player's own PC, if they have one: whose sheet page is on the table (F3.6). */
+  characterId: string | null;
   /** One step back: Back, or Escape. */
   back: () => void;
 }
 
 /**
  * A browser's place at the table (F3.5b): what it looks at, the journal data that needs, and the
- * HTML pieces laid on the table for it. The HTML is made here, where the queries are, and drawn
+ * HTML pieces laid on the table for it; and (F3.6) the player's sheet page with the roll called
+ * for them, the dice of the last roll and the GM's Fear. The HTML is made here, where the queries are, and drawn
  * by the theater: drei `Html` gives its content no React context of its own.
  */
-export function useTable(campaign: Campaign): Table {
+export function useTable(campaign: Campaign, live: TableLive): Table {
   const [state, setState] = useState<TableState>(AT_STAGE);
   const isGm = campaign.role === 'gm';
   const canWrite = campaign.archivedAt === null;
+  const ruleset = rulesetFor(campaign.rulesetVersion);
+
+  // The player's own PC and its sheet (F3.6). The GM has none.
+  const me = useMe();
+  const members = useMembers(campaign.id);
+  const characterId = isGm
+    ? null
+    : (members.data?.find((member) => member.userId === me.data?.id)?.character?.id ?? null);
+  const sheet = useOwnCharacterSheet(campaign.id, characterId ?? NOTHING, characterId !== null);
+  const { stage, makeRoll } = live;
+  const call = useSteady<RollCall | null>(
+    stage?.calls.find((entry) => entry.characterId === characterId) ?? null,
+  );
+  const lastRoll = stage?.lastRoll ?? null;
+  const diceId = lastRoll?.id ?? null;
+  const hopeDie = lastRoll?.dice.hope ?? 0;
+  const fearDie = lastRoll?.dice.fear ?? 0;
+  const fear = stage?.fear ?? 0;
+  const spendId = stage?.lastFearSpend?.id ?? null;
 
   const page = openPage(state);
   const open = noteSubjectOf(state);
@@ -91,13 +139,28 @@ export function useTable(campaign: Campaign): Table {
   const lookAt = useCallback((id: string) => {
     setState(inspect(id));
   }, []);
+  const hasSheet = characterId !== null;
+  const lookDown = useCallback(() => {
+    if (hasSheet) setState(openSheet());
+  }, [hasSheet]);
+  // Rolling turns the camera back to the theater, to watch the dice land with everyone.
+  const rollCall = useCallback(
+    async (spendHope: boolean): Promise<string | null> => {
+      if (call === null) return 'The GM has taken the roll back';
+      const result = await makeRoll(call.id, spendHope);
+      if (!result.ok) return result.message;
+      setState(AT_STAGE);
+      return null;
+    },
+    [call, makeRoll],
+  );
 
   const scene = useMemo((): TableScene => {
     const imageUrl = (image: Parameters<typeof stageImageUrl>[1]) =>
       stageImageUrl(campaign.id, image);
     const name = record.data?.name ?? entry.data?.title ?? 'this';
     const note =
-      state.at !== 'stage' && state.writing ? (
+      (state.at === 'inspect' || state.at === 'binder') && state.writing ? (
         <StickyNoteForm
           key={JSON.stringify(subject)}
           about={name}
@@ -163,6 +226,24 @@ export function useTable(campaign: Campaign): Table {
       binderNote: state.at === 'binder' ? note : null,
       onOpenBinder: pickUpBinder,
       onPutDown: putDown,
+      sheet: hasSheet
+        ? {
+            page:
+              state.at === 'sheet' ? (
+                <SheetPaper
+                  sheet={sheet.data}
+                  ruleset={ruleset}
+                  call={call}
+                  onRoll={rollCall}
+                  onBack={putDown}
+                />
+              ) : null,
+            waiting: call !== null,
+          }
+        : null,
+      onOpenSheet: lookDown,
+      dice: diceId === null ? null : { id: diceId, hope: hopeDie, fear: fearDie },
+      fear: { count: fear, spendId },
     };
   }, [
     state,
@@ -181,7 +262,26 @@ export function useTable(campaign: Campaign): Table {
     goBack,
     putDown,
     pickUpBinder,
+    hasSheet,
+    sheet.data,
+    ruleset,
+    call,
+    rollCall,
+    lookDown,
+    diceId,
+    hopeDie,
+    fearDie,
+    fear,
+    spendId,
   ]);
 
-  return { state, scene, inspect: lookAt, openBinder: pickUpBinder, back: goBack };
+  return {
+    state,
+    scene,
+    inspect: lookAt,
+    openBinder: pickUpBinder,
+    openSheet: lookDown,
+    characterId,
+    back: goBack,
+  };
 }

@@ -34,6 +34,7 @@ import {
   type Member,
   type MeResponse,
   type PlaySession,
+  type SessionLogEntry,
   type Provider,
   type ProviderCredential,
   type RecordListItem,
@@ -249,6 +250,8 @@ export interface FakeWorld
   credentials?: ProviderCredential[];
   /** The live session already running in a campaign (F3.3), by campaign id. */
   playSessions?: Record<string, PlaySession>;
+  /** The running session's log for the GM's desk (F3.6), by campaign id. */
+  sessionLogs?: Record<string, SessionLogEntry[]>;
 }
 
 /** What the fake server answers when Anthropic refuses a key, as the real one words it. */
@@ -891,6 +894,10 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       // Live sessions (F3.3): any member may ask; only the GM starts and ends one.
       if (rest === '/play-session' && method === 'GET') {
         return Response.json({ session: playSessions.get(found.id) ?? null });
+      }
+      if (rest === '/play-session/log' && method === 'GET') {
+        if (found.role !== 'gm') return refused(403, 'Only the GM can do that');
+        return Response.json({ entries: world.sessionLogs?.[found.id] ?? [] });
       }
       if (rest === '/play-session' || rest === '/play-session/end') {
         if (method !== 'POST') return new Response('not mocked', { status: 500 });

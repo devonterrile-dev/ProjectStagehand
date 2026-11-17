@@ -1,5 +1,6 @@
 import {
   RECORD_TYPE_LABELS,
+  rulesetFor,
   STAGE_MAX_OBJECTS,
   type ActionResult,
   type Campaign,
@@ -9,7 +10,7 @@ import {
   type Presence,
   type StageImage,
 } from '@stagehand/shared';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -21,12 +22,15 @@ import { recordPath } from '@/lib/records';
 import { scenesPath, stageImageUrl } from '@/lib/scenes';
 import type { PlayRoom } from '@/play/room';
 
+import { Section } from './DeskSection';
 import { PresenceList } from './PresenceList';
+import { FearSection, HopeSection, LogSection, RollsSection, type RollRoom } from './RollDesk';
 
 export type DeskRoom = Pick<
   PlayRoom,
   'loadScene' | 'setCurtain' | 'addObject' | 'moveObject' | 'removeObject' | 'setShown'
->;
+> &
+  RollRoom;
 
 interface GmDeskProps {
   campaign: Campaign;
@@ -46,17 +50,6 @@ interface GmDeskProps {
   onAsPlayersChange: (asPlayers: boolean) => void;
   /** Ends the session for everyone. */
   onEnd: () => Promise<unknown>;
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section aria-label={title} className="space-y-2 border-b px-3 py-3">
-      <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
 }
 
 /** Where an object on the live stage is, in the GM's words. */
@@ -309,6 +302,8 @@ export function GmDesk({
   }
 
   const idle = connected && !busy;
+  const ruleset = rulesetFor(campaign.rulesetVersion);
+  const rolls = { stage, ruleset, room, idle, send };
   const archived = campaign.archivedAt !== null;
   const stageObject = stage.objects.find((object) => object.id === selectedId) ?? null;
   const selected = stageObject === null ? null : { ...stageObject, ...pending[stageObject.id] };
@@ -349,6 +344,10 @@ export function GmDesk({
           As players see it
         </Toggle>
       </Section>
+
+      <RollsSection {...rolls} />
+      <FearSection {...rolls} />
+      <HopeSection {...rolls} />
 
       {selected !== null && stageObject !== null && (
         <section
@@ -545,6 +544,8 @@ export function GmDesk({
       <Section title="Who is here">
         <PresenceList presence={presence} />
       </Section>
+
+      <LogSection campaignId={campaign.id} />
 
       <div className="mt-auto px-3 py-3">
         <Button

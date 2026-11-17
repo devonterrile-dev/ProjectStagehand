@@ -1,4 +1,4 @@
-import { DEPTH_TICKS, type Campaign, type ObjectChanges } from '@stagehand/shared';
+import { DEPTH_TICKS, rulesetFor, type Campaign, type ObjectChanges } from '@stagehand/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
@@ -6,9 +6,17 @@ import { useStore } from 'zustand';
 
 import { GmDesk } from '@/components/play/GmDesk';
 import { PresenceList } from '@/components/play/PresenceList';
+import { TableNotices } from '@/components/table/TableNotices';
 import { useTable } from '@/components/table/useTable';
 import { Button } from '@/components/ui/button';
-import { journalKey, useCampaign, useEndPlaySession, useStartPlaySession } from '@/lib/queries';
+import {
+  characterSheetKey,
+  journalKey,
+  sessionLogKey,
+  useCampaign,
+  useEndPlaySession,
+  useStartPlaySession,
+} from '@/lib/queries';
 import { keyAction, type KeyPlacement } from '@/lib/scenes';
 import { createPlayRoom } from '@/play/room';
 import { EMPTY_THEATER, theaterView } from '@/play/stage';
@@ -43,7 +51,8 @@ function Notice({ children }: { children: ReactNode }) {
  * out of the main bundle. Players see the theater and the table in front of it (F3.5b): a
  * revealed record's cutout is pressed to inspect it, and the binder holds the journal. The GM has
  * the control desk beside the theater, picks and drags what is on stage in it, and has the binder
- * too.
+ * too. Rolls (F3.6): a player rolls from their sheet page, looked down at with the Sheet button,
+ * a scroll down or the down arrow; everyone sees the dice land and the GM's Fear in its bowl.
  */
 export function PlayPage() {
   const { campaignId = '' } = useParams();
@@ -82,10 +91,16 @@ function Table({ campaign }: { campaign: Campaign }) {
     };
   }, [room]);
 
-  const { phase, connected, stage, view, presence, pending, journal } = useStore(room.store);
-  const table = useTable(campaign);
+  const { phase, connected, stage, view, presence, pending, journal, sheet, sheetChanged, log } =
+    useStore(room.store);
+  const makeRoll = useCallback(
+    (callId: string, spendHope: boolean) => room.makeRoll(callId, spendHope),
+    [room],
+  );
+  const table = useTable(campaign, { stage, makeRoll });
   const atStage = table.state.at === 'stage';
-  const { back: tableBack } = table;
+  const { back: tableBack, openSheet, characterId } = table;
+  const ruleset = rulesetFor(campaign.rulesetVersion);
 
   // The journal may have changed (a reveal, a note, an entry): read it again.
   const queryClient = useQueryClient();
@@ -93,6 +108,40 @@ function Table({ campaign }: { campaign: Campaign }) {
     if (journal === 0) return;
     void queryClient.invalidateQueries({ queryKey: journalKey(campaign.id) });
   }, [journal, queryClient, campaign.id]);
+
+  // The player's sheet changed (a roll, the GM's correction or edit): read it again (F3.6).
+  useEffect(() => {
+    if (sheet === 0 || characterId === null) return;
+    if (sheetChanged !== null && sheetChanged !== characterId) return;
+    void queryClient.invalidateQueries({ queryKey: characterSheetKey(campaign.id, characterId) });
+  }, [sheet, sheetChanged, characterId, queryClient, campaign.id]);
+
+  // The session's log grew: the GM's desk reads it again (F3.6).
+  useEffect(() => {
+    if (log === 0) return;
+    void queryClient.invalidateQueries({ queryKey: sessionLogKey(campaign.id) });
+  }, [log, queryClient, campaign.id]);
+
+  // A player looks down at their sheet with the down arrow, from the theater (F3.6).
+  useEffect(() => {
+    if (!atStage || characterId === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowDown' || event.defaultPrevented) return;
+      const { target } = event;
+      if (
+        target instanceof Element &&
+        target.closest('input, select, textarea, [contenteditable], [role="dialog"]') !== null
+      ) {
+        return;
+      }
+      event.preventDefault();
+      openSheet();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [atStage, characterId, openSheet]);
 
   // Escape steps back from the table toward the theater, wherever focus is.
   useEffect(() => {
@@ -272,7 +321,13 @@ function Table({ campaign }: { campaign: Campaign }) {
 
   return (
     <div className="dark flex h-full w-full bg-background text-foreground">
-      <div className="relative min-w-0 flex-1 bg-black">
+      <div
+        className="relative min-w-0 flex-1 bg-black"
+        // A scroll down on the theater looks down at the sheet page (F3.6).
+        onWheel={(event) => {
+          if (atStage && event.deltaY > 0) openSheet();
+        }}
+      >
         <PlayCanvas
           backdropUrl={theater.backdropUrl}
           objects={theater.cutouts}
@@ -281,6 +336,13 @@ function Table({ campaign }: { campaign: Campaign }) {
             ? { selectedId: picked, onSelect: setSelectedId, onMove }
             : { onInspect: table.inspect })}
           table={table.scene}
+        />
+        <TableNotices
+          stage={stage}
+          ruleset={ruleset}
+          characterId={characterId}
+          atSheet={table.state.at === 'sheet'}
+          onGoToSheet={openSheet}
         />
         {!connected && (
           <p
@@ -296,7 +358,12 @@ function Table({ campaign }: { campaign: Campaign }) {
             <div className="hidden w-50 sm:block">
               <PresenceList presence={presence} />
             </div>
-            <TableButton atStage={atStage} onOpen={table.openBinder} onBack={tableBack} />
+            <TableButton
+              atStage={atStage}
+              onOpen={table.openBinder}
+              onBack={tableBack}
+              {...(characterId === null ? {} : { onSheet: openSheet })}
+            />
             <Link to={`/campaigns/${campaign.id}`} className="block text-xs underline">
               Leave the table
             </Link>
@@ -342,20 +409,36 @@ function Table({ campaign }: { campaign: Campaign }) {
 
 /**
  * The way to the binder from the theater, and back again, without finding it on the table: in a
- * small window the table's strip is thin (F3.5b).
+ * small window the table's strip is thin (F3.5b). A player with a PC also has their sheet (F3.6).
  */
 function TableButton({
   atStage,
   onOpen,
   onBack,
+  onSheet,
 }: {
   atStage: boolean;
   onOpen: () => void;
   onBack: () => void;
+  onSheet?: () => void;
 }) {
+  if (!atStage) {
+    return (
+      <Button size="xs" variant="secondary" onClick={onBack}>
+        Back
+      </Button>
+    );
+  }
   return (
-    <Button size="xs" variant="secondary" onClick={atStage ? onOpen : onBack}>
-      {atStage ? 'Journal' : 'Back'}
-    </Button>
+    <div className="flex gap-2">
+      <Button size="xs" variant="secondary" onClick={onOpen}>
+        Journal
+      </Button>
+      {onSheet !== undefined && (
+        <Button size="xs" variant="secondary" onClick={onSheet}>
+          Sheet
+        </Button>
+      )}
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 /**
  * Where a player is at the table (F3.5b, governance §12 "Views and camera"): looking at the
- * theater, inspecting a record on the inspect stage, or reading the binder, and whether they are
- * writing a sticky note. Each browser keeps its own; nothing here is sent anywhere. Pure.
+ * theater, inspecting a record on the inspect stage, reading the binder, or looking down at their
+ * sheet page (F3.6), and whether they are writing a sticky note. Each browser keeps its own; nothing here is sent anywhere. Pure.
  */
 import type { RecordType } from '@stagehand/shared';
 
@@ -25,7 +25,9 @@ export type TableState =
   | { at: 'stage' }
   | { at: 'inspect'; recordId: string; writing: boolean }
   /** `pages` is never empty: the last one is open, and Back turns to the one before. */
-  | { at: 'binder'; pages: readonly BinderPage[]; writing: boolean };
+  | { at: 'binder'; pages: readonly BinderPage[]; writing: boolean }
+  /** Looking down at their own sheet page (F3.6). */
+  | { at: 'sheet' };
 
 export const AT_STAGE: TableState = { at: 'stage' };
 
@@ -53,6 +55,11 @@ export function openBinder(): TableState {
   return { at: 'binder', pages: [{ kind: 'key' }], writing: false };
 }
 
+/** Looks down at the sheet page. */
+export function openSheet(): TableState {
+  return { at: 'sheet' };
+}
+
 /** Turns the binder to a page; Back returns to the one open now. */
 export function turnTo(state: TableState, page: BinderPage): TableState {
   if (state.at !== 'binder') return state;
@@ -72,16 +79,17 @@ export function openPage(state: TableState): BinderPage | null {
 
 /** Picks up a sticky note, for what is open now: the inspected record or the binder's page. */
 export function startWriting(state: TableState): TableState {
-  if (noteSubjectOf(state) === null || state.at === 'stage') return state;
+  if (noteSubjectOf(state) === null || state.at === 'stage' || state.at === 'sheet') return state;
   return { ...state, writing: true };
 }
 
 /**
  * One step back (Back, or Escape): from a sticky note to what it is on, from a binder page to
- * the one before it, and from the inspect stage or the binder's key to the theater.
+ * the one before it, and from the inspect stage, the binder's key or the sheet to the theater.
  */
 export function back(state: TableState): TableState {
   if (state.at === 'stage') return state;
+  if (state.at === 'sheet') return AT_STAGE;
   if (state.writing) return { ...state, writing: false };
   if (state.at === 'binder' && state.pages.length > 1) {
     return { ...state, pages: state.pages.slice(0, -1) };
@@ -102,5 +110,6 @@ export function noteSubjectOf(state: TableState): NoteSubjectRef | null {
 export function cameraView(state: TableState): StageView {
   if (state.at === 'inspect') return state.writing ? 'note' : 'inspect';
   if (state.at === 'binder') return 'binder';
+  if (state.at === 'sheet') return 'sheet';
   return 'stage';
 }

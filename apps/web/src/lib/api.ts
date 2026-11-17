@@ -27,6 +27,7 @@ import {
   meResponseSchema,
   playerCharacterSheetSchema,
   playSessionResponseSchema,
+  sessionLogResponseSchema,
   providerCredentialSchema,
   providerCredentialsResponseSchema,
   recordListResponseSchema,
@@ -74,6 +75,7 @@ import {
   type Member,
   type PlayerCharacterSheet,
   type PlaySession,
+  type SessionLogEntry,
   type Provider,
   type ProviderCredential,
   type RecordListItem,
@@ -738,6 +740,11 @@ export async function startPlaySession(campaignId: string): Promise<PlaySession 
 /** Ends the running session for everyone. GM only. */
 export async function endPlaySession(campaignId: string): Promise<void> {
   await send(playSessionPath(campaignId, '/end'), 'POST');
+}
+
+/** The running session's log in words, newest first (F3.6). GM only; empty with none running. */
+export async function fetchSessionLog(campaignId: string): Promise<SessionLogEntry[]> {
+  return sessionLogResponseSchema.parse(await getJson(playSessionPath(campaignId, '/log'))).entries;
 }
 
 /** What the scene builder's tray offers: placeable records with an image, and every Spot. */

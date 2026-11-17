@@ -97,3 +97,35 @@ export function htmlScale(units: number): number {
  * notice, `z-20`); drei's default would cover them.
  */
 export const TABLE_HTML_Z: [number, number] = [10, 0];
+
+/**
+ * The player's sheet page (F3.6), lying on the table in front of them: out of the Stage view,
+ * looked down at in the Sheet view. Its HTML is `widthPx` × `heightPx`.
+ */
+export const SHEET = {
+  center: [0, TOP, FRONT + 2.5] as Point3,
+  width: 0.62,
+  depth: 0.8,
+  widthPx: 620,
+  heightPx: 800,
+} as const;
+
+/**
+ * Where the two dice land (F3.6), on the strip of table in front of the theater that the Stage
+ * view shows, between the middle and the Fear bowl. `size` is a die's radius; the dice are
+ * tossed from `from`, relative to where they land: from the players' side, and above.
+ */
+export const DICE = {
+  hope: [0.5, TOP, FRONT + 0.5] as Point3,
+  fear: [0.82, TOP, FRONT + 0.44] as Point3,
+  size: 0.075,
+  from: [-0.35, 0.55, 1.1] as Point3,
+} as const;
+
+/** The GM's Fear (F3.6): a bowl of beads on the strip in front of the theater. */
+export const FEAR_BOWL = {
+  center: [1.42, TOP, FRONT + 0.5] as Point3,
+  radius: 0.17,
+  height: 0.08,
+  bead: 0.032,
+} as const;

@@ -6,6 +6,7 @@ import type { StageView } from './camera';
 import type { Place } from './placement';
 import { SceneObjects } from './SceneObjects';
 import { StageCanvas } from './StageCanvas';
+import { Dice, FearBowl, SheetPage, type DiceRoll } from './RollPieces';
 import { BINDER_PAD, INSPECT_PAD } from './table-layout';
 import { Binder, InspectStage, StickyPad, type InspectImage } from './TablePieces';
 
@@ -32,6 +33,16 @@ export interface TableScene {
   onOpenBinder: () => void;
   /** A press on the table that hit nothing: put down what is being looked at. */
   onPutDown: () => void;
+  /**
+   * The player's sheet page (F3.6): its HTML while it is looked at, and whether a roll called
+   * for their PC waits. Null for the GM, and for a player without a PC.
+   */
+  sheet: { page: ReactNode | null; waiting: boolean } | null;
+  onOpenSheet: () => void;
+  /** The last roll's dice (F3.6); null before the session's first. */
+  dice: DiceRoll | null;
+  /** The GM's Fear (F3.6): the count, and the last spend. */
+  fear: { count: number; spendId: string | null };
 }
 
 export interface PlayCanvasProps {
@@ -94,7 +105,8 @@ function useLeaving(objects: readonly StageCutout[]): readonly StageCutout[] {
  * included. Cutouts glide when they move, and puppets rise out of the void and sink back into
  * it. In the GM's theater a cutout can be picked and dragged; in a player's, a revealed record's
  * cutout can be pressed to inspect it. Around it is the table (F3.5b): the inspect stage, the
- * sticky pads and the binder, and the camera turns to whichever is in use. Everything it takes
+ * sticky pads and the binder, and the camera turns to whichever is in use; and (F3.6) the
+ * player's sheet page, the dice and the GM's Fear bowl. Everything it takes
  * is plain data or finished HTML, so the page around it never touches Three.js, and tests can
  * put a stand-in in its place. Memoized: the desk beside it re-rendering must not re-render the
  * scene.
@@ -173,6 +185,15 @@ export const PlayCanvas = memo(function PlayCanvas({
             onOpen={table.onOpenBinder}
           />
           <StickyPad pad={BINDER_PAD} note={settled ? table.binderNote : null} />
+          {table.sheet !== null && (
+            <SheetPage
+              page={settled ? table.sheet.page : null}
+              waiting={table.sheet.waiting}
+              onOpen={table.onOpenSheet}
+            />
+          )}
+          <Dice roll={table.dice} />
+          <FearBowl fear={table.fear.count} spendId={table.fear.spendId} />
         </Suspense>
       )}
     </StageCanvas>

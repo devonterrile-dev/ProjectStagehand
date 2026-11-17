@@ -625,6 +625,151 @@ describe('The table, for the GM', () => {
     expect(screen.getByText('No session is running.')).toBeDefined();
     expect(screen.getByRole('button', { name: 'Start session' })).toBeDefined();
   });
+
+  describe('rolls, Hope and Fear (F3.6)', () => {
+    const vex = uuid();
+    const bram = uuid();
+    const party = [
+      { characterId: bram, name: 'Bram', playerName: 'Sam', hope: 0 },
+      { characterId: vex, name: 'Vex', playerName: 'Rowan', hope: 2 },
+    ];
+    const rolls = () => within(desk().getByRole('region', { name: 'Rolls' }));
+
+    it('calls a roll for every PC at once, with a hidden difficulty and a label', async () => {
+      await seated(coast, stageWith({ party }), [GM_HERE]);
+      const form = within(rolls().getByRole('form', { name: 'Call a roll' }));
+      expect(form.getByRole('button', { name: 'Call roll' })).toHaveProperty('disabled', true);
+
+      fireEvent.click(form.getByRole('checkbox', { name: 'All' }));
+      fireEvent.change(form.getByRole('combobox', { name: 'Trait' }), {
+        target: { value: 'instinct' },
+      });
+      fireEvent.change(form.getByRole('spinbutton', { name: 'Difficulty' }), {
+        target: { value: '14' },
+      });
+      fireEvent.change(form.getByRole('textbox', { name: 'What for (optional)' }), {
+        target: { value: 'Spot the ambush' },
+      });
+      fireEvent.click(form.getByRole('checkbox', { name: 'Hide the difficulty from players' }));
+      fireEvent.click(form.getByRole('button', { name: 'Call roll' }));
+
+      expect(socket.last(PLAY_SOCKET.callRoll).payload).toEqual({
+        characterIds: [bram, vex],
+        trait: 'instinct',
+        difficulty: 14,
+        hidden: true,
+        label: 'Spot the ambush',
+      });
+      await answer(PLAY_SOCKET.callRoll, { ok: true });
+    });
+
+    it('takes back a call, and reveals a hidden roll’s result', async () => {
+      const callId = uuid();
+      const rollId = uuid();
+      await seated(
+        coast,
+        stageWith({
+          party,
+          calls: [
+            {
+              id: callId,
+              characterId: bram,
+              characterName: 'Bram',
+              trait: 'strength',
+              difficulty: 10,
+              hidden: false,
+              label: null,
+            },
+          ],
+          lastRoll: {
+            id: rollId,
+            characterId: vex,
+            characterName: 'Vex',
+            trait: 'agility',
+            label: null,
+            dice: { hope: 3, fear: 5 },
+            modifier: 2,
+            hopeBonus: 0,
+            total: 10,
+            critical: false,
+            gained: 'fear',
+            difficulty: 15,
+            success: false,
+            hidden: true,
+            revealed: false,
+            at: '2026-11-17T20:00:00.000Z',
+          },
+        }),
+        [GM_HERE],
+      );
+
+      expect(rolls().getByText('Bram: Strength vs 10')).toBeDefined();
+      fireEvent.click(rolls().getByRole('button', { name: "Cancel Bram's roll" }));
+      expect(socket.last(PLAY_SOCKET.cancelRoll).payload).toEqual({ callId });
+      await answer(PLAY_SOCKET.cancelRoll, { ok: true });
+
+      expect(rolls().getByText('3 + 5 + 2 = 10 vs 15: failure with Fear')).toBeDefined();
+      fireEvent.click(rolls().getByRole('button', { name: 'Reveal result' }));
+      expect(socket.last(PLAY_SOCKET.revealRoll).payload).toEqual({ rollId });
+      await answer(PLAY_SOCKET.revealRoll, { ok: true });
+    });
+
+    it('spends Fear with a reason, and corrects Fear and Hope', async () => {
+      await seated(coast, stageWith({ party, fear: 3 }), [GM_HERE]);
+      const fear = within(desk().getByRole('region', { name: 'Fear' }));
+      expect(fear.getByText('3 of 12')).toBeDefined();
+
+      fireEvent.change(fear.getByRole('textbox', { name: 'Why (optional)' }), {
+        target: { value: 'The bridge gives way' },
+      });
+      fireEvent.click(fear.getByRole('button', { name: 'Spend' }));
+      expect(socket.last(PLAY_SOCKET.spendFear).payload).toEqual({
+        amount: 1,
+        reason: 'The bridge gives way',
+      });
+      await answer(PLAY_SOCKET.spendFear, { ok: true });
+
+      fireEvent.click(fear.getByRole('button', { name: 'Raise Fear' }));
+      expect(socket.last(PLAY_SOCKET.setFear).payload).toEqual({ fear: 4 });
+      await answer(PLAY_SOCKET.setFear, { ok: true });
+
+      const hope = within(desk().getByRole('region', { name: 'Hope' }));
+      expect(hope.getByRole('button', { name: "Lower Bram's Hope" })).toHaveProperty(
+        'disabled',
+        true,
+      );
+      fireEvent.click(hope.getByRole('button', { name: "Lower Vex's Hope" }));
+      expect(socket.last(PLAY_SOCKET.setHope).payload).toEqual({ characterId: vex, hope: 1 });
+      await answer(PLAY_SOCKET.setHope, { ok: false, message: 'Hope is from 0 to 6' });
+      expect(desk().getByRole('alert').textContent).toBe('Hope is from 0 to 6');
+    });
+
+    it('shows the session’s log, and reads it again when it grows', async () => {
+      fetchMock = mockApi(MIRA, [coast], {
+        playSessions: { [coast.id]: SESSION },
+        sessionLogs: {
+          [coast.id]: [
+            {
+              id: uuid(),
+              kind: 'fear_spend',
+              at: '2026-11-17T20:05:00.000Z',
+              actorName: 'Mira',
+              text: 'Spent 1 Fear (3 → 2): The bridge gives way',
+            },
+          ],
+        },
+      });
+      await seated(coast, stageWith({ party }), [GM_HERE]);
+      const log = within(desk().getByRole('region', { name: 'Log' }));
+      expect(await log.findByText(/Spent 1 Fear \(3 → 2\): The bridge gives way/)).toBeDefined();
+
+      const before = sentTo(fetchMock, '/play-session/log', 'GET');
+      serverSends(PLAY_SOCKET.logChanged);
+      await waitFor(() => {
+        expect(sentTo(fetchMock, '/play-session/log', 'GET')).toBeGreaterThan(before);
+      });
+    });
+  });
 });
 
 describe('The table, for someone who is not in the campaign', () => {

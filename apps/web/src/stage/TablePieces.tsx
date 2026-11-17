@@ -105,7 +105,7 @@ function Reveal({ children }: { children: ReactNode }) {
 }
 
 /** HTML laid on a piece: `widthPx` × `heightPx` CSS pixels at `units` world units each. */
-function Paper({
+export function Paper({
   position,
   rotation = [0, 0, 0],
   units,

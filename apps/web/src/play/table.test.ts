@@ -8,6 +8,7 @@ import {
   noteSubjectOf,
   openBinder,
   openPage,
+  openSheet,
   replacePage,
   startWriting,
   turnTo,
@@ -74,5 +75,15 @@ describe('the binder', () => {
     expect(turnTo(AT_STAGE, { kind: 'key' })).toBe(AT_STAGE);
     expect(replacePage(inspect(LAMP), { kind: 'key' })).toEqual(inspect(LAMP));
     expect(openPage(AT_STAGE)).toBeNull();
+  });
+});
+
+describe('the sheet page (F3.6)', () => {
+  it('looks down at it, writes no note on it, and steps straight back to the theater', () => {
+    const sheet = openSheet();
+    expect(cameraView(sheet)).toBe('sheet');
+    expect(noteSubjectOf(sheet)).toBeNull();
+    expect(startWriting(sheet)).toBe(sheet);
+    expect(back(sheet)).toEqual(AT_STAGE);
   });
 });
