@@ -159,7 +159,7 @@ async function signIn(
   });
   if (!response.ok) throw new Error(`the server answered ${String(response.status)} for the code`);
   const token = activityTokenResponseSchema.parse(await response.json());
-  return sdk.authenticate(token.accessToken);
+  return (await sdk.authenticate(token.accessToken)).scopes;
 }
 
 /**

@@ -59,7 +59,7 @@ vi.mock('@/activity/discord', () => ({
           return Promise.reject(new Error('Already authenticated (code 4002)'));
         }
         discord.tokens.push(token);
-        return Promise.resolve(['identify', 'rpc.voice.read']);
+        return Promise.resolve({ scopes: ['identify', 'rpc.voice.read'], userId: 'discord-1' });
       },
       subscribeSpeaking: () => Promise.resolve(() => undefined),
     };
@@ -173,10 +173,10 @@ describe('Stagehand inside Discord', () => {
     });
 
     expect(discord.clientIds).toEqual(['client-123']);
-    expect(discord.scopes).toEqual([['identify']]);
+    // Who they are, and who talks (F3.9).
+    expect(discord.scopes).toEqual([['identify', 'rpc.voice.read']]);
     expect(server.codes).toEqual([{ code: 'code-1' }]);
-    // Signing in to Stagehand leaves Discord's SDK unsigned: that can be done once per launch,
-    // and is left for what needs it.
+    // This server granted only who they are, so Discord's SDK is left unsigned.
     expect(discord.tokens).toEqual([]);
     // The Activity is the table, not the workshop: no browser sign-in, no app header.
     expect(screen.queryByRole('button', { name: 'Sign in with Discord' })).toBeNull();
@@ -338,7 +338,8 @@ describe('Stagehand inside Discord', () => {
     await waitFor(() => {
       expect(campaignList()).toHaveLength(1);
     });
-    expect(discord.scopes).toHaveLength(2);
+    // Each try asks for the voice too, then for who they are alone.
+    expect(discord.scopes).toHaveLength(3);
   });
 
   it('tells a player with no campaign how to get one', async () => {
@@ -370,7 +371,10 @@ describe('Stagehand inside Discord', () => {
     expect(probe('Sign-in inside Discord')).toContain('okscopes identify, rpc.voice.read');
     expect(probe('Speaking events')).toContain('oksubscribed');
     // The test asked for both permissions and signed the SDK in with its own token.
-    expect(discord.scopes).toEqual([['identify'], ['identify', 'rpc.voice.read']]);
+    expect(discord.scopes).toEqual([
+      ['identify', 'rpc.voice.read'],
+      ['identify', 'rpc.voice.read'],
+    ]);
     expect(discord.tokens).toEqual(['test-token']);
   });
 });

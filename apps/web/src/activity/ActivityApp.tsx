@@ -8,6 +8,7 @@ import { ActivityCampaign } from './ActivityCampaign';
 import { ActivityHome } from './ActivityHome';
 import { activitySdk } from './discord';
 import { enterOnce, ENTRY_MESSAGES, type ActivityEntry } from './enter';
+import { TableVoiceContext } from './voice';
 
 const PlayPage = lazy(() =>
   import('@/pages/PlayPage').then((module) => ({ default: module.PlayPage })),
@@ -103,12 +104,17 @@ export function ActivityApp() {
     );
   }
 
+  // Talking comes from Discord when the player let Stagehand hear it (F3.9), else from T.
   const table = (
-    <StageShell>
-      <Suspense fallback={stageFallback}>
-        <PlayPage />
-      </Suspense>
-    </StageShell>
+    <TableVoiceContext
+      value={result.voice === null ? { from: 'key' } : { from: 'discord', voice: result.voice }}
+    >
+      <StageShell>
+        <Suspense fallback={stageFallback}>
+          <PlayPage />
+        </Suspense>
+      </StageShell>
+    </TableVoiceContext>
   );
   return (
     <Routes>

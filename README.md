@@ -117,6 +117,8 @@ docker run --rm cloudflare/cloudflared:2026.10.7 tunnel --no-autoupdate --url ht
 
 Whoever opens the Activity needs a Stagehand account already (made by signing in at the normal address) and, to see a campaign, to be a member of it.
 
+Signing in asks Discord for two permissions: who the player is, and who talks in the voice channel (F3.9). With the second, each player's puppet talks whenever Discord's own voice detection hears them. A player who turns it down still plays, and holds T to talk.
+
 ## Discord Activity test
 
 A test page that finds out what works when Stagehand runs inside Discord as an Activity (governance §13): request paths, cookies, Socket.IO, sign-in without a redirect, speaking events, and the stage's frame rate. It is the stage test (`/stage-test`) with a second panel, and gives one block of text to copy.
@@ -610,6 +612,23 @@ Review: one image in use per record or PC, drafts to use or discard, and Regener
 
 Puppet motion: sway, talking and emotes (governance §12 "Puppet motion", §13, D-55).
 
-- **Talking**: at the table, **hold T** to talk; your puppet rises a little and brightens for everyone, and the list of who is here rings your picture. T typed into a note or a field doesn't count. This is the first speaking source; the browser mic and Discord's speaking events (F3.9) will sit behind the same `SpeakingSource` interface (`apps/web/src/play/speaking.ts`). The GM's voice moves no puppet until NPC takeover (F3.8).
+- **Talking**: at the table, **hold T** to talk; your puppet rises a little and brightens for everyone, and the list of who is here rings your picture. T typed into a note or a field doesn't count. T was the first speaking source; the mic and Discord came with F3.9 (below), and T stays beside them.
 - **Emotes**: a player clicks their own raised puppet for the emote card; the GM picks a raised puppet on the desk for its **Emote** buttons. Emotes are sent once and never stored or logged, and one connection may ask for one every 800 ms.
 - **Seeing it without a session**: `/stage-test` has **Talk** and an **Emote** picker that play on every sample puppet. The numbers to tune are in `apps/web/src/stage/motion.ts`.
+
+## Working assumptions (F3.8)
+
+The GM takes over an NPC puppet (governance §12 "Live editing and NPC takeover", §13, D-56).
+
+- On the desk, a raised NPC has **Voice this NPC** (once picked) and a mic button in the **On stage** list: while it is on, the GM's talking moves that puppet, and a **Voicing** strip with **Release** sits at the top of the desk. Another NPC's mic button switches in one click. PCs and props can't be voiced.
+- Players see only the puppet talk. The GM's own list of who is here reads "as Old Marta"; players' lists show the GM as usual and don't ring the GM's picture while an NPC is voiced.
+- Kept in the server's memory, not the database: lowering, removing or loading a scene over the NPC gives the voice back, and so does a server restart or the session ending. Not logged.
+
+## Working assumptions (F3.9)
+
+Speaking detection (governance §13 "Speaking detection", D-57). Only "talking" or "not talking" ever leaves a browser; no sound is recorded or sent.
+
+- **In a browser tab**: the browser asks for the mic when you come to the table. The level is read in the browser; you talk while it passes a line set by **Mic settings → Sensitivity** (remembered in this browser, as is Mute). Mute lets go of the mic. Headphones stop other people's voices from setting it off. If the mic is blocked, allow it in the site settings and reload; T still works. The mic needs a secure address (https, or `localhost`).
+- **In the Discord Activity**: Discord's own speaking events, each browser passing on only its own player's; no mic prompt.
+- **Hold T** works everywhere, beside either.
+- **Tuning without a session**: `/stage-test` has a **Mic** button with the same settings and level meter. The gate's numbers are in `apps/web/src/play/mic.ts` (`GATE`).

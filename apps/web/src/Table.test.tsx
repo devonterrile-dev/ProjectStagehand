@@ -561,6 +561,20 @@ describe('Puppet motion at the table (F3.7)', () => {
     expect(props().motion?.emotes[marta.id]).toEqual(played);
   });
 
+  it('moves the NPC the GM voices, and leaves the GM’s own picture plain (F3.8)', async () => {
+    const { coast, vexPuppet, marta } = puppets();
+    await seated(coast, playerStage({ objects: [vexPuppet, marta] }));
+
+    serverSends(PLAY_SOCKET.presence, [
+      present(0, 'Dana', { role: 'gm', speaking: true, voicing: marta.id }),
+    ]);
+    expect([...(props().motion?.talking ?? [])]).toEqual([marta.id]);
+    const gmRow = screen.getByRole('list', { name: 'Who is here' }).querySelector('li');
+    expect(gmRow?.hasAttribute('data-speaking')).toBe(false);
+    // Players are not told whose voice it is.
+    expect(gmRow?.textContent).toContain('GM');
+  });
+
   it('tells the server while T is held, but not while typing', async () => {
     const { coast } = puppets();
     await seated(coast, playerStage());
@@ -582,5 +596,34 @@ describe('Puppet motion at the table (F3.7)', () => {
     fireEvent.keyDown(field, { key: 't' });
     field.remove();
     expect(spoken()).toEqual([true, false]);
+  });
+});
+
+describe('Hearing talk at the table (F3.9)', () => {
+  it('asks for the mic on joining, and shows how it is doing', async () => {
+    const asked: MediaStreamConstraints[] = [];
+    vi.stubGlobal('AudioContext', vi.fn());
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: (constraints: MediaStreamConstraints) => {
+          asked.push(constraints);
+          return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
+        },
+      },
+    });
+    try {
+      const coast = campaign({ name: 'Painted Coast', role: 'player' });
+      mockApi(MIRA, [coast]);
+      await seated(coast, playerStage());
+
+      expect(asked).toHaveLength(1);
+      expect(asked[0]?.audio).toMatchObject({ echoCancellation: true });
+      expect(await screen.findByText('Mic blocked')).toBeDefined();
+      expect(screen.getByText(/Allow it in the site settings/)).toBeDefined();
+    } finally {
+      Reflect.deleteProperty(navigator, 'mediaDevices');
+      vi.unstubAllGlobals();
+    }
   });
 });

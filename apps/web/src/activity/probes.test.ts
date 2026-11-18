@@ -75,7 +75,7 @@ function fakeSdk(overrides: Partial<ActivitySdk> = {}) {
     platform: 'desktop',
     ready: () => Promise.resolve(),
     authorize: () => Promise.resolve('code-1'),
-    authenticate: () => Promise.resolve(['identify', 'rpc.voice.read']),
+    authenticate: () => Promise.resolve({ scopes: ['identify', 'rpc.voice.read'], userId: 'd-1' }),
     subscribeSpeaking: (given) => {
       listener = given;
       return Promise.resolve(stop);
@@ -243,7 +243,7 @@ describe('runProbes', () => {
         // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Discord's SDK rejects with a plain object, which is what is being tested
         return Promise.reject({ code: 5000, message: 'OAuth2 Error: invalid_scope' });
       },
-      authenticate: () => Promise.resolve(['identify']),
+      authenticate: () => Promise.resolve({ scopes: ['identify'], userId: 'd-1' }),
     });
 
     const { results } = await run({ sdk: () => discord.sdk });

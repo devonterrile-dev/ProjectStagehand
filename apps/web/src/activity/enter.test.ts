@@ -72,7 +72,7 @@ function setup(overrides: Partial<World> = {}) {
         },
         authenticate: (token) => {
           asked.tokens.push(token);
-          return Promise.resolve(['identify']);
+          return Promise.resolve({ scopes: ['identify', 'rpc.voice.read'], userId: 'discord-1' });
         },
         subscribeSpeaking: () => Promise.resolve(() => undefined),
         ...world.sdk,
@@ -94,7 +94,12 @@ describe('enterActivity', () => {
   it('asks Discord who the player is, signs in with the code, and checks the cookie stuck', async () => {
     const { deps, calls, bodies, asked } = setup();
 
-    expect(await enterActivity(deps)).toEqual({ status: 'signed-in', me: ME, test: false });
+    expect(await enterActivity(deps)).toEqual({
+      status: 'signed-in',
+      me: ME,
+      test: false,
+      voice: null,
+    });
 
     expect(calls).toEqual([
       'GET /api/activity/config',
@@ -104,13 +109,48 @@ describe('enterActivity', () => {
     expect(bodies).toEqual([{ code: 'code-1' }]);
     expect(asked).toEqual({
       clientIds: ['client-123'],
-      // Who they are, and nothing more.
-      scopes: [['identify']],
-      // Discord's SDK can be signed in once per launch. That is left for what needs it (the
-      // Activity test now, hearing who talks later): doing it here made the test's own
-      // sign-in fail with "Already authenticated".
+      // Who they are, and who talks (F3.9).
+      scopes: [['identify', 'rpc.voice.read']],
+      // Discord granted only who they are: the SDK isn't signed in, and the table uses T.
       tokens: [],
     });
+  });
+
+  it('signs the SDK in to hear who talks when Discord grants it (F3.9)', async () => {
+    const { deps, asked } = setup({
+      signIn: () =>
+        Response.json({ accessToken: 'token-abc', scopes: ['identify', 'rpc.voice.read'] }),
+    });
+
+    const entry = await enterActivity(deps);
+
+    expect(entry).toMatchObject({ status: 'signed-in', voice: { discordUserId: 'discord-1' } });
+    // Discord takes it once per launch: here, for the table and the Activity test alike.
+    expect(asked.tokens).toEqual(['token-abc']);
+  });
+
+  it('still signs in when the voice is turned down, or the SDK’s sign-in fails (F3.9)', async () => {
+    let tries = 0;
+    const declined = setup({
+      sdk: {
+        authorize: (scopes) => {
+          tries += 1;
+          return scopes.includes('rpc.voice.read')
+            ? Promise.reject(new Error('User denied'))
+            : Promise.resolve('code-2');
+        },
+      },
+    });
+    expect(await enterActivity(declined.deps)).toMatchObject({ status: 'signed-in', voice: null });
+    expect(tries).toBe(2);
+    expect(declined.bodies).toEqual([{ code: 'code-2' }]);
+
+    const failing = setup({
+      signIn: () =>
+        Response.json({ accessToken: 'token-abc', scopes: ['identify', 'rpc.voice.read'] }),
+      sdk: { authenticate: () => Promise.reject(new Error('Already authenticated (code 4002)')) },
+    });
+    expect(await enterActivity(failing.deps)).toMatchObject({ status: 'signed-in', voice: null });
   });
 
   it('says when the test page is served too', async () => {

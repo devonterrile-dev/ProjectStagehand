@@ -28,7 +28,8 @@ vi.mock('@/activity/discord', () => ({
       platform: 'desktop',
       ready: () => Promise.resolve(),
       authorize: () => Promise.resolve('code-1'),
-      authenticate: () => Promise.resolve(['identify', 'rpc.voice.read']),
+      authenticate: () =>
+        Promise.resolve({ scopes: ['identify', 'rpc.voice.read'], userId: 'd-1' }),
       subscribeSpeaking: (listener) => {
         discord.listener = listener;
         return Promise.resolve(() => {

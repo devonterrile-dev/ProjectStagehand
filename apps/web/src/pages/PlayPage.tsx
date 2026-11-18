@@ -12,6 +12,7 @@ import { useStore } from 'zustand';
 
 import { GmDesk } from '@/components/play/GmDesk';
 import { PresenceList } from '@/components/play/PresenceList';
+import { VoiceControl } from '@/components/play/VoiceControl';
 import { EmoteCard } from '@/components/table/EmoteCard';
 import { TableNotices } from '@/components/table/TableNotices';
 import { useTable } from '@/components/table/useTable';
@@ -26,7 +27,7 @@ import {
 } from '@/lib/queries';
 import { keyAction, type KeyPlacement } from '@/lib/scenes';
 import { createPlayRoom } from '@/play/room';
-import { holdKeySource, useSpeaking } from '@/play/speaking';
+import { useVoice } from '@/play/voice';
 import { EMPTY_THEATER, talkingPuppets, theaterView } from '@/play/stage';
 import { PlayCanvas, type OwnPuppet } from '@/stage/PlayCanvas';
 import type { Place } from '@/stage/placement';
@@ -113,15 +114,14 @@ function Table({ campaign }: { campaign: Campaign }) {
     emotes,
   } = useStore(room.store);
 
-  // Talking (F3.7): holding T, for now; the mic and Discord arrive with F3.9.
+  // Talking (F3.7, F3.9): the mic in a tab or Discord in the Activity, and holding T.
   const setSpeaking = useCallback(
     (speaking: boolean) => {
       room.setSpeaking(speaking);
     },
     [room],
   );
-  const [talkKey] = useState(holdKeySource);
-  useSpeaking(setSpeaking, talkKey);
+  const voice = useVoice(setSpeaking);
   const makeRoll = useCallback(
     (callId: string, spendHope: boolean) => room.makeRoll(callId, spendHope),
     [room],
@@ -451,14 +451,16 @@ function Table({ campaign }: { campaign: Campaign }) {
               onBack={tableBack}
               {...(characterId === null ? {} : { onSheet: openSheet })}
             />
+            <VoiceControl voice={voice} />
             <Link to={`/campaigns/${campaign.id}`} className="block text-xs underline">
               Leave the table
             </Link>
           </div>
         )}
         {isGm && (
-          <div className="absolute top-3 left-3 z-20 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
+          <div className="absolute top-3 left-3 z-20 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
             <TableButton atStage={atStage} onOpen={table.openBinder} onBack={tableBack} />
+            <VoiceControl voice={voice} />
           </div>
         )}
         {isGm && (

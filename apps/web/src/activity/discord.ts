@@ -1,9 +1,16 @@
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
-/** The Discord permissions the Activity test asks for. */
+/** The Discord permissions Stagehand asks for: who the player is, and who talks (F3.9). */
 export type ActivityScope = 'identify' | 'rpc.voice.read';
 
 export type SpeakingKind = 'start' | 'stop';
+
+/** What signing the SDK in gives: the permissions granted, and who the player is on Discord. */
+export interface Authenticated {
+  scopes: string[];
+  /** The player's Discord user id: speaking events name people by it. */
+  userId: string;
+}
 
 /** The few parts of Discord's Embedded App SDK that Stagehand uses. */
 export interface ActivitySdk {
@@ -14,10 +21,10 @@ export interface ActivitySdk {
   /** Asks the user to allow the scopes (Discord shows its own dialog); resolves to a code. */
   authorize(scopes: readonly ActivityScope[]): Promise<string>;
   /**
-   * Signs the SDK in with the token the server got for that code; resolves to its scopes.
-   * Only the first call in a launch signs in: later calls resolve to the same scopes.
+   * Signs the SDK in with the token the server got for that code. Only the first call in a
+   * launch signs in: later calls resolve to the same answer.
    */
-  authenticate(accessToken: string): Promise<string[]>;
+  authenticate(accessToken: string): Promise<Authenticated>;
   /**
    * Calls `listener` whenever someone in this voice channel starts or stops talking. Needs
    * the `rpc.voice.read` scope. Resolves to a function that ends it.
@@ -35,7 +42,7 @@ export function activitySdk(clientId: string): ActivitySdk {
   if (current?.clientId === clientId) return current.sdk;
   const discord = new DiscordSDK(clientId);
   /** The permissions the page is signed in to the SDK with, once it is. */
-  let authenticated: Promise<string[]> | null = null;
+  let authenticated: Promise<Authenticated> | null = null;
 
   const sdk: ActivitySdk = {
     platform: discord.platform,
@@ -56,7 +63,10 @@ export function activitySdk(clientId: string): ActivitySdk {
       // gets the permissions the page is already signed in with.
       authenticated ??= discord.commands
         .authenticate({ access_token: accessToken })
-        .then(({ scopes }) => scopes.filter((scope) => typeof scope === 'string'))
+        .then(({ scopes, user }) => ({
+          scopes: scopes.filter((scope) => typeof scope === 'string'),
+          userId: user.id,
+        }))
         .catch((error: unknown) => {
           // Not signed in after all: the next call may try again.
           authenticated = null;

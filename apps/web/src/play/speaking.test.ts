@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { holdKeySource } from './speaking';
+import { anySource, holdKeySource, type SpeakingSource } from './speaking';
 
 function press(type: 'keydown' | 'keyup', key: string, init: KeyboardEventInit = {}, on?: Element) {
   const event = new KeyboardEvent(type, { key, bubbles: true, ...init });
@@ -60,5 +60,46 @@ describe('holding T to talk', () => {
     // Stopped: nothing more is heard.
     press('keydown', 't');
     expect(changes).toEqual([true, false, true, false]);
+  });
+});
+
+/** A source a test switches by hand. */
+function switched() {
+  let say: ((speaking: boolean) => void) | null = null;
+  let stopped = 0;
+  const source: SpeakingSource = {
+    start(onChange) {
+      say = onChange;
+      return () => {
+        stopped += 1;
+        say?.(false);
+      };
+    },
+  };
+  return {
+    source,
+    say: (speaking: boolean) => say?.(speaking),
+    stopped: () => stopped,
+  };
+}
+
+describe('anySource (F3.9)', () => {
+  it('talks while any source talks, and says each change once', () => {
+    const mic = switched();
+    const key = switched();
+    const changes: boolean[] = [];
+    const stop = anySource([mic.source, key.source]).start((speaking) => changes.push(speaking));
+
+    mic.say(true);
+    key.say(true);
+    mic.say(false);
+    expect(changes).toEqual([true]);
+    key.say(false);
+    expect(changes).toEqual([true, false]);
+
+    key.say(true);
+    stop();
+    expect(changes).toEqual([true, false, true, false]);
+    expect([mic.stopped(), key.stopped()]).toEqual([1, 1]);
   });
 });

@@ -3,8 +3,8 @@
  * talking. Only a true or false ever leaves the browser, never any sound.
  *
  * Every source has the same shape, so the live room doesn't care which one is in use. The first
- * is a key held down to talk; the browser mic and the Discord Activity's speaking events (F3.9)
- * come behind the same interface.
+ * was a key held down to talk (F3.7); the browser mic (`mic.ts`) and the Discord Activity's
+ * speaking events (`@/activity/voice`) came with F3.9, and the key stays beside them.
  */
 import { useEffect } from 'react';
 
@@ -58,6 +58,34 @@ export function holdKeySource(key: string = TALK_KEY, target: Window = window): 
         target.removeEventListener('keyup', onUp);
         target.removeEventListener('blur', onBlur);
         set(false);
+      };
+    },
+  };
+}
+
+/** Talking while any of the sources says so (F3.9): the mic or Discord, and the key. */
+export function anySource(sources: readonly SpeakingSource[]): SpeakingSource {
+  return {
+    start(onChange) {
+      const talking = new Set<number>();
+      let said = false;
+      const update = () => {
+        const now = talking.size > 0;
+        if (now === said) return;
+        said = now;
+        onChange(now);
+      };
+      const stops = sources.map((source, index) =>
+        source.start((speaking) => {
+          if (speaking) talking.add(index);
+          else talking.delete(index);
+          update();
+        }),
+      );
+      return () => {
+        for (const stop of stops) stop();
+        talking.clear();
+        update();
       };
     },
   };

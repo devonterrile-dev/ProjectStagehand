@@ -112,6 +112,19 @@ describe('Stage test page', () => {
     expect(stage.dataset['curtain']).toBe('open');
   });
 
+  it('tries the mic, with its settings, and lets it go (F3.9)', async () => {
+    await open();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mic' }));
+    // jsdom has no mic: the page says so rather than failing.
+    expect(screen.getByText('No mic')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Mic settings' }));
+    expect(screen.getByLabelText('Sensitivity')).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the mic' }));
+    expect(screen.queryByText('No mic')).toBeNull();
+  });
+
   it('makes every puppet talk, and plays the chosen emote on them (F3.7)', async () => {
     const stage = await open();
     expect(stage.dataset['talking']).toBe('false');

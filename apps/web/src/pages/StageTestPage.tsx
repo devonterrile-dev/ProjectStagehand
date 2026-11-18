@@ -2,7 +2,10 @@ import { EMOTE_LABELS, EMOTES, STAGE_MAX_OBJECTS, type Emote } from '@stagehand/
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
+import { VoiceControl } from '@/components/play/VoiceControl';
 import { Button } from '@/components/ui/button';
+import { createMic } from '@/play/mic';
+import { useSpeaking } from '@/play/speaking';
 import { summarizeFrames } from '@/stage/frame-stats';
 import { browserName, formatReport } from '@/stage/perf-report';
 import { PerfPanel } from '@/stage/PerfPanel';
@@ -75,6 +78,13 @@ function Choice<T extends string | number>({
  * `onResult` is told the last measurement's result line (null before the first), for a page
  * that shows the stage test inside something larger: the Activity test.
  */
+/** The table's mic on the test page (F3.9): tune the sensitivity without a session. */
+function MicTest({ onTalking }: { onTalking: (talking: boolean) => void }) {
+  const [mic] = useState(() => createMic());
+  useSpeaking(onTalking, mic);
+  return <VoiceControl voice={{ from: 'mic', mic }} />;
+}
+
 export function StageTestPage({ onResult }: { onResult?: (line: string | null) => void } = {}) {
   const [backdropName, setBackdropName] = useState(SAMPLE_BACKDROPS[0]?.name ?? '');
   const [curtainOpen, setCurtainOpen] = useState(true);
@@ -82,6 +92,8 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
   const [sway, setSway] = useState(true);
   // Puppet motion (F3.7): every puppet talks, or plays the chosen emote, at once.
   const [talking, setTalking] = useState(false);
+  const [micOn, setMicOn] = useState(false);
+  const [micTalking, setMicTalking] = useState(false);
   const [emoteChoice, setEmoteChoice] = useState<Emote>(EMOTES[0]);
   const [emote, setEmote] = useState<EmoteCue | null>(null);
   const [maxPixelRatio, setMaxPixelRatio] = useState<number>(MAX_PIXEL_RATIO);
@@ -132,7 +144,7 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         curtainOpen={curtainOpen}
         objectCount={objectCount}
         sway={sway}
-        talking={talking}
+        talking={talking || micTalking}
         emote={emote}
         maxPixelRatio={maxPixelRatio}
         measure={measurement.run}
@@ -200,6 +212,17 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         >
           {talking ? 'Stop talking' : 'Talk'}
         </Button>
+        <Button
+          size="xs"
+          variant="secondary"
+          aria-pressed={micOn}
+          onClick={() => {
+            setMicOn((on) => !on);
+          }}
+        >
+          {micOn ? 'Stop the mic' : 'Mic'}
+        </Button>
+        {micOn && <MicTest onTalking={setMicTalking} />}
         <div className="flex items-center gap-1.5">
           <label htmlFor="stage-test-emote">Emote</label>
           <select
