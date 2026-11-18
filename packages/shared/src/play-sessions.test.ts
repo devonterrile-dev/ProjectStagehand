@@ -13,6 +13,7 @@ import {
   PLAY_SOCKET,
   playerStageSchema,
   presenceSchema,
+  releaseRequestSchema,
 } from './play-sessions';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -163,6 +164,7 @@ describe('the live room’s messages', () => {
           characterName: null,
           characterId: null,
           speaking: false,
+          voicing: null,
         },
       ],
     });
@@ -224,6 +226,7 @@ describe('the live room’s messages', () => {
         characterName: 'Vex Tidecaller',
         characterId: id(6),
         speaking: true,
+        voicing: null,
         email: 'sam@example.com',
       },
     ]);
@@ -233,5 +236,22 @@ describe('the live room’s messages', () => {
     expect(presence[0]?.speaking).toBe(true);
     // Who is talking is part of presence (F3.7): a member without it is refused.
     expect(presenceSchema.safeParse([{ ...presence[0], speaking: undefined }]).success).toBe(false);
+  });
+
+  it('names the NPC puppet the GM voices, and gives it back with nothing (F3.8)', () => {
+    const gm = {
+      userId: id(5),
+      displayName: 'Mara',
+      avatarUrl: null,
+      role: 'gm',
+      characterName: null,
+      characterId: null,
+      speaking: true,
+    };
+    expect(presenceSchema.parse([{ ...gm, voicing: id(7) }])[0]?.voicing).toBe(id(7));
+    expect(presenceSchema.safeParse([{ ...gm, voicing: 'marta' }]).success).toBe(false);
+    expect(presenceSchema.safeParse([{ ...gm, voicing: undefined }]).success).toBe(false);
+    expect(releaseRequestSchema.safeParse({}).success).toBe(true);
+    expect(releaseRequestSchema.safeParse({ id: id(7) }).success).toBe(false);
   });
 });

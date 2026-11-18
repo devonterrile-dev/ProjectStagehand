@@ -225,6 +225,7 @@ export {
   playSessionSchema,
   presenceMemberSchema,
   presenceSchema,
+  releaseRequestSchema,
   type ActionResult,
   type AddObjectRequest,
   type GmStage,
@@ -243,6 +244,7 @@ export {
   type PlaySessionResponse,
   type Presence,
   type PresenceMember,
+  type ReleaseRequest,
 } from './play-sessions';
 export {
   anthropicApiKeySchema,

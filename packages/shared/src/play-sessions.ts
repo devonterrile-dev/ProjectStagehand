@@ -141,6 +141,11 @@ export const presenceMemberSchema = z.object({
   characterId: z.uuid().nullable(),
   /** Talking right now (F3.7, `motion.ts`). */
   speaking: z.boolean(),
+  /**
+   * The live object (an NPC puppet) whose voice this person is right now (F3.8): while they
+   * talk, that puppet talks instead of them. Only ever the GM's; null for everyone else.
+   */
+  voicing: z.uuid().nullable(),
 });
 export type PresenceMember = z.infer<typeof presenceMemberSchema>;
 
@@ -168,6 +173,9 @@ export type Presence = z.infer<typeof presenceSchema>;
  *   only: `makeRoll` (`makeRollRequestSchema`).
  * - `emote` (F3.7, `motion.ts`): `emoteRequestSchema` → `actionResultSchema`. The GM on any
  *   raised puppet; a player on their own PC's. At most one a connection every 800 ms.
+ * - `takeOverNpc` (F3.8): `objectRequestSchema` → `actionResultSchema`. GM only: a raised NPC
+ *   puppet's voice becomes the GM's (presence `voicing`). `releaseNpc`: `releaseRequestSchema`
+ *   → `actionResultSchema`. Lowering, removing or loading a scene over that NPC releases it.
  *
  * Browser to server, never answered:
  * - `speaking` (F3.7): `speakingRequestSchema`, whenever the sender starts or stops talking.
@@ -218,6 +226,8 @@ export const PLAY_SOCKET = {
   logChanged: 'log:changed',
   emote: 'emote',
   speaking: 'speaking',
+  takeOverNpc: 'npc:takeover',
+  releaseNpc: 'npc:release',
 } as const;
 
 export const joinRequestSchema = z.strictObject({ campaignId: z.uuid() });
@@ -290,6 +300,10 @@ export type ObjectChanges = Omit<MoveObjectRequest, 'id'>;
 /** Names one live object: to remove it, show or hide a prop, raise or lower a puppet. */
 export const objectRequestSchema = z.strictObject({ id: z.uuid() });
 export type ObjectRequest = z.infer<typeof objectRequestSchema>;
+
+/** Gives the GM's voice back to the GM (F3.8). */
+export const releaseRequestSchema = z.strictObject({});
+export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
 
 /** What an action is answered with; `message` says why it was refused. */
 export const actionResultSchema = z.discriminatedUnion('ok', [

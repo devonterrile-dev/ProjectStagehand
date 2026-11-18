@@ -127,6 +127,9 @@ export interface PlayRoom {
   setHope(characterId: string, hope: number): Promise<ActionResult>;
   /** Puppet motion (F3.7): the GM on any raised puppet, a player on their own PC's. */
   emote(objectId: string, emote: Emote): Promise<ActionResult>;
+  /** NPC takeover (F3.8), GM only: the GM's voice goes to a raised NPC puppet, or back. */
+  takeOverNpc(objectId: string): Promise<ActionResult>;
+  releaseNpc(): Promise<ActionResult>;
   /**
    * Whether this browser's person is talking (F3.7). Only changes are sent, at most one every
    * `SPEAKING_GAP_MS` (the latest wins), and again after every (re)join.
@@ -544,6 +547,8 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     setFear: (fear) => act(PLAY_SOCKET.setFear, { fear }),
     setHope: (characterId, hope) => act(PLAY_SOCKET.setHope, { characterId, hope }),
     emote: (objectId, emote) => act(PLAY_SOCKET.emote, { id: objectId, emote }),
+    takeOverNpc: (objectId) => act(PLAY_SOCKET.takeOverNpc, { id: objectId }),
+    releaseNpc: () => act(PLAY_SOCKET.releaseNpc, {}),
     setSpeaking(speaking) {
       speakingWanted = speaking;
       sendSpeaking();

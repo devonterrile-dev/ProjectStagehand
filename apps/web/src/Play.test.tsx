@@ -519,6 +519,47 @@ describe('The table, for the GM', () => {
       expect(picked('Stone Well').queryByRole('group', { name: 'Emote' })).toBeNull();
     });
 
+    it('voices a raised NPC, switches in one click and releases it (F3.8)', async () => {
+      const raised = stageWith();
+      const puppet = raised.objects[2];
+      if (puppet !== undefined) puppet.shown = true;
+      await seated(coast, raised, [GM_HERE, SAM_HERE]);
+
+      // A prop and a PC are never voiced; a raised NPC is, from the list or once picked.
+      expect(desk().queryByRole('button', { name: 'Voice: Stone Well' })).toBeNull();
+      fireEvent.click(desk().getByRole('button', { name: 'Voice: Old Marta' }));
+      expect(socket.last(PLAY_SOCKET.takeOverNpc).payload).toEqual({ id: marta });
+      await answer(PLAY_SOCKET.takeOverNpc, { ok: true });
+
+      serverSends(PLAY_SOCKET.presence, [
+        { ...GM_HERE, speaking: true, voicing: marta ?? null },
+        SAM_HERE,
+      ]);
+      const strip = within(desk().getByRole('region', { name: 'Voicing' }));
+      expect(strip.getByText('Old Marta')).toBeDefined();
+      // The GM's own list says whose voice it is.
+      const here = within(desk().getByRole('list', { name: 'Who is here' }));
+      expect(here.getByText('as Old Marta')).toBeDefined();
+
+      pressInTheater(marta ?? '');
+      const stop = picked('Old Marta').getByRole('button', { name: 'Stop voicing' });
+      expect(stop.getAttribute('aria-pressed')).toBe('true');
+
+      fireEvent.click(strip.getByRole('button', { name: 'Release' }));
+      expect(socket.last(PLAY_SOCKET.releaseNpc).payload).toEqual({});
+      await answer(PLAY_SOCKET.releaseNpc, { ok: true });
+      serverSends(PLAY_SOCKET.presence, [GM_HERE, SAM_HERE]);
+      expect(desk().queryByRole('region', { name: 'Voicing' })).toBeNull();
+      expect(picked('Old Marta').getByRole('button', { name: 'Voice this NPC' })).toBeDefined();
+    });
+
+    it('offers no voice for an NPC waiting below', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      expect(desk().queryByRole('button', { name: 'Voice: Old Marta' })).toBeNull();
+      pressInTheater(marta ?? '');
+      expect(picked('Old Marta').queryByRole('button', { name: 'Voice this NPC' })).toBeNull();
+    });
+
     it('adds a PC out of sight, and picks it once the stage has it', async () => {
       const vexId = uuid();
       mockApi(MIRA, [coast], {

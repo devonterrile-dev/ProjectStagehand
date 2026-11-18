@@ -12,6 +12,7 @@ import {
   type Presence,
   type StageImage,
 } from '@stagehand/shared';
+import { Mic } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 
@@ -31,7 +32,15 @@ import { FearSection, HopeSection, LogSection, RollsSection, type RollRoom } fro
 
 export type DeskRoom = Pick<
   PlayRoom,
-  'loadScene' | 'setCurtain' | 'addObject' | 'moveObject' | 'removeObject' | 'setShown' | 'emote'
+  | 'loadScene'
+  | 'setCurtain'
+  | 'addObject'
+  | 'moveObject'
+  | 'removeObject'
+  | 'setShown'
+  | 'emote'
+  | 'takeOverNpc'
+  | 'releaseNpc'
 > &
   RollRoom;
 
@@ -60,6 +69,11 @@ function whereabouts(object: GmStageObject): string {
   if (object.image === null) return 'No image';
   if (object.kind === 'puppet') return object.shown ? 'Raised' : 'Waiting below';
   return object.shown ? 'In sight' : 'Hidden';
+}
+
+/** An NPC's puppet, raised: one the GM may voice (F3.8). */
+function voiceable(object: GmStageObject): boolean {
+  return object.kind === 'puppet' && object.subject.kind === 'record' && object.shown;
 }
 
 /** The button that brings an object into sight or takes it out. */
@@ -310,6 +324,16 @@ export function GmDesk({
   const archived = campaign.archivedAt !== null;
   const stageObject = stage.objects.find((object) => object.id === selectedId) ?? null;
   const selected = stageObject === null ? null : { ...stageObject, ...pending[stageObject.id] };
+  // The NPC whose voice is the GM's (F3.8); the server gives it back if it leaves the stage.
+  const voicingId = presence.find((person) => person.role === 'gm')?.voicing ?? null;
+  const voiced = stage.objects.find((object) => object.id === voicingId) ?? null;
+  const npcName = (objectId: string) =>
+    stage.objects.find((object) => object.id === objectId)?.subject.name;
+
+  /** Takes over an NPC's voice, or gives it back when it is already the one voiced. */
+  function voice(object: GmStageObject) {
+    void send(() => (object.id === voicingId ? room.releaseNpc() : room.takeOverNpc(object.id)));
+  }
 
   return (
     <aside
@@ -327,6 +351,26 @@ export function GmDesk({
         <p role="alert" className="border-b px-3 py-2 text-destructive">
           {refusal}
         </p>
+      )}
+
+      {voiced !== null && (
+        <section
+          aria-label="Voicing"
+          className="flex items-center gap-2 border-b bg-amber-100/60 px-3 py-2 dark:bg-amber-900/30"
+        >
+          <Mic aria-hidden="true" className="size-4 shrink-0" />
+          <p className="min-w-0 flex-1">
+            Voicing <strong>{voiced.subject.name}</strong>: your voice moves this puppet.
+          </p>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={!idle}
+            onClick={() => void send(() => room.releaseNpc())}
+          >
+            Release
+          </Button>
+        </section>
       )}
 
       <Section title="Curtain">
@@ -398,6 +442,21 @@ export function GmDesk({
                 }}
               >
                 {selected.subject.revealed ? 'Un-reveal' : 'Reveal'}
+              </Button>
+            )}
+            {voiceable(stageObject) && (
+              // NPC takeover (F3.8): while on, the GM's talking moves this puppet.
+              <Button
+                size="xs"
+                variant="secondary"
+                aria-pressed={stageObject.id === voicingId}
+                disabled={!idle}
+                onClick={() => {
+                  voice(stageObject);
+                }}
+              >
+                <Mic aria-hidden="true" />
+                {stageObject.id === voicingId ? 'Stop voicing' : 'Voice this NPC'}
               </Button>
             )}
             {selected.subject.kind === 'record' && (
@@ -489,6 +548,21 @@ export function GmDesk({
                       : ''}
                   </span>
                 </button>
+                {voiceable(object) && (
+                  // One click to voice another NPC (F3.8).
+                  <Button
+                    size="xs"
+                    variant={object.id === voicingId ? 'default' : 'ghost'}
+                    aria-label={`Voice: ${object.subject.name}`}
+                    aria-pressed={object.id === voicingId}
+                    disabled={!idle}
+                    onClick={() => {
+                      voice(object);
+                    }}
+                  >
+                    <Mic aria-hidden="true" />
+                  </Button>
+                )}
                 <Button
                   size="xs"
                   variant="secondary"
@@ -570,7 +644,7 @@ export function GmDesk({
       </Section>
 
       <Section title="Who is here">
-        <PresenceList presence={presence} />
+        <PresenceList presence={presence} npcName={npcName} />
       </Section>
 
       <LogSection campaignId={campaign.id} />

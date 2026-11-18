@@ -14,6 +14,8 @@
  *   broadcasts around it can't overtake each other, so nobody is left holding an older stage.
  * - Puppet motion (F3.7): an emote is sent once to everyone and never stored; who is talking is
  *   kept with presence, in memory, and never touches the database.
+ * - NPC takeover (F3.8, D-56): the NPC puppet the GM voices is kept in memory too, and travels
+ *   with presence. A stage that no longer has it raised gives the GM's voice back.
  */
 import {
   actionResultSchema,
@@ -27,6 +29,7 @@ import {
   moveObjectRequestSchema,
   objectRequestSchema,
   PLAY_SOCKET,
+  releaseRequestSchema,
   revealRollRequestSchema,
   rollCallRequestSchema,
   setFearRequestSchema,
@@ -45,7 +48,7 @@ import type { DefaultEventsMap, Namespace, Server, Socket } from 'socket.io';
 import type { z } from 'zod';
 
 import type { Auth } from '../auth/auth';
-import { checkEmote } from '../campaigns/emotes';
+import { checkEmote, checkTakeover, NO_NPC } from '../campaigns/emotes';
 import { presenceMemberOf } from '../campaigns/members';
 import {
   addLiveObject,
@@ -189,6 +192,16 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
     return turn;
   }
 
+  /**
+   * Runs `work` in turn, like `inTurn`, and answers with what it gives or throws: for an action
+   * whose check and change must not be overtaken by a stage change.
+   */
+  function queued<T>(campaignId: string, what: string, work: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      void inTurn(campaignId, what, () => work().then(resolve, reject));
+    });
+  }
+
   function sendPresence(campaignId: string): void {
     nsp
       .to(room.gm(campaignId))
@@ -203,6 +216,15 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       if (stages === null) return;
       nsp.to(room.gm(scope.campaignId)).emit(PLAY_SOCKET.stage, stages.gm);
       nsp.to(room.player(scope.campaignId)).emit(PLAY_SOCKET.stage, stages.player);
+
+      // The NPC the GM voices left the stage, or went below (F3.8): the voice goes back.
+      const voicing = hub.voicing(scope.campaignId);
+      const stillUp = stages.gm.objects.some(
+        (object) => object.id === voicing && object.kind === 'puppet' && object.shown,
+      );
+      if (voicing !== null && !stillUp && hub.setVoicing(scope.campaignId, null)) {
+        sendPresence(scope.campaignId);
+      }
     });
   }
 
@@ -542,6 +564,23 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         return { stage: false };
       },
     );
+
+    // NPC takeover (F3.8): the GM's voice goes to a raised NPC puppet, or back. Checked and
+    // set in turn, so a stage change that lowers that NPC can't slip between the two.
+    onGm(PLAY_SOCKET.takeOverNpc, objectRequestSchema, NO_NPC, async (scope, { id }) => {
+      await queued(scope.campaignId, 'npc takeover failed', async () => {
+        await checkTakeover(db, scope, id);
+        if (hub.setVoicing(scope.campaignId, id)) sendPresence(scope.campaignId);
+      });
+      return { stage: false };
+    });
+    onGm(PLAY_SOCKET.releaseNpc, releaseRequestSchema, 'Nothing to release', async (scope) => {
+      await queued(scope.campaignId, 'npc release failed', () => {
+        if (hub.setVoicing(scope.campaignId, null)) sendPresence(scope.campaignId);
+        return Promise.resolve();
+      });
+      return { stage: false };
+    });
 
     // Talking (F3.7): never answered, never stored; everyone gets it as presence.
     socket.on(PLAY_SOCKET.speaking, (payload: unknown) => {

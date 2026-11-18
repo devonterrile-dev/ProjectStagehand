@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { gmObject, gmStage, playerObject, playerStage, stageImage } from '@/test/play-fixtures';
+import {
+  gmObject,
+  gmStage,
+  playerObject,
+  playerStage,
+  present,
+  stageImage,
+} from '@/test/play-fixtures';
 
-import { playPath, stageImageUrls, theaterView } from './stage';
+import { playPath, stageImageUrls, talkingPuppets, theaterView } from './stage';
 
 const CAMPAIGN = 'campaign-1';
 const urlOf = (n: number) => `/api/campaigns/${CAMPAIGN}/assets/${stageImage(n).assetId}/image?p=3`;
@@ -93,6 +100,39 @@ describe('theaterView', () => {
     const view = theaterView(CAMPAIGN, playerStage({ backdrop: null, objects: [] }));
 
     expect(view).toEqual({ backdropUrl: null, cutouts: [] });
+  });
+});
+
+describe('talkingPuppets', () => {
+  const vex = '00000000-0000-4000-8000-00000000a001';
+  const view = theaterView(
+    CAMPAIGN,
+    playerStage({
+      objects: [
+        playerObject(1),
+        playerObject(2, { kind: 'puppet', mount: null, characterId: vex }),
+        playerObject(3, { kind: 'puppet', mount: null }),
+      ],
+    }),
+  );
+  const [well, vexPuppet, marta] = view.cutouts.map((cutout) => cutout.id);
+
+  it('is each PC puppet whose player talks (F3.7)', () => {
+    const sam = present(1, 'Sam', { characterId: vex });
+    expect([...talkingPuppets(view.cutouts, [sam])]).toEqual([]);
+    expect([...talkingPuppets(view.cutouts, [{ ...sam, speaking: true }])]).toEqual([vexPuppet]);
+  });
+
+  it('is the NPC the GM voices while the GM talks, never anything of the GM’s own (F3.8)', () => {
+    const gm = present(0, 'Mira', { role: 'gm', speaking: true });
+    expect([...talkingPuppets(view.cutouts, [gm])]).toEqual([]);
+    expect([...talkingPuppets(view.cutouts, [{ ...gm, voicing: marta ?? null }])]).toEqual([marta]);
+    expect([
+      ...talkingPuppets(view.cutouts, [{ ...gm, speaking: false, voicing: marta ?? null }]),
+    ]).toEqual([]);
+    // An NPC this stage doesn't hold (gone below for players) talks nowhere.
+    expect([...talkingPuppets(view.cutouts, [{ ...gm, voicing: playerObject(9).id }])]).toEqual([]);
+    expect(well).toBeDefined();
   });
 });
 

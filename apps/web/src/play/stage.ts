@@ -69,18 +69,17 @@ export function theaterView(
 }
 
 /**
- * The puppets talking right now (F3.7), by object id: each PC puppet whose player is speaking.
- * The GM's voice moves no puppet until NPC takeover (F3.8).
+ * The puppets talking right now (F3.7), by object id: each PC puppet whose player is speaking,
+ * and the NPC puppet the GM voices while the GM speaks (F3.8). The GM's own voice moves nothing.
  */
 export function talkingPuppets(cutouts: readonly StageCutout[], presence: Presence): Set<string> {
-  const speaking = new Set(
-    presence.flatMap((person) =>
-      person.speaking && person.characterId !== null ? [person.characterId] : [],
-    ),
-  );
+  const speaking = presence.filter((person) => person.speaking);
+  const characters = new Set(speaking.flatMap((person) => person.characterId ?? []));
+  const voiced = new Set(speaking.flatMap((person) => person.voicing ?? []));
   const talking = new Set<string>();
   for (const cutout of cutouts) {
-    if (cutout.characterId != null && speaking.has(cutout.characterId)) talking.add(cutout.id);
+    const pc = cutout.characterId != null && characters.has(cutout.characterId);
+    if (pc || voiced.has(cutout.id)) talking.add(cutout.id);
   }
   return talking;
 }

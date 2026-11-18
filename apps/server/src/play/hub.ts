@@ -5,6 +5,9 @@
  *
  * One person may have several connections (two tabs, or a tab and the Discord Activity); they
  * are listed once and take one seat.
+ *
+ * The NPC puppet the GM voices (F3.8, D-56) is kept per campaign, not with the GM's seat, so a
+ * GM's dropped connection doesn't give it back; the session ending does.
  */
 import { SESSION_MAX_PLAYERS, type Presence, type PresenceMember } from '@stagehand/shared';
 
@@ -17,6 +20,8 @@ interface Seat {
 export class PlayHub {
   /** Campaign id → user id → their seat. */
   readonly #campaigns = new Map<string, Map<string, Seat>>();
+  /** Campaign id → the live object id of the NPC puppet the GM voices. */
+  readonly #voicing = new Map<string, string>();
 
   /**
    * Seats a connection. False when the session already has its 6 players (§3) and this is not
@@ -67,12 +72,32 @@ export class PlayHub {
     return true;
   }
 
-  /** Everyone connected to the campaign's session: the GM first, then players by name. */
+  /**
+   * The NPC puppet whose voice the GM takes over (F3.8), by live object id, or null to give it
+   * back. True when that changed, so presence goes out again.
+   */
+  setVoicing(campaignId: string, objectId: string | null): boolean {
+    if (this.voicing(campaignId) === objectId) return false;
+    if (objectId === null) this.#voicing.delete(campaignId);
+    else this.#voicing.set(campaignId, objectId);
+    return true;
+  }
+
+  /** The live object id of the NPC puppet the GM voices, or null. */
+  voicing(campaignId: string): string | null {
+    return this.#voicing.get(campaignId) ?? null;
+  }
+
+  /**
+   * Everyone connected to the campaign's session: the GM first, then players by name. The GM
+   * carries the NPC puppet they voice.
+   */
   presence(campaignId: string): Presence {
     const seats = this.#campaigns.get(campaignId);
     if (seats === undefined) return [];
+    const voicing = this.voicing(campaignId);
     return [...seats.values()]
-      .map((seat) => seat.member)
+      .map((seat) => ({ ...seat.member, voicing: seat.member.role === 'gm' ? voicing : null }))
       .sort(
         (a, b) =>
           Number(b.role === 'gm') - Number(a.role === 'gm') ||
@@ -84,5 +109,6 @@ export class PlayHub {
   /** Empties a campaign's room: its session ended. */
   clear(campaignId: string): void {
     this.#campaigns.delete(campaignId);
+    this.#voicing.delete(campaignId);
   }
 }

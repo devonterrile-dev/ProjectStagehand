@@ -379,6 +379,7 @@ describe('The live room', () => {
         characterName: null,
         characterId: null,
         speaking: false,
+        voicing: null,
       });
 
       const second = await seated(players[1] ?? gm, campaign);
@@ -1512,6 +1513,105 @@ describe('The live room', () => {
         expect(names(last(director.client.presences))).toEqual(['Live GM', 'Live Player 1']);
       });
       expect(talking(director.client)).toEqual([]);
+      await end(campaign);
+    });
+
+    /** Who the GM voices in `client`'s last presence (F3.8). */
+    const voicing = (client: Client) =>
+      last(client.presences)?.find((person) => person.role === 'gm')?.voicing;
+
+    it('lets the GM take over a raised NPC, switch, and give the voice back (F3.8)', async () => {
+      const { campaign, director, first, objects } = await motionTable('Takeover');
+      const stagesBefore = director.client.stages.length;
+
+      expect(await act(director.client, PLAY_SOCKET.takeOverNpc, { id: objects.marta })).toEqual({
+        ok: true,
+      });
+      for (const client of [director.client, first.client]) {
+        await vi.waitFor(() => {
+          expect(voicing(client)).toBe(objects.marta);
+        });
+      }
+      // Only the GM carries it, and nothing on the stage changed.
+      expect(last(first.client.presences)?.filter((p) => p.voicing !== null)).toHaveLength(1);
+      expect(director.client.stages).toHaveLength(stagesBefore);
+
+      // The GM's talking goes out as before; the browsers put it on the NPC.
+      director.client.socket.emit(PLAY_SOCKET.speaking, { speaking: true });
+      await vi.waitFor(() => {
+        expect(last(first.client.presences)?.find((p) => p.role === 'gm')).toMatchObject({
+          speaking: true,
+          voicing: objects.marta,
+        });
+      });
+
+      expect(await act(director.client, PLAY_SOCKET.releaseNpc, {})).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect(voicing(first.client)).toBeNull();
+      });
+      // Releasing again is harmless.
+      expect(await act(director.client, PLAY_SOCKET.releaseNpc, {})).toEqual({ ok: true });
+      await end(campaign);
+    });
+
+    it('refuses a takeover of a PC, a prop, a lowered NPC, or by a player (F3.8)', async () => {
+      const { campaign, director, first, objects } = await motionTable('Takeover Refusals');
+
+      for (const id of [objects.mira, objects.well, objects.trapdoor, randomUUID()]) {
+        expect(await act(director.client, PLAY_SOCKET.takeOverNpc, { id })).toEqual({
+          ok: false,
+          message: 'Choose an NPC puppet on the stage',
+        });
+      }
+      expect(await act(director.client, PLAY_SOCKET.takeOverNpc, { id: 'marta' })).toEqual({
+        ok: false,
+        message: 'Choose an NPC puppet on the stage',
+      });
+      expect(await act(first.client, PLAY_SOCKET.takeOverNpc, { id: objects.marta })).toEqual({
+        ok: false,
+        message: 'Only the GM can do that',
+      });
+      expect(await act(first.client, PLAY_SOCKET.releaseNpc, {})).toEqual({
+        ok: false,
+        message: 'Only the GM can do that',
+      });
+
+      await act(director.client, PLAY_SOCKET.lowerPuppet, { id: objects.marta });
+      expect(await act(director.client, PLAY_SOCKET.takeOverNpc, { id: objects.marta })).toEqual({
+        ok: false,
+        message: 'Raise that puppet first',
+      });
+      expect(voicing(director.client)).toBeNull();
+      await end(campaign);
+    });
+
+    it('gives the voice back when the NPC is lowered, removed or its scene loads again', async () => {
+      const { campaign, director, first, objects } = await motionTable('Takeover Release');
+      const market = (last(director.client.stages) as GmStage).scene?.id;
+      const voiced = async () => {
+        expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: objects.marta })).toEqual({
+          ok: true,
+        });
+        expect(await act(director.client, PLAY_SOCKET.takeOverNpc, { id: objects.marta })).toEqual({
+          ok: true,
+        });
+        await vi.waitFor(() => {
+          expect(voicing(first.client)).toBe(objects.marta);
+        });
+      };
+
+      for (const [event, payload] of [
+        [PLAY_SOCKET.lowerPuppet, { id: objects.marta }],
+        [PLAY_SOCKET.loadScene, { sceneId: market }],
+        [PLAY_SOCKET.removeObject, { id: objects.marta }],
+      ] as const) {
+        await voiced();
+        expect(await act(director.client, event, payload)).toEqual({ ok: true });
+        await vi.waitFor(() => {
+          expect(voicing(first.client)).toBeNull();
+        });
+        expect(voicing(director.client)).toBeNull();
+      }
       await end(campaign);
     });
   });

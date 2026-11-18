@@ -15,6 +15,7 @@ function member(n: number, overrides: Partial<PresenceMember> = {}): PresenceMem
     characterName: null,
     characterId: null,
     speaking: false,
+    voicing: null,
     ...overrides,
   };
 }
@@ -145,5 +146,35 @@ describe('PlayHub', () => {
     hub.enter(CAMPAIGN, member(1), 's1');
 
     expect(hub.presence(CAMPAIGN)[0]?.speaking).toBe(false);
+  });
+
+  it('puts the NPC the GM voices on the GM only, and says when it changed (F3.8)', () => {
+    const hub = new PlayHub();
+    hub.enter(CAMPAIGN, gm, 's100');
+    hub.enter(CAMPAIGN, member(1), 's1');
+    const marta = id(500);
+
+    expect(hub.setVoicing(CAMPAIGN, marta)).toBe(true);
+    expect(hub.setVoicing(CAMPAIGN, marta)).toBe(false);
+    expect(hub.voicing(CAMPAIGN)).toBe(marta);
+    expect(hub.presence(CAMPAIGN).map((who) => who.voicing)).toEqual([marta, null]);
+    expect(hub.voicing('campaign-b')).toBeNull();
+
+    expect(hub.setVoicing(CAMPAIGN, null)).toBe(true);
+    expect(hub.setVoicing(CAMPAIGN, null)).toBe(false);
+    expect(hub.presence(CAMPAIGN)[0]?.voicing).toBeNull();
+  });
+
+  it('keeps the NPC voiced while the GM reconnects, and forgets it when the session ends', () => {
+    const hub = new PlayHub();
+    hub.enter(CAMPAIGN, gm, 's100');
+    hub.setVoicing(CAMPAIGN, id(500));
+    hub.leave(CAMPAIGN, gm.userId, 's100');
+    hub.enter(CAMPAIGN, gm, 's100b');
+    expect(hub.presence(CAMPAIGN)[0]?.voicing).toBe(id(500));
+
+    hub.clear(CAMPAIGN);
+    hub.enter(CAMPAIGN, gm, 's100c');
+    expect(hub.presence(CAMPAIGN)[0]?.voicing).toBeNull();
   });
 });

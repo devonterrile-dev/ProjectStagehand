@@ -94,6 +94,7 @@ export async function presenceMemberOf(
     characterName: row.characterName,
     characterId: row.characterId,
     speaking: false,
+    voicing: null,
   });
 }
 

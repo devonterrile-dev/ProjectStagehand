@@ -602,6 +602,20 @@ describe('the live room, from the browser', () => {
       expect(await answer).toEqual({ ok: false, message: 'Too quick: wait a moment' });
     });
 
+    it('asks to voice an NPC and to give the voice back (F3.8)', async () => {
+      await joined();
+
+      const takeOver = room.takeOverNpc(PUPPET);
+      expect(socket.last(PLAY_SOCKET.takeOverNpc).payload).toEqual({ id: PUPPET });
+      socket.last(PLAY_SOCKET.takeOverNpc).answer({ ok: true });
+      expect(await takeOver).toEqual({ ok: true });
+
+      const release = room.releaseNpc();
+      expect(socket.last(PLAY_SOCKET.releaseNpc).payload).toEqual({});
+      socket.last(PLAY_SOCKET.releaseNpc).answer({ ok: true });
+      expect(await release).toEqual({ ok: true });
+    });
+
     const spoken = () =>
       socket.emitted
         .filter((sent) => sent.event === PLAY_SOCKET.speaking)
