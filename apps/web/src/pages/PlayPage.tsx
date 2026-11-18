@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Link, useParams } from 'react-router';
 import { useStore } from 'zustand';
 
+import { FullscreenButton } from '@/components/play/FullscreenButton';
 import { GmDesk } from '@/components/play/GmDesk';
 import { PresenceList } from '@/components/play/PresenceList';
 import { VoiceControl } from '@/components/play/VoiceControl';
@@ -62,6 +63,7 @@ function Notice({ children }: { children: ReactNode }) {
  * the control desk beside the theater, picks and drags what is on stage in it, and has the binder
  * too. Rolls (F3.6): a player rolls from their sheet page, looked down at with the Sheet button,
  * a scroll down or the down arrow; everyone sees the dice land and the GM's Fear in its bowl.
+ * Everyone can put the page in fullscreen, where the browser allows it.
  */
 export function PlayPage() {
   const { campaignId = '' } = useParams();
@@ -445,12 +447,15 @@ function Table({ campaign }: { campaign: Campaign }) {
             <div className="hidden w-50 sm:block">
               <PresenceList presence={presence} />
             </div>
-            <TableButton
-              atStage={atStage}
-              onOpen={table.openBinder}
-              onBack={tableBack}
-              {...(characterId === null ? {} : { onSheet: openSheet })}
-            />
+            <div className="flex flex-wrap gap-2">
+              <TableButton
+                atStage={atStage}
+                onOpen={table.openBinder}
+                onBack={tableBack}
+                {...(characterId === null ? {} : { onSheet: openSheet })}
+              />
+              <FullscreenButton />
+            </div>
             <VoiceControl voice={voice} />
             <Link to={`/campaigns/${campaign.id}`} className="block text-xs underline">
               Leave the table
@@ -459,7 +464,10 @@ function Table({ campaign }: { campaign: Campaign }) {
         )}
         {isGm && (
           <div className="absolute top-3 left-3 z-20 space-y-2 rounded-md bg-black/60 px-3 py-2 text-sm text-white">
-            <TableButton atStage={atStage} onOpen={table.openBinder} onBack={tableBack} />
+            <div className="flex flex-wrap gap-2">
+              <TableButton atStage={atStage} onOpen={table.openBinder} onBack={tableBack} />
+              <FullscreenButton />
+            </div>
             <VoiceControl voice={voice} />
           </div>
         )}

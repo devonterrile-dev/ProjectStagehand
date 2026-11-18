@@ -23,7 +23,9 @@ export function PresenceList({
         return (
           <li
             key={person.userId}
-            className="flex items-center gap-2"
+            // `relative` keeps the absolutely placed "(talking)" inside the row: without it, in
+            // the GM's scrolling desk, it landed below the window and made the page scroll.
+            className="relative flex items-center gap-2"
             {...(talking ? { 'data-speaking': '' } : {})}
           >
             <UserAvatar

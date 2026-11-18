@@ -338,7 +338,7 @@ export function GmDesk({
   return (
     <aside
       aria-label="Control desk"
-      className={`flex shrink-0 flex-col overflow-y-auto border-l text-sm ${selected === null ? 'w-72' : 'w-80'}`}
+      className={`relative flex shrink-0 flex-col overflow-y-auto border-l text-sm ${selected === null ? 'w-72' : 'w-80'}`}
     >
       <header className="space-y-1 border-b px-3 py-3">
         <Link to={`/campaigns/${campaign.id}`} className="underline">

@@ -6,7 +6,7 @@ import {
   type Presence,
 } from '@stagehand/shared';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StageCutout } from '@/lib/scenes';
 import type { PlayCanvasProps } from '@/stage/PlayCanvas';
@@ -291,6 +291,73 @@ describe('The table, for a player', () => {
     serverSends('connect_error', new Error('unauthorized'));
 
     expect(screen.getByText(/You've been signed out/)).toBeDefined();
+  });
+
+  describe('fullscreen', () => {
+    /** Gives jsdom the Fullscreen API it lacks, for one test. */
+    function browserFullscreen() {
+      let element: Element | null = null;
+      const enter = vi.fn(() => {
+        element = document.documentElement;
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      });
+      const exit = vi.fn(() => {
+        element = null;
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      });
+      Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
+      Object.defineProperty(document, 'fullscreenElement', {
+        configurable: true,
+        get: () => element,
+      });
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+      Object.defineProperty(document.documentElement, 'requestFullscreen', {
+        configurable: true,
+        value: enter,
+      });
+      return { enter, exit };
+    }
+
+    afterEach(() => {
+      for (const key of ['fullscreenEnabled', 'fullscreenElement', 'exitFullscreen'] as const) {
+        Reflect.deleteProperty(document, key);
+      }
+      Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
+    });
+
+    it('puts the page in fullscreen and takes it out again', async () => {
+      const { enter, exit } = browserFullscreen();
+      await seated(coast, playerStage(), [GM_HERE]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
+      expect(enter).toHaveBeenCalledTimes(1);
+
+      const leave = await screen.findByRole('button', { name: 'Exit fullscreen' });
+      expect(leave.getAttribute('aria-pressed')).toBe('true');
+      fireEvent.click(leave);
+      expect(exit).toHaveBeenCalledTimes(1);
+      expect(await screen.findByRole('button', { name: 'Fullscreen' })).toBeDefined();
+    });
+
+    it('follows the browser when fullscreen is left another way, as with Esc', async () => {
+      browserFullscreen();
+      await seated(coast, playerStage(), [GM_HERE]);
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
+      await screen.findByRole('button', { name: 'Exit fullscreen' });
+
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+      act(() => {
+        document.dispatchEvent(new Event('fullscreenchange'));
+      });
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeDefined();
+    });
+
+    it('offers none where the browser has no fullscreen', async () => {
+      await seated(coast, playerStage(), [GM_HERE]);
+      expect(screen.queryByRole('button', { name: /fullscreen/i })).toBeNull();
+    });
   });
 
   it('leaves the live room when the player leaves the table', async () => {
