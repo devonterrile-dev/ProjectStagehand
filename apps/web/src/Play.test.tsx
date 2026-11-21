@@ -874,6 +874,22 @@ describe('The table, for the GM', () => {
       expect(desk().getByRole('alert').textContent).toBe('Hope is from 0 to 6');
     });
 
+    it('turns Rest on and off from the desk (F4.7)', async () => {
+      await seated(coast, stageWith({ party }), [GM_HERE]);
+      const rest = within(desk().getByRole('region', { name: 'Rest' }));
+      const off = rest.getByRole('button', { name: 'Rest: make card swaps free' });
+      expect(off.getAttribute('aria-pressed')).toBe('false');
+      fireEvent.click(off);
+      expect(socket.last(PLAY_SOCKET.setRest).payload).toEqual({ rest: true });
+      await answer(PLAY_SOCKET.setRest, { ok: true });
+
+      serverSends(PLAY_SOCKET.stage, stageWith({ party, rest: true }));
+      const on = await rest.findByRole('button', { name: 'Resting: card swaps are free' });
+      expect(on.getAttribute('aria-pressed')).toBe('true');
+      fireEvent.click(on);
+      expect(socket.last(PLAY_SOCKET.setRest).payload).toEqual({ rest: false });
+    });
+
     it('rolls dice from the desk, privately when the GM likes (F4.2)', async () => {
       vi.stubGlobal('matchMedia', () => ({ matches: true }));
       try {

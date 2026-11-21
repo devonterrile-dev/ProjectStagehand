@@ -336,6 +336,8 @@ describe('the live room, from the browser', () => {
       expect(socket.last(PLAY_SOCKET.setFear).payload).toEqual({ fear: 5 });
       void room.setHope('pc-1', 4);
       expect(socket.last(PLAY_SOCKET.setHope).payload).toEqual({ characterId: 'pc-1', hope: 4 });
+      void room.setRest(true);
+      expect(socket.last(PLAY_SOCKET.setRest).payload).toEqual({ rest: true });
     });
   });
 

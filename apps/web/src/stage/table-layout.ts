@@ -111,6 +111,38 @@ export const SHEET = {
 } as const;
 
 /**
+ * The cards beside the sheet page (F4.7, §12): the loadout and vault piles to its left, the
+ * subclass and ancestry cards to its right, at the page's own scale so their text matches it. A
+ * pile is drawn on a paper tray with its name across the top; a card is the card alone.
+ */
+export const SHEET_CARDS = (() => {
+  const units = SHEET.width / SHEET.widthPx;
+  const pile = { widthPx: 312, heightPx: 444 };
+  const card = { widthPx: 280, heightPx: 380 };
+  /** Between the page and a column, and between the two in a column. */
+  const gap = 0.04;
+  const [cx, cy, cz] = SHEET.center;
+  const pileW = pile.widthPx * units;
+  const pileD = pile.heightPx * units;
+  const cardW = card.widthPx * units;
+  const cardD = card.heightPx * units;
+  const leftX = cx - SHEET.width / 2 - gap - pileW / 2;
+  // The right column's outer edge matches the left's, so the spread is centered on the page.
+  const rightX = cx + SHEET.width / 2 + gap + pileW - cardW / 2;
+  return {
+    units,
+    pile: { ...pile, width: pileW, depth: pileD },
+    card: { ...card, width: cardW, depth: cardD },
+    loadout: [leftX, cy, cz - (pileD + gap) / 2] as Point3,
+    vault: [leftX, cy, cz + (pileD + gap) / 2] as Point3,
+    subclass: [rightX, cy, cz - (cardD + gap) / 2] as Point3,
+    ancestry: [rightX, cy, cz + (cardD + gap) / 2] as Point3,
+    /** Everything on this part of the table, page and cards: what the Sheet view frames. */
+    spread: { width: 2 * (SHEET.width / 2 + gap + pileW), depth: 2 * pileD + gap },
+  };
+})();
+
+/**
  * Where the two dice land (F3.6), on the strip of table in front of the theater that the Stage
  * view shows, between the middle and the Fear bowl. `size` is a die's radius; the dice are
  * tossed from `from`, relative to where they land: from the players' side, and above.

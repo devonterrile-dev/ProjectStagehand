@@ -15,6 +15,7 @@ import {
   INSPECT_STAGE,
   INSPECT_TITLE,
   SHEET,
+  SHEET_CARDS,
 } from './table-layout';
 
 /** Vertical field of view, in degrees. Narrow, so the theater's perspective stays gentle. */
@@ -145,12 +146,12 @@ export const BINDER_FRAMING: Framing = {
   height: BINDER.page.depth,
 };
 
-/** The player's sheet page, looked down at from their seat. */
+/** The player's sheet page and the cards beside it (F4.7), looked down at from their seat. */
 export const SHEET_FRAMING: Framing = {
   target: SHEET.center,
   from: [0, 2.4, 0.9],
-  width: SHEET.width,
-  height: SHEET.depth,
+  width: SHEET_CARDS.spread.width,
+  height: SHEET_CARDS.spread.depth,
 };
 
 const VIEW_POSES: Record<StageView, (aspect: number) => CameraPose> = {

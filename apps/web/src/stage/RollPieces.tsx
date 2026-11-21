@@ -40,7 +40,7 @@ import {
   type DieShape,
 } from './dice';
 import type { Point3 } from './dimensions';
-import { DICE, FEAR_BOWL, FREE_DICE, SHEET } from './table-layout';
+import { DICE, FEAR_BOWL, FREE_DICE, SHEET, SHEET_CARDS } from './table-layout';
 import { Paper } from './TablePieces';
 
 /** Keeps a click on a piece from counting as a click on nothing. */
@@ -48,21 +48,69 @@ const stop = (event: { stopPropagation: () => void }) => {
   event.stopPropagation();
 };
 
+/** The HTML of the cards beside the sheet page (F4.7); null for a card the PC doesn't have. */
+export interface SheetSideCards {
+  piles: { loadout: ReactNode; vault: ReactNode };
+  subclass: ReactNode | null;
+  ancestry: ReactNode | null;
+}
+
+/** One card or pile beside the sheet page: paper on the table, its HTML on it while looked at. */
+function SideCard({
+  at,
+  size,
+  thickness,
+  html,
+}: {
+  at: Point3;
+  size: { width: number; depth: number; widthPx: number; heightPx: number };
+  thickness: number;
+  /** Its HTML; null while the player isn't looking. */
+  html: ReactNode | null;
+}) {
+  const [x, y, z] = at;
+  return (
+    <>
+      <mesh position={[x, y + thickness / 2, z]}>
+        <boxGeometry args={[size.width, thickness, size.depth]} />
+        <meshLambertMaterial color={STAGE_COLORS.paper} />
+      </mesh>
+      {html !== null && (
+        <Paper
+          position={[x, y + thickness + 0.002, z]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          units={SHEET_CARDS.units}
+          widthPx={size.widthPx}
+          heightPx={size.heightPx}
+        >
+          {html}
+        </Paper>
+      )}
+    </>
+  );
+}
+
 /**
  * The player's sheet page (§12 "The sheet page"): a sheet of paper on the table in front of
  * them. Its HTML is laid on it while they look down at it; its edge glows while a roll called
- * for their PC waits.
+ * for their PC waits. Beside it (F4.7) lie the loadout and vault piles, to its left, and the
+ * subclass and ancestry cards, to its right.
  */
 export function SheetPage({
   page,
+  cards,
   waiting,
   onOpen,
 }: {
   /** The sheet's HTML; null while the player isn't looking at it. */
   page: ReactNode | null;
+  /** The cards beside it; their HTML is laid on them only while the page's is. */
+  cards: SheetSideCards | null;
   waiting: boolean;
   onOpen: () => void;
 }) {
+  const looking = page !== null;
+  const html = (node: ReactNode | null | undefined) => (looking ? (node ?? null) : null);
   const [x, y, z] = SHEET.center;
   const glow = useRef<MeshBasicMaterial>(null);
 
@@ -96,6 +144,34 @@ export function SheetPage({
         >
           {page}
         </Paper>
+      )}
+      <SideCard
+        at={SHEET_CARDS.loadout}
+        size={SHEET_CARDS.pile}
+        thickness={0.006}
+        html={html(cards?.piles.loadout)}
+      />
+      <SideCard
+        at={SHEET_CARDS.vault}
+        size={SHEET_CARDS.pile}
+        thickness={0.006}
+        html={html(cards?.piles.vault)}
+      />
+      {cards?.subclass != null && (
+        <SideCard
+          at={SHEET_CARDS.subclass}
+          size={SHEET_CARDS.card}
+          thickness={0.004}
+          html={html(cards.subclass)}
+        />
+      )}
+      {cards?.ancestry != null && (
+        <SideCard
+          at={SHEET_CARDS.ancestry}
+          size={SHEET_CARDS.card}
+          thickness={0.004}
+          html={html(cards.ancestry)}
+        />
       )}
     </group>
   );

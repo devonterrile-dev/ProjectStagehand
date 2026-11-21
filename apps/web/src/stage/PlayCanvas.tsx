@@ -14,6 +14,7 @@ import {
   SheetPage,
   type DiceRoll,
   type FreeDiceRoll,
+  type SheetSideCards,
 } from './RollPieces';
 import { BINDER_PAD, INSPECT_PAD } from './table-layout';
 import { Binder, InspectStage, StickyPad, type InspectImage } from './TablePieces';
@@ -45,7 +46,7 @@ export interface TableScene {
    * The player's sheet page (F3.6): its HTML while it is looked at, and whether a roll called
    * for their PC waits. Null for the GM, and for a player without a PC.
    */
-  sheet: { page: ReactNode | null; waiting: boolean } | null;
+  sheet: { page: ReactNode | null; cards: SheetSideCards | null; waiting: boolean } | null;
   onOpenSheet: () => void;
   /** The last roll's dice (F3.6); null before the session's first. */
   dice: DiceRoll | null;
@@ -239,6 +240,7 @@ export const PlayCanvas = memo(function PlayCanvas({
           {table.sheet !== null && (
             <SheetPage
               page={settled ? table.sheet.page : null}
+              cards={table.sheet.cards}
               waiting={table.sheet.waiting}
               onOpen={table.onOpenSheet}
             />

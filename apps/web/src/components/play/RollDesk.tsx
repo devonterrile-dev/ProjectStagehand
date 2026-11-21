@@ -16,6 +16,7 @@ import {
 } from '@stagehand/shared';
 import { useState } from 'react';
 
+import { Toggle } from '@/components/scenes/PlacementControls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useSessionLog } from '@/lib/queries';
@@ -28,7 +29,14 @@ import { Section } from './DeskSection';
 
 export type RollRoom = Pick<
   PlayRoom,
-  'callRolls' | 'cancelRoll' | 'revealRoll' | 'spendFear' | 'setFear' | 'setHope' | 'freeRoll'
+  | 'callRolls'
+  | 'cancelRoll'
+  | 'revealRoll'
+  | 'spendFear'
+  | 'setFear'
+  | 'setHope'
+  | 'setRest'
+  | 'freeRoll'
 >;
 
 interface DeskPartProps {
@@ -331,6 +339,29 @@ export function FearSection({ stage, room, idle, send }: Omit<DeskPartProps, 'ru
           Spend
         </Button>
       </form>
+    </Section>
+  );
+}
+
+/**
+ * The Rest switch (F4.7, §9): while it is on, players move domain cards between their loadout and
+ * vault free; while it is off, bringing one back marks its recall cost in Stress.
+ */
+export function RestSection({ stage, room, idle, send }: Omit<DeskPartProps, 'ruleset'>) {
+  return (
+    <Section title="Rest">
+      <Toggle
+        pressed={stage.rest}
+        disabled={!idle}
+        onChange={(rest) => void send(() => room.setRest(rest))}
+      >
+        {stage.rest ? 'Resting: card swaps are free' : 'Rest: make card swaps free'}
+      </Toggle>
+      <p className="text-xs text-muted-foreground">
+        {stage.rest
+          ? 'Players move domain cards between loadout and vault for free. Turn it off when the rest ends.'
+          : 'Bringing a card back from the vault costs its recall cost in Stress.'}
+      </p>
     </Section>
   );
 }

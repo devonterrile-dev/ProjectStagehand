@@ -33,6 +33,7 @@ import {
   DiceSection,
   FearSection,
   HopeSection,
+  RestSection,
   LogSection,
   RollsSection,
   type RollRoom,
@@ -409,6 +410,7 @@ export function GmDesk({
       <RollsSection {...rolls} />
       <FearSection {...rolls} />
       <HopeSection {...rolls} />
+      <RestSection {...rolls} />
       <DiceSection room={room} userId={userId} lastFreeRoll={lastFreeRoll} />
 
       {selected !== null && stageObject !== null && (

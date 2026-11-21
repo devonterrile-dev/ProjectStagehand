@@ -37,6 +37,14 @@ vi.mock('@/stage/PlayCanvas', () => ({
         {table?.binderPage}
         {table?.binderNote}
         {table?.sheet?.page}
+        {table?.sheet?.page != null && table.sheet.cards !== null && (
+          <>
+            {table.sheet.cards.piles.loadout}
+            {table.sheet.cards.piles.vault}
+            {table.sheet.cards.subclass}
+            {table.sheet.cards.ancestry}
+          </>
+        )}
         {props.own?.menu?.card}
       </div>
     );
@@ -728,5 +736,114 @@ describe('Hearing talk at the table (F3.9)', () => {
       Reflect.deleteProperty(navigator, 'mediaDevices');
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('The cards beside the sheet page (F4.7)', () => {
+  const VEX = uuid();
+  const GRACE = uuid();
+  const BLADE = uuid();
+  const INSPIRE = uuid();
+  const WHIRL = uuid();
+  const FAERIE = uuid();
+
+  /** Mira plays Vex: a Faerie with Inspirational Words in the loadout and Whirlwind in the vault. */
+  function party() {
+    const coast = campaign({ name: 'Painted Coast', role: 'player' });
+    const vex = {
+      id: VEX,
+      name: 'Vex',
+      stressMax: 6,
+      assignedToUserId: MIRA.id,
+      links: {
+        classId: null,
+        subclassId: null,
+        subclassCards: 1,
+        speciesIds: [FAERIE, null] as [string | null, string | null],
+        primaryWeaponId: null,
+        secondaryWeaponId: null,
+        armorId: null,
+        spareWeaponIds: [],
+      },
+    };
+    const fetchMock = mockApi(MIRA, [coast], {
+      campaignData: { [coast.id]: { characters: [vex] } },
+      domains: {
+        [coast.id]: [
+          { id: GRACE, name: 'Grace' },
+          { id: BLADE, name: 'Blade' },
+        ],
+      },
+      domainCards: {
+        [coast.id]: [
+          { id: INSPIRE, domainId: GRACE, name: 'Inspirational Words', level: 1, recallCost: 1 },
+          { id: WHIRL, domainId: BLADE, name: 'Whirlwind', level: 1, recallCost: 2 },
+        ],
+      },
+      species: {
+        [coast.id]: [
+          {
+            id: FAERIE,
+            name: 'Faerie',
+            features: [
+              { name: 'Luckbender', text: '' },
+              { name: 'Wings', text: '' },
+            ],
+          },
+        ],
+      },
+      heldCards: {
+        [VEX]: [
+          { cardId: INSPIRE, place: 'loadout' as const },
+          { cardId: WHIRL, place: 'vault' as const },
+        ],
+      },
+    });
+    return { coast, fetchMock };
+  }
+
+  const moves = (fetchMock: FetchMock) =>
+    fetchMock.mock.calls
+      .filter(([input, init]) => init?.method === 'POST' && urlOf(input).endsWith('/move'))
+      .map(([, init]): unknown => (typeof init?.body === 'string' ? JSON.parse(init.body) : null));
+
+  it('lays the piles and the ancestry beside the sheet, and the cards are not on the page', async () => {
+    const { coast } = party();
+    await seated(coast, playerStage());
+    expect(props().table?.sheet?.cards).not.toBeNull();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    const loadout = within(await screen.findByRole('region', { name: 'Loadout' }));
+    expect(
+      loadout.getByRole('article', { name: 'Inspirational Words, a Grace card' }),
+    ).toBeDefined();
+    const vault = within(screen.getByRole('region', { name: 'Vault' }));
+    expect(vault.getByRole('article', { name: 'Whirlwind, a Blade card' })).toBeDefined();
+    expect(screen.getByRole('article', { name: 'Faerie, the species' })).toBeDefined();
+
+    const page = within(screen.getByRole('region', { name: 'Your sheet' }));
+    expect(page.queryByRole('article')).toBeNull();
+  });
+
+  it('recalls a card for Stress, and free while the GM has Rest on', async () => {
+    const { coast, fetchMock } = party();
+    await seated(coast, playerStage());
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    const vault = within(await screen.findByRole('region', { name: 'Vault' }));
+    expect(
+      vault.getByRole('button', { name: 'Bring Whirlwind to the loadout (2 Stress)' }),
+    ).toBeDefined();
+    expect(vault.queryByText('Rest: swaps are free')).toBeNull();
+
+    serverSends(PLAY_SOCKET.stage, playerStage({ rest: true }));
+    expect(await vault.findByText('Rest: swaps are free')).toBeDefined();
+    fireEvent.click(
+      vault.getByRole('button', { name: 'Bring Whirlwind to the loadout (free: Rest)' }),
+    );
+    await waitFor(() => {
+      expect(moves(fetchMock)).toEqual([{ to: 'loadout' }]);
+    });
+    const loadout = within(screen.getByRole('region', { name: 'Loadout' }));
+    expect(await loadout.findByText('2 of 5')).toBeDefined();
   });
 });

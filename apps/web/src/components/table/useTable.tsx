@@ -1,15 +1,18 @@
 import {
+  loadoutMaxOf,
   rulesetFor,
   type ActionResult,
   type Campaign,
   type CreateEntryRequest,
   type FreeDie,
   type FreeRoll,
+  type CardPlace,
   type LiveStage,
   type RollCall,
 } from '@stagehand/shared';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
+import { AncestryCard, CardPile, SubclassCard } from '@/components/sheets/SideCards';
 import { stageImageUrl } from '@/lib/scenes';
 import {
   useCreateEntry,
@@ -20,6 +23,7 @@ import {
   useJournalRecords,
   useMe,
   useMembers,
+  useMoveHeldCard,
   useNotes,
   useOwnCharacterSheet,
 } from '@/lib/queries';
@@ -38,10 +42,11 @@ import {
   type TableState,
 } from '@/play/table';
 import type { TableScene } from '@/stage/PlayCanvas';
+import type { SheetSideCards } from '@/stage/RollPieces';
 
 import { BinderBook } from './BinderBook';
 import { DiceTray } from './DiceTray';
-import { InspectCard, InspectTitle } from './InspectPapers';
+import { InspectCard, InspectTitle, PAPER_CLASS } from './InspectPapers';
 import { SheetPaper } from './SheetPaper';
 import { StickyNoteForm } from './StickyNoteForm';
 
@@ -99,7 +104,9 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     ? null
     : (members.data?.find((member) => member.userId === me.data?.id)?.character?.id ?? null);
   const sheet = useOwnCharacterSheet(campaign.id, characterId ?? NOTHING, characterId !== null);
+  const moveCard = useMoveHeldCard(campaign.id, characterId ?? NOTHING, 'player').mutateAsync;
   const { stage, makeRoll, freeRoll, lastFreeRoll } = live;
+  const rest = stage?.rest ?? false;
   const userId = me.data?.id ?? null;
   const call = useSteady<RollCall | null>(
     stage?.calls.find((entry) => entry.characterId === characterId) ?? null,
@@ -178,6 +185,40 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
   const freeId = lastFreeRoll?.id ?? null;
   const freeDie = lastFreeRoll?.die ?? null;
   const freeResults = useSteady(lastFreeRoll?.results ?? null);
+
+  // The cards beside the sheet page (F4.7): the piles to its left, the subclass and ancestry to
+  // its right. Moving a card is the same request as on the site; the sheet comes back with it.
+  const sideCards = useMemo((): SheetSideCards | null => {
+    const cards = sheet.data?.cards;
+    if (cards === undefined) return null;
+    const actions = canWrite
+      ? {
+          onMove: (cardId: string, to: CardPlace, swapOut?: string) =>
+            moveCard({ cardId, input: { to, ...(swapOut === undefined ? {} : { swapOut }) } }),
+        }
+      : undefined;
+    const pile = (place: CardPlace) => (
+      <div className={`${PAPER_CLASS} paper-light h-full w-full rounded-md p-2 font-sans`}>
+        <CardPile
+          place={place}
+          cards={cards[place]}
+          loadout={cards.loadout}
+          loadoutMax={loadoutMaxOf(ruleset)}
+          actions={actions}
+          rest={rest}
+        />
+      </div>
+    );
+    const card = (node: ReactNode) => <div className="paper-light font-sans">{node}</div>;
+    return {
+      piles: { loadout: pile('loadout'), vault: pile('vault') },
+      subclass:
+        cards.subclass === null
+          ? null
+          : card(<SubclassCard subclass={cards.subclass} ruleset={ruleset} />),
+      ancestry: cards.species.length === 0 ? null : card(<AncestryCard species={cards.species} />),
+    };
+  }, [sheet.data?.cards, canWrite, moveCard, ruleset, rest]);
 
   const scene = useMemo((): TableScene => {
     const imageUrl = (image: Parameters<typeof stageImageUrl>[1]) =>
@@ -263,6 +304,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
                   tray={<DiceTray onRoll={rollFree} tone="paper" />}
                 />
               ) : null,
+            cards: sideCards,
             waiting: call !== null,
           }
         : null,
@@ -293,6 +335,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     pickUpBinder,
     hasSheet,
     sheet.data,
+    sideCards,
     ruleset,
     call,
     rollCall,
