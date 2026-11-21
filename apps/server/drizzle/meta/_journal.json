@@ -169,6 +169,13 @@
       "when": 1795282354985,
       "tag": "0023_gear",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795289542776,
+      "tag": "0024_classes",
+      "breakpoints": true
     }
   ]
 }

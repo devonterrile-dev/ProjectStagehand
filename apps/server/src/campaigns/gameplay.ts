@@ -4,13 +4,23 @@
  * another campaign's records instead (19.14). A copy is made once: afterwards the two campaigns'
  * records change apart.
  *
- * Each gameplay type is copied here: domains and cards (F4.3), weapons and armor (F4.4); classes
- * and species join them in F4.5 and F4.6.
+ * Each gameplay type is copied here: domains and cards (F4.3), weapons and armor (F4.4), classes
+ * and subclasses (F4.5); species join them in F4.6.
  */
+import { randomUUID } from 'node:crypto';
+
 import { DEFAULT_DOMAINS } from '@stagehand/shared';
 import { asc, eq } from 'drizzle-orm';
 
-import { armor, domainCards, domains, statBlocks, weapons } from '../db/schema';
+import {
+  armor,
+  classes,
+  domainCards,
+  domains,
+  statBlocks,
+  subclasses,
+  weapons,
+} from '../db/schema';
 
 import type { DbOrTx } from './members';
 
@@ -27,8 +37,12 @@ export async function seedDefaultDomains(tx: DbOrTx, campaignId: string): Promis
 
 /**
  * Copies every gameplay record of `fromId` into `toId`: domains, their cards (pointed at the new
- * domains), stat blocks, weapons and armor. Stat blocks come without the NPCs that link them: campaign records
- * aren't copied. The caller checks the user may read `fromId` as its GM.
+ * domains), stat blocks, weapons, armor, classes (pointed at the new domains and gear) and their
+ * subclasses. Stat blocks come without the NPCs that link them: campaign records aren't copied.
+ * The caller checks the user may read `fromId` as its GM.
+ *
+ * Gear and class names needn't be unique, so their copies get ids made here, kept in a map from
+ * each source id, to point the links at.
  */
 export async function copyGameplayRecords(tx: DbOrTx, fromId: string, toId: string): Promise<void> {
   const fromDomains = await tx
@@ -97,41 +111,106 @@ export async function copyGameplayRecords(tx: DbOrTx, fromId: string, toId: stri
     );
   }
 
+  const newWeaponOf = new Map<string, string>();
   const fromWeapons = await tx.select().from(weapons).where(eq(weapons.campaignId, fromId));
   if (fromWeapons.length > 0) {
     await tx.insert(weapons).values(
-      fromWeapons.map((weapon) => ({
-        campaignId: toId,
-        tier: weapon.tier,
-        name: weapon.name,
-        slot: weapon.slot,
-        kind: weapon.kind,
-        trait: weapon.trait,
-        range: weapon.range,
-        damageDie: weapon.damageDie,
-        damageBonus: weapon.damageBonus,
-        burden: weapon.burden,
-        featureName: weapon.featureName,
-        featureText: weapon.featureText,
-        bonuses: weapon.bonuses,
-      })),
+      fromWeapons.map((weapon) => {
+        const id = randomUUID();
+        newWeaponOf.set(weapon.id, id);
+        return {
+          id,
+          campaignId: toId,
+          tier: weapon.tier,
+          name: weapon.name,
+          slot: weapon.slot,
+          kind: weapon.kind,
+          trait: weapon.trait,
+          range: weapon.range,
+          damageDie: weapon.damageDie,
+          damageBonus: weapon.damageBonus,
+          burden: weapon.burden,
+          featureName: weapon.featureName,
+          featureText: weapon.featureText,
+          bonuses: weapon.bonuses,
+        };
+      }),
     );
   }
 
+  const newArmorOf = new Map<string, string>();
   const fromArmor = await tx.select().from(armor).where(eq(armor.campaignId, fromId));
   if (fromArmor.length > 0) {
     await tx.insert(armor).values(
-      fromArmor.map((piece) => ({
-        campaignId: toId,
-        tier: piece.tier,
-        name: piece.name,
-        baseMajorThreshold: piece.baseMajorThreshold,
-        baseSevereThreshold: piece.baseSevereThreshold,
-        baseScore: piece.baseScore,
-        featureName: piece.featureName,
-        featureText: piece.featureText,
-        bonuses: piece.bonuses,
-      })),
+      fromArmor.map((piece) => {
+        const id = randomUUID();
+        newArmorOf.set(piece.id, id);
+        return {
+          id,
+          campaignId: toId,
+          tier: piece.tier,
+          name: piece.name,
+          baseMajorThreshold: piece.baseMajorThreshold,
+          baseSevereThreshold: piece.baseSevereThreshold,
+          baseScore: piece.baseScore,
+          featureName: piece.featureName,
+          featureText: piece.featureText,
+          bonuses: piece.bonuses,
+        };
+      }),
     );
   }
+
+  /** The copy of a linked record, or null when unset. */
+  const mapped = (map: Map<string, string>, id: string | null) =>
+    id === null ? null : (map.get(id) ?? null);
+
+  const newClassOf = new Map<string, string>();
+  const fromClasses = await tx.select().from(classes).where(eq(classes.campaignId, fromId));
+  if (fromClasses.length > 0) {
+    await tx.insert(classes).values(
+      fromClasses.map((cls) => {
+        const id = randomUUID();
+        newClassOf.set(cls.id, id);
+        return {
+          id,
+          campaignId: toId,
+          name: cls.name,
+          description: cls.description,
+          domain1Id: mapped(newDomainOf, cls.domain1Id),
+          domain2Id: mapped(newDomainOf, cls.domain2Id),
+          startingEvasion: cls.startingEvasion,
+          startingHp: cls.startingHp,
+          hopeFeature: cls.hopeFeature,
+          classFeatures: cls.classFeatures,
+          suggestedTraits: cls.suggestedTraits,
+          suggestedPrimaryWeaponId: mapped(newWeaponOf, cls.suggestedPrimaryWeaponId),
+          suggestedSecondaryWeaponId: mapped(newWeaponOf, cls.suggestedSecondaryWeaponId),
+          suggestedArmorId: mapped(newArmorOf, cls.suggestedArmorId),
+        };
+      }),
+    );
+  }
+
+  const fromSubclasses = await tx
+    .select()
+    .from(subclasses)
+    .where(eq(subclasses.campaignId, fromId));
+  const subs = fromSubclasses.flatMap((sub) => {
+    const classId = newClassOf.get(sub.classId);
+    if (classId === undefined) return [];
+    return [
+      {
+        campaignId: toId,
+        classId,
+        name: sub.name,
+        description: sub.description,
+        spellcastTrait: sub.spellcastTrait,
+        foundation: sub.foundation,
+        specialization: sub.specialization,
+        mastery: sub.mastery,
+      },
+    ];
+  });
+  if (subs.length > 0) await tx.insert(subclasses).values(subs);
 }

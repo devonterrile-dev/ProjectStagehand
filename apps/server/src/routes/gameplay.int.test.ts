@@ -167,7 +167,7 @@ describe('Gameplay records API', () => {
       const refused = await call('DELETE', `${domainsUrl(campaign)}/${storm.id}`, gm);
       expect(refused.statusCode).toBe(409);
       expect(refused.json<{ message: string }>().message).toBe(
-        'Used by Bolt, Calm, Gale, Hail, Mist and 2 more cards. Move or delete them first.',
+        'Used by Bolt, Calm, Gale, Hail, Mist and 2 more. Change or delete them first.',
       );
       expect((await domainsOf(campaign)).find((d) => d.id === storm.id)?.cardCount).toBe(7);
     });

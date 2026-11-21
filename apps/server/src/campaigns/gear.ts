@@ -1,8 +1,8 @@
 /**
  * Weapons and armor (F4.4, governance §8 "Weapons and armor", D-62). Part of the campaign
  * data-access layer: every query is scoped to `scope.campaignId`. Every member reads them;
- * callers check `assertGm` and `assertWritable` before a change. Classes and sheets linking them
- * will keep them from being deleted (F4.5, F4.7).
+ * callers check `assertGm` and `assertWritable` before a change. Deleting gear a class suggests
+ * clears the suggestion (F4.5); sheets equipping it will keep it from being deleted (F4.7).
  *
  * Trait ids (a weapon's trait, and the keys of a bonus to traits) are checked here against the
  * campaign's ruleset, since the request schemas don't know it.
@@ -27,14 +27,15 @@ import type { Database } from '../db/client';
 import { armor, weapons } from '../db/schema';
 import { httpError } from '../http/errors';
 
+import { clearSuggestionsOf } from './classes';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 
-const WEAPON_NOT_FOUND = 'Weapon not found';
-const ARMOR_NOT_FOUND = 'Armor not found';
+export const WEAPON_NOT_FOUND = 'Weapon not found';
+export const ARMOR_NOT_FOUND = 'Armor not found';
 
 /** 400 unless every id is a trait of the campaign's ruleset. */
-function checkTraits(scope: CampaignScope, ids: Iterable<string>): void {
+export function checkTraits(scope: CampaignScope, ids: Iterable<string>): void {
   const known = new Set(traitIdsOf(rulesetFor(scope.campaign.rulesetVersion)));
   for (const id of ids) {
     if (!known.has(id)) throw httpError(400, `Unknown trait: ${id}`);
@@ -180,11 +181,14 @@ export async function deleteWeapon(
   scope: CampaignScope,
   weaponId: string,
 ): Promise<void> {
-  const removed = await db
-    .delete(weapons)
-    .where(weaponScoped(scope, weaponId))
-    .returning({ id: weapons.id });
-  if (removed.length === 0) throw httpError(404, WEAPON_NOT_FOUND);
+  await db.transaction(async (tx) => {
+    await clearSuggestionsOf(tx, scope, { weaponId });
+    const removed = await tx
+      .delete(weapons)
+      .where(weaponScoped(scope, weaponId))
+      .returning({ id: weapons.id });
+    if (removed.length === 0) throw httpError(404, WEAPON_NOT_FOUND);
+  });
 }
 
 // --- Armor ---
@@ -241,9 +245,12 @@ export async function deleteArmor(
   scope: CampaignScope,
   armorId: string,
 ): Promise<void> {
-  const removed = await db
-    .delete(armor)
-    .where(armorScoped(scope, armorId))
-    .returning({ id: armor.id });
-  if (removed.length === 0) throw httpError(404, ARMOR_NOT_FOUND);
+  await db.transaction(async (tx) => {
+    await clearSuggestionsOf(tx, scope, { armorId });
+    const removed = await tx
+      .delete(armor)
+      .where(armorScoped(scope, armorId))
+      .returning({ id: armor.id });
+    if (removed.length === 0) throw httpError(404, ARMOR_NOT_FOUND);
+  });
 }

@@ -18,6 +18,7 @@ import { domainCards, domains } from '../db/schema';
 import { isUniqueViolation } from '../db/pg-errors';
 import { httpError } from '../http/errors';
 
+import { classesUsingDomain } from './classes';
 import { cardsOf, DOMAIN_NOT_FOUND } from './domain-cards';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
@@ -117,16 +118,16 @@ export async function updateDomain(
   return toDomain(db, scope, row);
 }
 
-/** "Fireball, Ward and 3 more cards". */
+/** "Warrior, Fireball, Ward and 3 more". */
 function namesOf(names: readonly string[], total: number): string {
   const shown = names.slice(0, NAMED);
   const more = total - shown.length;
-  if (more > 0) return `${shown.join(', ')} and ${String(more)} more cards`;
+  if (more > 0) return `${shown.join(', ')} and ${String(more)} more`;
   if (shown.length === 1) return shown[0] ?? '';
   return `${shown.slice(0, -1).join(', ')} and ${shown.at(-1) ?? ''}`;
 }
 
-/** Deletes a domain no card uses; otherwise 409, naming the cards in the way. */
+/** Deletes a domain no class or card uses; otherwise 409, naming the classes and cards in the way. */
 export async function deleteDomain(
   db: Database,
   scope: CampaignScope,
@@ -140,13 +141,13 @@ export async function deleteDomain(
       .for('update');
     if (current === undefined) throw httpError(404, DOMAIN_NOT_FOUND);
 
-    const cards = await cardsOf(tx, scope, domainId);
-    if (cards.length > 0) {
-      const names = namesOf(
-        cards.map((card) => card.name),
-        cards.length,
-      );
-      throw httpError(409, `Used by ${names}. Move or delete them first.`);
+    // Classes first: they are fewer, and the GM changes them on the class's page.
+    const users = [
+      ...(await classesUsingDomain(tx, scope, domainId)),
+      ...(await cardsOf(tx, scope, domainId)).map((card) => card.name),
+    ];
+    if (users.length > 0) {
+      throw httpError(409, `Used by ${namesOf(users, users.length)}. Change or delete them first.`);
     }
     await tx.delete(domains).where(scoped(scope, domainId));
   });

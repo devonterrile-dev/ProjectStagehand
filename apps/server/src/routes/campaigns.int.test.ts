@@ -171,6 +171,37 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/armor/:armorId', gmOnly: true },
+  // Classes and subclasses (F4.5): the same rule.
+  { method: 'GET', path: '/api/campaigns/:campaignId/classes', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/classes',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/classes/:classId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/classes/:classId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/classes/:classId', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/subclasses', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/subclasses',
+    gmOnly: true,
+    payload: { classId: '00000000-0000-4000-8000-000000000000', name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/subclasses/:subclassId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/subclasses/:subclassId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/subclasses/:subclassId', gmOnly: true },
   { method: 'GET', path: '/api/campaigns/:campaignId/imports', gmOnly: true },
   {
     method: 'POST',

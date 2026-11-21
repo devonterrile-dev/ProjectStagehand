@@ -1,6 +1,6 @@
 /**
  * Gameplay records (governance §8 "Gameplay records", D-58, D-61, D-62): domains and domain
- * cards (F4.3), weapons and armor (F4.4); classes and species join them in F4.5 and F4.6. Each
+ * cards (F4.3), weapons and armor (F4.4), classes and subclasses (F4.5); species join them in F4.6. Each
  * type has its own table with real columns, per campaign. Every member reads them; only the GM writes them.
  *
  * Only the data-access layer in `src/campaigns/` queries these tables.
@@ -8,13 +8,19 @@
 import {
   BURDENS,
   DAMAGE_KINDS,
+  DEFAULT_STARTING_EVASION,
+  DEFAULT_STARTING_HP,
   DOMAIN_CARD_TYPES,
+  emptyHopeFeature,
   emptyRichText,
   noGearBonuses,
   WEAPON_RANGES,
   WEAPON_SLOTS,
+  type FeatureRow,
   type GearBonuses,
+  type HopeFeature,
   type RichText,
+  type SuggestedTraits,
 } from '@stagehand/shared';
 import { sql, type SQL } from 'drizzle-orm';
 import {
@@ -207,5 +213,127 @@ export const armor = pgTable(
     check('armor_base_score', sql`${table.baseScore} between 0 and 999`),
     check('armor_feature_name_length', sql`char_length(${table.featureName}) <= 80`),
     check('armor_feature_text_length', sql`char_length(${table.featureText}) <= 2000`),
+  ],
+);
+
+/**
+ * A campaign's classes (F4.5, D-63). Either domain may be unset while the GM enters the class;
+ * the creation guide offers a class once both are set and it has a subclass (F4.8). Suggested
+ * gear is tier 1 of its slot when picked, checked by the data-access layer; deleting the gear
+ * clears the suggestion there too.
+ */
+export const classes = pgTable(
+  'classes',
+  {
+    id: uuid('id')
+      .default(sql`pg_catalog.gen_random_uuid()`)
+      .primaryKey(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description').default('').notNull(),
+    /** Domains of the same campaign; a domain a class uses can't be deleted. */
+    domain1Id: uuid('domain1_id'),
+    domain2Id: uuid('domain2_id'),
+    startingEvasion: integer('starting_evasion').default(DEFAULT_STARTING_EVASION).notNull(),
+    startingHp: integer('starting_hp').default(DEFAULT_STARTING_HP).notNull(),
+    /** Validated JSON: `HopeFeature`. */
+    hopeFeature: jsonb('hope_feature').$type<HopeFeature>().default(emptyHopeFeature()).notNull(),
+    /** Validated JSON: `FeatureRow[]`. */
+    classFeatures: jsonb('class_features').$type<FeatureRow[]>().default([]).notNull(),
+    /** Validated JSON: `SuggestedTraits`, trait ids checked against the ruleset. */
+    suggestedTraits: jsonb('suggested_traits').$type<SuggestedTraits>().default({}).notNull(),
+    suggestedPrimaryWeaponId: uuid('suggested_primary_weapon_id'),
+    suggestedSecondaryWeaponId: uuid('suggested_secondary_weapon_id'),
+    suggestedArmorId: uuid('suggested_armor_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    /** One class of a name per campaign, whatever its case. */
+    uniqueIndex('classes_campaign_name_idx').on(table.campaignId, sql`lower(${table.name})`),
+    /** Target of composite FKs from subclasses and sheets (F4.7). */
+    unique('classes_id_campaign_id_unique').on(table.id, table.campaignId),
+    /**
+     * No action, like `domain_cards`: deleting the campaign removes everything in one go. A null
+     * id isn't checked (MATCH SIMPLE), so an unset domain or suggestion is fine.
+     */
+    foreignKey({
+      name: 'classes_domain1_fk',
+      columns: [table.domain1Id, table.campaignId],
+      foreignColumns: [domains.id, domains.campaignId],
+    }),
+    foreignKey({
+      name: 'classes_domain2_fk',
+      columns: [table.domain2Id, table.campaignId],
+      foreignColumns: [domains.id, domains.campaignId],
+    }),
+    foreignKey({
+      name: 'classes_suggested_primary_fk',
+      columns: [table.suggestedPrimaryWeaponId, table.campaignId],
+      foreignColumns: [weapons.id, weapons.campaignId],
+    }),
+    foreignKey({
+      name: 'classes_suggested_secondary_fk',
+      columns: [table.suggestedSecondaryWeaponId, table.campaignId],
+      foreignColumns: [weapons.id, weapons.campaignId],
+    }),
+    foreignKey({
+      name: 'classes_suggested_armor_fk',
+      columns: [table.suggestedArmorId, table.campaignId],
+      foreignColumns: [armor.id, armor.campaignId],
+    }),
+    check('classes_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    check('classes_description_length', sql`char_length(${table.description}) <= 2000`),
+    /** Two different domains; an unset one makes this null, which passes. */
+    check('classes_two_domains', sql`${table.domain1Id} <> ${table.domain2Id}`),
+    check('classes_starting_evasion', sql`${table.startingEvasion} between 0 and 999`),
+    check('classes_starting_hp', sql`${table.startingHp} between 0 and 999`),
+  ],
+);
+
+/**
+ * A class's subclasses (F4.5, D-63). Deleting the class deletes them. A PC starts with the
+ * foundation features; level-ups give the specialization, then the mastery (F4.9).
+ */
+export const subclasses = pgTable(
+  'subclasses',
+  {
+    id: uuid('id')
+      .default(sql`pg_catalog.gen_random_uuid()`)
+      .primaryKey(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    classId: uuid('class_id').notNull(),
+    name: text('name').notNull(),
+    description: text('description').default('').notNull(),
+    /** A trait id of the campaign's ruleset, or null when the subclass doesn't cast. */
+    spellcastTrait: text('spellcast_trait'),
+    /** Validated JSON: `FeatureRow[]` each. */
+    foundation: jsonb('foundation').$type<FeatureRow[]>().default([]).notNull(),
+    specialization: jsonb('specialization').$type<FeatureRow[]>().default([]).notNull(),
+    mastery: jsonb('mastery').$type<FeatureRow[]>().default([]).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index('subclasses_campaign_class_idx').on(table.campaignId, table.classId),
+    /** Target of composite FKs from sheets (F4.7). */
+    unique('subclasses_id_campaign_id_unique').on(table.id, table.campaignId),
+    foreignKey({
+      name: 'subclasses_class_fk',
+      columns: [table.classId, table.campaignId],
+      foreignColumns: [classes.id, classes.campaignId],
+    }).onDelete('cascade'),
+    check('subclasses_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    check('subclasses_description_length', sql`char_length(${table.description}) <= 2000`),
   ],
 );
