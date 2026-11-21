@@ -4,12 +4,14 @@ import { Link, Navigate, Route, Routes, useParams } from 'react-router';
 import { isActivityFrame } from '@/activity/frame';
 import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
+import { ArmorPage } from '@/pages/ArmorPage';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
 import { DomainCardPage } from '@/pages/DomainCardPage';
 import { DomainPage } from '@/pages/DomainPage';
 import { EntryPage } from '@/pages/EntryPage';
 import { GameplayPage } from '@/pages/GameplayPage';
+import { ArmorListPage, WeaponsPage } from '@/pages/GearListPages';
 import { HomePage } from '@/pages/HomePage';
 import { ImportPage } from '@/pages/ImportPage';
 import { ImportReviewPage } from '@/pages/ImportReviewPage';
@@ -21,6 +23,7 @@ import { ScenesPage } from '@/pages/ScenesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
+import { WeaponPage } from '@/pages/WeaponPage';
 import { statBlockPath, statBlocksPath } from '@/lib/records';
 
 // The stage brings Three.js with it, so it loads only when a stage page is opened (F3.1).
@@ -144,6 +147,38 @@ export function App() {
           element={
             <RequireAuth>
               <DomainCardPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/weapons"
+          element={
+            <RequireAuth>
+              <WeaponsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/weapons/:weaponId"
+          element={
+            <RequireAuth>
+              <WeaponPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/armor"
+          element={
+            <RequireAuth>
+              <ArmorListPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/armor/:armorId"
+          element={
+            <RequireAuth>
+              <ArmorPage />
             </RequireAuth>
           }
         />

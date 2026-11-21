@@ -103,6 +103,16 @@ import {
   type DomainSummary,
   type UpdateDomainCardRequest,
   type UpdateDomainRequest,
+  armorListResponseSchema,
+  armorRecordSchema,
+  weaponListResponseSchema,
+  weaponRecordSchema,
+  type ArmorRecord,
+  type CreateArmorRequest,
+  type CreateWeaponRequest,
+  type UpdateArmorRequest,
+  type UpdateWeaponRequest,
+  type WeaponRecord,
 } from '@stagehand/shared';
 
 export class ApiError extends Error {
@@ -586,6 +596,84 @@ export async function patchDomainCard(
 
 export async function deleteDomainCard(campaignId: string, cardId: string): Promise<void> {
   await send(cardsPath(campaignId, cardId), 'DELETE');
+}
+
+const weaponsPath = (campaignId: string, weaponId?: string) =>
+  campaignPath(
+    campaignId,
+    weaponId === undefined ? '/weapons' : `/weapons/${encodeURIComponent(weaponId)}`,
+  );
+const armorPath = (campaignId: string, armorId?: string) =>
+  campaignPath(
+    campaignId,
+    armorId === undefined ? '/armor' : `/armor/${encodeURIComponent(armorId)}`,
+  );
+
+/** The campaign's weapons, by tier, slot and name (F4.4). Any member. */
+export async function fetchWeapons(campaignId: string): Promise<WeaponRecord[]> {
+  return weaponListResponseSchema.parse(await getJson(weaponsPath(campaignId))).weapons;
+}
+
+/** A weapon, or null when it isn't in this campaign. */
+export async function fetchWeapon(
+  campaignId: string,
+  weaponId: string,
+): Promise<WeaponRecord | null> {
+  return getOrNull(weaponsPath(campaignId, weaponId), (body) => weaponRecordSchema.parse(body));
+}
+
+export async function createWeapon(
+  campaignId: string,
+  input: CreateWeaponRequest,
+): Promise<WeaponRecord> {
+  const response = await send(weaponsPath(campaignId), 'POST', input);
+  return weaponRecordSchema.parse(await response.json());
+}
+
+export async function patchWeapon(
+  campaignId: string,
+  weaponId: string,
+  patch: UpdateWeaponRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<WeaponRecord> {
+  const response = await send(weaponsPath(campaignId, weaponId), 'PATCH', patch, init);
+  return weaponRecordSchema.parse(await response.json());
+}
+
+export async function deleteWeapon(campaignId: string, weaponId: string): Promise<void> {
+  await send(weaponsPath(campaignId, weaponId), 'DELETE');
+}
+
+/** The campaign's armor, by tier and name (F4.4). Any member. */
+export async function fetchArmorList(campaignId: string): Promise<ArmorRecord[]> {
+  return armorListResponseSchema.parse(await getJson(armorPath(campaignId))).armor;
+}
+
+/** A piece of armor, or null when it isn't in this campaign. */
+export async function fetchArmor(campaignId: string, armorId: string): Promise<ArmorRecord | null> {
+  return getOrNull(armorPath(campaignId, armorId), (body) => armorRecordSchema.parse(body));
+}
+
+export async function createArmor(
+  campaignId: string,
+  input: CreateArmorRequest,
+): Promise<ArmorRecord> {
+  const response = await send(armorPath(campaignId), 'POST', input);
+  return armorRecordSchema.parse(await response.json());
+}
+
+export async function patchArmor(
+  campaignId: string,
+  armorId: string,
+  patch: UpdateArmorRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<ArmorRecord> {
+  const response = await send(armorPath(campaignId, armorId), 'PATCH', patch, init);
+  return armorRecordSchema.parse(await response.json());
+}
+
+export async function deleteArmor(campaignId: string, armorId: string): Promise<void> {
+  await send(armorPath(campaignId, armorId), 'DELETE');
 }
 
 const importsPath = (campaignId: string, rest = '') => campaignPath(campaignId, `/imports${rest}`);

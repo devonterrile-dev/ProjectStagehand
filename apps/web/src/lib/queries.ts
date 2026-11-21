@@ -33,6 +33,10 @@ import type {
   CreateDomainRequest,
   UpdateDomainCardRequest,
   UpdateDomainRequest,
+  CreateArmorRequest,
+  CreateWeaponRequest,
+  UpdateArmorRequest,
+  UpdateWeaponRequest,
 } from '@stagehand/shared';
 import {
   keepPreviousData,
@@ -131,6 +135,16 @@ import {
   fetchDomains,
   patchDomain,
   patchDomainCard,
+  createArmor,
+  createWeapon,
+  deleteArmor,
+  deleteWeapon,
+  fetchArmor,
+  fetchArmorList,
+  fetchWeapon,
+  fetchWeapons,
+  patchArmor,
+  patchWeapon,
 } from './api';
 import { signOut } from './auth-client';
 
@@ -733,6 +747,116 @@ export function useDeleteDomainCard(campaignId: string) {
     mutationFn: (cardId: string) => deleteDomainCard(campaignId, cardId),
     onSuccess: (_result, cardId) => {
       queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'card', cardId) });
+      refetch();
+    },
+  });
+}
+
+/** The campaign's weapons (F4.4), by tier, slot and name. Any member. */
+export function useWeapons(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'weapons'),
+    queryFn: () => fetchWeapons(campaignId),
+  });
+}
+
+/** A weapon (`null` when not found). */
+export function useWeapon(campaignId: string, weaponId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'weapon', weaponId),
+    queryFn: () => fetchWeapon(campaignId, weaponId),
+  });
+}
+
+export function useCreateWeapon(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateWeaponRequest) => createWeapon(campaignId, input),
+    onSuccess: (weapon) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'weapon', weapon.id), weapon);
+      refetch(gameplayKey(campaignId, 'weapon', weapon.id));
+    },
+  });
+}
+
+/** Saves part of a weapon; the response becomes the cached weapon. */
+export function usePatchWeapon(campaignId: string, weaponId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'weapon', weaponId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateWeaponRequest; keepalive?: boolean }) =>
+      patchWeapon(campaignId, weaponId, patch, { keepalive }),
+    onSuccess: (weapon) => {
+      queryClient.setQueryData(key, weapon);
+      refetch(key);
+    },
+  });
+}
+
+export function useDeleteWeapon(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (weaponId: string) => deleteWeapon(campaignId, weaponId),
+    onSuccess: (_result, weaponId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'weapon', weaponId) });
+      refetch();
+    },
+  });
+}
+
+/** The campaign's armor (F4.4), by tier and name. Any member. */
+export function useArmorList(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'armor-list'),
+    queryFn: () => fetchArmorList(campaignId),
+  });
+}
+
+/** A piece of armor (`null` when not found). */
+export function useArmor(campaignId: string, armorId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'armor', armorId),
+    queryFn: () => fetchArmor(campaignId, armorId),
+  });
+}
+
+export function useCreateArmor(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateArmorRequest) => createArmor(campaignId, input),
+    onSuccess: (piece) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'armor', piece.id), piece);
+      refetch(gameplayKey(campaignId, 'armor', piece.id));
+    },
+  });
+}
+
+/** Saves part of a piece of armor; the response becomes the cached piece. */
+export function usePatchArmor(campaignId: string, armorId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'armor', armorId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateArmorRequest; keepalive?: boolean }) =>
+      patchArmor(campaignId, armorId, patch, { keepalive }),
+    onSuccess: (piece) => {
+      queryClient.setQueryData(key, piece);
+      refetch(key);
+    },
+  });
+}
+
+export function useDeleteArmor(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (armorId: string) => deleteArmor(campaignId, armorId),
+    onSuccess: (_result, armorId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'armor', armorId) });
       refetch();
     },
   });

@@ -2,16 +2,18 @@ import { DOMAIN_NAME_MAX, domainNameSchema, type Campaign } from '@stagehand/sha
 import { PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
+
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useCampaign, useCreateDomain, useDomains } from '@/lib/queries';
-import { domainPath, statBlocksPath } from '@/lib/records';
+import { useArmorList, useCampaign, useCreateDomain, useDomains, useWeapons } from '@/lib/queries';
+import { armorListPath, domainPath, statBlocksPath, weaponsPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
  * `/campaigns/:campaignId/gameplay` (F4.3, governance §8 "Gameplay records"): the game's
- * mechanics, apart from the campaign's records. Domains for everyone; stat blocks for the GM.
+ * mechanics, apart from the campaign's records. Domains, weapons and armor (F4.4) for everyone;
+ * stat blocks for the GM.
  */
 export function GameplayPage() {
   const { campaignId = '' } = useParams();
@@ -99,9 +101,10 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
               ))}
             </ul>
           )}
-          <p className="text-xs text-muted-foreground"></p>
         </CardContent>
       </Card>
+
+      <GearCard campaign={campaign} />
 
       {isGm && (
         <Card>
@@ -134,5 +137,53 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
         }}
       />
     </div>
+  );
+}
+
+function countOf(count: number | undefined, one: string, many: string): string {
+  if (count === undefined) return '';
+  return count === 1 ? `1 ${one}` : `${String(count)} ${many}`;
+}
+
+/** Weapons and armor (F4.4): a row for each, with how many the campaign has. */
+function GearCard({ campaign }: { campaign: Campaign }) {
+  const weapons = useWeapons(campaign.id);
+  const armor = useArmorList(campaign.id);
+  const rows = [
+    {
+      name: 'Weapons',
+      to: weaponsPath(campaign.id),
+      count: countOf(weapons.data?.length, 'weapon', 'weapons'),
+    },
+    {
+      name: 'Armor',
+      to: armorListPath(campaign.id),
+      count: countOf(armor.data?.length, 'piece', 'pieces'),
+    },
+  ];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <h2 className="text-xl">Gear</h2>
+        </CardTitle>
+        <CardDescription>Weapons and armor, by tier, for characters to equip.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul aria-label="Gear" className="divide-y rounded-md border">
+          {rows.map((row) => (
+            <li key={row.name}>
+              <Link
+                to={row.to}
+                className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted"
+              >
+                <span className="font-medium">{row.name}</span>
+                <span className="text-sm text-muted-foreground">{row.count}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }

@@ -28,9 +28,28 @@ export function characterPath(campaignId: string, characterId: string): string {
   return `/campaigns/${campaignId}/characters/${characterId}`;
 }
 
-/** The gameplay section (F4.3): domains and their cards, and the GM's stat blocks. */
+/**
+ * The gameplay section (F4.3): domains and their cards, weapons and armor (F4.4), and the GM's
+ * stat blocks.
+ */
 export function gameplayPath(campaignId: string): string {
   return `/campaigns/${campaignId}/gameplay`;
+}
+
+export function weaponsPath(campaignId: string): string {
+  return `/campaigns/${campaignId}/gameplay/weapons`;
+}
+
+export function weaponPath(campaignId: string, weaponId: string): string {
+  return `/campaigns/${campaignId}/gameplay/weapons/${weaponId}`;
+}
+
+export function armorListPath(campaignId: string): string {
+  return `/campaigns/${campaignId}/gameplay/armor`;
+}
+
+export function armorPath(campaignId: string, armorId: string): string {
+  return `/campaigns/${campaignId}/gameplay/armor/${armorId}`;
 }
 
 export function domainPath(campaignId: string, domainId: string): string {
