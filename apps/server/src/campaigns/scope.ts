@@ -16,6 +16,8 @@ import type { Database } from '../db/client';
 import { campaignMembers, campaigns } from '../db/schema';
 import { httpError } from '../http/errors';
 
+import { copyGameplayRecords, seedDefaultDomains } from './gameplay';
+
 type CampaignRow = typeof campaigns.$inferSelect;
 
 /** One user's verified membership of one campaign. */
@@ -50,16 +52,42 @@ export async function listCampaignsForUser(db: Database, userId: string): Promis
   return rows.map((row) => toCampaign(row.campaign, row.role));
 }
 
-/** Creates a campaign with `userId` as its GM: the campaign row and GM membership together. */
+/**
+ * Creates a campaign with `userId` as its GM: the campaign row, GM membership and gameplay
+ * records together (F4.3). With `copyGameplayFrom`, a campaign the user is GM of (archived or
+ * not), it gets a copy of that campaign's gameplay records; otherwise the ten default domains
+ * (19.14). Any other campaign is 404, as if it didn't exist.
+ */
 export async function createCampaign(
   db: Database,
   userId: string,
-  name: string,
+  request: { name: string; copyGameplayFrom?: string | undefined },
 ): Promise<Campaign> {
   return db.transaction(async (tx) => {
-    const [row] = await tx.insert(campaigns).values({ name, gmUserId: userId }).returning();
+    const from = request.copyGameplayFrom;
+    if (from !== undefined) {
+      const [source] = await tx
+        .select({ id: campaigns.id })
+        .from(campaignMembers)
+        .innerJoin(campaigns, eq(campaigns.id, campaignMembers.campaignId))
+        .where(
+          and(
+            eq(campaignMembers.campaignId, from),
+            eq(campaignMembers.userId, userId),
+            eq(campaignMembers.role, 'gm'),
+          ),
+        );
+      if (source === undefined) throw httpError(404, 'Campaign not found');
+    }
+
+    const [row] = await tx
+      .insert(campaigns)
+      .values({ name: request.name, gmUserId: userId })
+      .returning();
     if (row === undefined) throw new Error('campaign insert returned no row');
     await tx.insert(campaignMembers).values({ campaignId: row.id, userId, role: 'gm' });
+    if (from === undefined) await seedDefaultDomains(tx, row.id);
+    else await copyGameplayRecords(tx, from, row.id);
     return toCampaign(row, 'gm');
   });
 }

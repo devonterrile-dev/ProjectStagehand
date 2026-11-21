@@ -52,6 +52,7 @@ import { emptyContextPack } from '../ai-import/context';
 import { buildContextPack, type BuiltPack } from '../ai-import/context-pack';
 import type { GenerateResult } from '../ai-import/generate';
 import type { Database } from '../db/client';
+import { isUniqueViolation } from '../db/pg-errors';
 import { aiImports, aiProposals, campaigns, recordLinks, records } from '../db/schema';
 import { httpError } from '../http/errors';
 
@@ -320,12 +321,6 @@ export async function importStepInputs(
   importId: string,
 ): Promise<StepInputs> {
   return stepInputs(await requireImport(db, scope, importId));
-}
-
-/** True for Postgres's unique_violation, however drizzle wraps it. */
-function isUniqueViolation(error: unknown): boolean {
-  const wrapped = error as { code?: unknown; cause?: { code?: unknown } } | null;
-  return (wrapped?.cause?.code ?? wrapped?.code) === '23505';
 }
 
 const ANOTHER_RUNNING = 'Another import of yours is still running. Wait for it to finish.';

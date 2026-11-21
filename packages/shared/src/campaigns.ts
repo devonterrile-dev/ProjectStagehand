@@ -33,9 +33,14 @@ export const campaignListResponseSchema = z.object({
 });
 export type CampaignListResponse = z.infer<typeof campaignListResponseSchema>;
 
-/** `POST /api/campaigns`. The caller becomes the campaign's GM. */
+/**
+ * `POST /api/campaigns`. The caller becomes the campaign's GM. With `copyGameplayFrom`, the new
+ * campaign gets a copy of that campaign's gameplay records (one the caller is GM of, F4.3,
+ * 19.14); without it, it starts with the ten default domains.
+ */
 export const createCampaignRequestSchema = z.strictObject({
   name: campaignNameSchema,
+  copyGameplayFrom: z.uuid().optional(),
 });
 export type CreateCampaignRequest = z.infer<typeof createCampaignRequestSchema>;
 

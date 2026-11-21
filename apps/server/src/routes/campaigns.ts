@@ -50,7 +50,7 @@ export function registerCampaignRoutes(
     const parsed = createCampaignRequestSchema.safeParse(request.body);
     if (!parsed.success) return sendValidationError(reply, parsed.error);
 
-    const campaign = await createCampaign(deps.db, sessionOf(request).user.id, parsed.data.name);
+    const campaign = await createCampaign(deps.db, sessionOf(request).user.id, parsed.data);
     return reply.code(201).send(campaign);
   });
 

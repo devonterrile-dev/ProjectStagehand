@@ -25,7 +25,7 @@ interface CampaignRoute {
  * exists that isn't listed here, so new routes can't skip the isolation checks.
  * `:userId` is filled with the GM's id and other inner ids with a random uuid; the checks
  * here run before those are looked up. Inner-id isolation is tested in `invites.int.test.ts`,
- * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts`,
+ * `records.int.test.ts`, `characters.int.test.ts`, `stat-blocks.int.test.ts`, `gameplay.int.test.ts`,
  * `ai-imports.int.test.ts`, `visuals.int.test.ts`, `scenes.int.test.ts`,
  * `play-sessions.int.test.ts` and `journal.int.test.ts`.
  */
@@ -109,6 +109,37 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/stat-blocks/:statBlockId', gmOnly: true },
+  // Gameplay records (F4.3): every member reads them, only the GM writes them.
+  { method: 'GET', path: '/api/campaigns/:campaignId/domains', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/domains',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/domains/:domainId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/domains/:domainId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/domains/:domainId', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/domain-cards', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/domain-cards',
+    gmOnly: true,
+    payload: { domainId: '00000000-0000-4000-8000-000000000000', name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/domain-cards/:cardId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/domain-cards/:cardId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/domain-cards/:cardId', gmOnly: true },
   { method: 'GET', path: '/api/campaigns/:campaignId/imports', gmOnly: true },
   {
     method: 'POST',
