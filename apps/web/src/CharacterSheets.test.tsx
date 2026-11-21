@@ -145,6 +145,25 @@ describe('The GM’s sheet editor', () => {
     expect(bodiesOf(fetchMock, 'PATCH')).toEqual([]);
   });
 
+  it("saves the PC's own Hope bonus, and refuses a level above the ruleset's (F4.1)", async () => {
+    const { coast, vex, fetchMock } = gmWorld();
+    renderAt(sheetUrl(coast, vex));
+
+    expect(await screen.findByText('added to +2')).toBeDefined();
+    const level = screen.getByLabelText('Level');
+    fireEvent.change(level, { target: { value: '11' } });
+    fireEvent.blur(level);
+    expect(await screen.findByText('Must be 10 or less')).toBeDefined();
+    fireEvent.change(level, { target: { value: '1' } });
+
+    const bonus = screen.getByLabelText('Hope bonus');
+    fireEvent.change(bonus, { target: { value: '1' } });
+    fireEvent.blur(bonus);
+    await waitFor(() => {
+      expect(bodiesOf(fetchMock, 'PATCH')).toEqual([{ hopeBonus: 1 }]);
+    });
+  });
+
   it('sends every trait when one changes, at once', async () => {
     const { coast, vex, fetchMock } = gmWorld();
     renderAt(sheetUrl(coast, vex));
@@ -154,7 +173,7 @@ describe('The GM’s sheet editor', () => {
       within(agility)
         .getAllByRole('option')
         .map((o) => o.textContent),
-    ).toEqual(['−1', '0', '+1', '+2']);
+    ).toEqual(['−1', '0', '+1', '+2', '+3', '+4', '+5']);
     fireEvent.change(agility, { target: { value: '2' } });
 
     await waitFor(() => {
@@ -355,6 +374,7 @@ describe('A player’s own sheet', () => {
       hpMax: 6,
       hpCurrent: 5,
       hope: 2,
+      hopeBonus: 1,
       experiences: [{ name: 'Sailor', bonus: 2 }],
     });
     const other = member('Jun');
@@ -373,9 +393,11 @@ describe('A player’s own sheet', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Open sheet' }));
 
     expect(await screen.findByRole('heading', { name: 'Vex', level: 1 })).toBeDefined();
-    expect(screen.getByText('Level 3 Ranger')).toBeDefined();
+    expect(screen.getByText('Level 3 Ranger · tier 2')).toBeDefined();
     expect(screen.getByText('5 of 6')).toBeDefined();
     expect(screen.getByText('2 of 6')).toBeDefined();
+    // The ruleset's +2 and Vex's own +1.
+    expect(screen.getByText('Spending Hope adds').nextSibling?.textContent).toBe('+3');
     expect(screen.getByText('Sailor')).toBeDefined();
     expect(screen.queryAllByRole('textbox')).toHaveLength(0);
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);

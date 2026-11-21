@@ -827,7 +827,7 @@ describe('The live room', () => {
 
   describe('rolls, Hope and Fear (F3.6)', () => {
     /** A PC for `player`, with Agility +2 and the Hope given. */
-    async function pc(campaign: Campaign, player: Person, name: string, hope = 2) {
+    async function pc(campaign: Campaign, player: Person, name: string, hope = 2, hopeBonus = 0) {
       const made = await call('POST', `/api/campaigns/${campaign.id}/characters`, gm, {
         name,
         assignToUserId: player.id,
@@ -837,6 +837,7 @@ describe('The live room', () => {
       const patched = await call('PATCH', `/api/campaigns/${campaign.id}/characters/${id}`, gm, {
         traits: { agility: 2, strength: 1, finesse: 0, instinct: -1, presence: 0, knowledge: 0 },
         hope,
+        hopeBonus,
       });
       expect(patched.statusCode, patched.body).toBe(200);
       return id;
@@ -856,10 +857,10 @@ describe('The live room', () => {
       return response;
     }
 
-    /** A running session with Mira (player 1) and Bram (player 2), both seated. */
+    /** A running session with Mira (player 1, own Hope bonus +1) and Bram (player 2), seated. */
     async function rollTable(name: string) {
       const campaign = await table(name, 2);
-      const mira = await pc(campaign, players[0] ?? gm, 'Mira');
+      const mira = await pc(campaign, players[0] ?? gm, 'Mira', 2, 1);
       const bram = await pc(campaign, players[1] ?? gm, 'Bram', 0);
       await start(campaign);
       const director = await seated(gm, campaign);
@@ -890,7 +891,7 @@ describe('The live room', () => {
       await end(campaign);
     });
 
-    it('calls a roll, and its player rolls it, spending Hope for +3', async () => {
+    it("calls a roll, and its player rolls it, spending Hope for +2 plus the PC's own +1", async () => {
       const { campaign, mira, director, first, second } = await rollTable('Climbing');
 
       expect(

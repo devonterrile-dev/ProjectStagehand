@@ -88,7 +88,7 @@ export const FOREIGN_FIELD: Record<RecordType, Record<string, unknown>> = {
   session_notes: { kind: 'x' },
 };
 
-/** Every editable key of a character sheet, valid for ruleset 1 (F1.4). */
+/** Every editable key of a character sheet, valid for ruleset 2 (F1.4, F4.1). */
 export const FULL_SHEET_PATCH = {
   name: 'Vex Tidecaller',
   level: 3,
@@ -108,6 +108,7 @@ export const FULL_SHEET_PATCH = {
   stressMax: 6,
   stressCurrent: 2,
   hope: 4,
+  hopeBonus: 1,
   proficiency: 2,
   experiences: [{ name: 'Sailor', bonus: 2 }],
   weapons: {

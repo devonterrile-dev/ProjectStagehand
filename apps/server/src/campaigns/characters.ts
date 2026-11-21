@@ -77,6 +77,7 @@ function toCharacterSheet(
     stressMax: row.stressMax,
     stressCurrent: row.stressCurrent,
     hope: row.hope,
+    hopeBonus: row.hopeBonus,
     proficiency: row.proficiency,
     experiences: row.experiences,
     weapons: row.weapons,
@@ -114,6 +115,7 @@ function toPlayerCharacterSheet(sheet: CharacterSheet): PlayerCharacterSheet {
     stressMax: sheet.stressMax,
     stressCurrent: sheet.stressCurrent,
     hope: sheet.hope,
+    hopeBonus: sheet.hopeBonus,
     proficiency: sheet.proficiency,
     experiences: sheet.experiences,
     weapons: sheet.weapons,
@@ -146,7 +148,9 @@ export async function listCharacters(db: Database, scope: CampaignScope): Promis
 
 /**
  * Creates a PC with a blank sheet, and gives it to `assignToUserId` (a player in this
- * campaign) if set. Callers check `assertGm` and `assertWritable`.
+ * campaign) if set. From ruleset v2 the sheet starts with the ruleset's start values (19.17):
+ * its Hope, Stress slots with none marked, and proficiency. Callers check `assertGm` and
+ * `assertWritable`.
  */
 export async function createCharacter(
   db: Database,
@@ -157,7 +161,7 @@ export async function createCharacter(
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(characters)
-      .values({ campaignId: scope.campaignId, name })
+      .values({ campaignId: scope.campaignId, name, ...startValues(scope) })
       .returning({ id: characters.id, name: characters.name });
     if (row === undefined) throw new Error('character insert returned no row');
 
@@ -166,6 +170,15 @@ export async function createCharacter(
     }
     return characterSchema.parse({ ...row, assignedToUserId: assignToUserId ?? null });
   });
+}
+
+/** The start values of the campaign's ruleset, as columns; none for a ruleset without them. */
+function startValues(scope: CampaignScope) {
+  const { start, proficiency } = rulesetFor(scope.campaign.rulesetVersion);
+  return {
+    ...(start && { hope: start.hope, stressMax: start.stressSlots, stressCurrent: 0 }),
+    ...(proficiency && { proficiency: proficiency.start }),
+  };
 }
 
 async function findSheet(

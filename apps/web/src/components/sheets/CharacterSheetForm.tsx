@@ -166,12 +166,17 @@ export function CharacterSheetForm({
     if (!waiting) commit('weapons', next, now);
   }
 
-  const number = (key: NumberKey, label: string, extra: { suffix?: string; min?: number } = {}) => (
+  const number = (
+    key: NumberKey,
+    label: string,
+    extra: { suffix?: string; min?: number; max?: number } = {},
+  ) => (
     <NumberField
       id={`sheet-${key}`}
       label={label}
       initial={sheet[key]}
       min={extra.min ?? 0}
+      max={extra.max}
       suffix={extra.suffix}
       disabled={readOnly}
       error={errors[key] ?? null}
@@ -236,7 +241,7 @@ export function CharacterSheetForm({
 
       <Group title="Identity">
         <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
-          {number('level', 'Level', { min: 1 })}
+          {number('level', 'Level', { min: 1, max: ruleset.levels?.max })}
           <TextField
             id="sheet-className"
             label="Class"
@@ -319,8 +324,11 @@ export function CharacterSheetForm({
       </Group>
 
       <Group title="Hope and proficiency">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {number('hope', 'Hope', { suffix: `of ${String(ruleset.hopeMax)}` })}
+          {number('hopeBonus', 'Hope bonus', {
+            suffix: `added to +${String(ruleset.hopeSpendBonus)}`,
+          })}
           {number('proficiency', 'Proficiency')}
         </div>
       </Group>

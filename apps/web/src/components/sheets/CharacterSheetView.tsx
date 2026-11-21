@@ -1,5 +1,7 @@
 import {
+  hopeSpendBonusOf,
   isEmptyRichText,
+  tierOf,
   type Ability,
   type PlayerCharacterSheet,
   type Ruleset,
@@ -31,6 +33,7 @@ export function CharacterSheetView({
       : [{ slot: 'Secondary', weapon: sheet.weapons.secondary }]),
     ...sheet.weapons.inventory.map((weapon) => ({ slot: 'Spare', weapon })),
   ];
+  const tier = tierOf(sheet.level, ruleset);
   const gold = sheet.gold;
   const hasGold = gold.handfuls + gold.bags + gold.chests > 0;
 
@@ -41,6 +44,7 @@ export function CharacterSheetView({
         <p className="text-muted-foreground">
           Level {sheet.level}
           {sheet.className !== '' && ` ${sheet.className}`}
+          {tier !== null && ` · tier ${String(tier)}`}
         </p>
       </div>
 
@@ -89,6 +93,7 @@ export function CharacterSheetView({
         <Stats
           items={[
             ['Hope', `${String(sheet.hope)} of ${String(ruleset.hopeMax)}`],
+            ['Spending Hope adds', `+${String(hopeSpendBonusOf(ruleset, sheet.hopeBonus))}`],
             ['Proficiency', sheet.proficiency],
           ]}
         />

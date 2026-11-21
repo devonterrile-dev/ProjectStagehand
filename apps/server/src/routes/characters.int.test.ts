@@ -139,7 +139,7 @@ describe('Character sheets API', () => {
   }
 
   describe('a new PC', () => {
-    it('starts as a blank sheet with every trait at 0', async () => {
+    it("starts as a blank sheet with every trait at 0, and the ruleset's start values", async () => {
       const pc = await newPc('Blank Slate');
       expect(await sheetOf(pc.id)).toMatchObject({
         id: pc.id,
@@ -153,7 +153,10 @@ describe('Character sheets API', () => {
         evasion: 0,
         hpMax: 0,
         hpCurrent: 0,
+        stressMax: 6,
+        stressCurrent: 0,
         hope: 0,
+        hopeBonus: 0,
         proficiency: 1,
         experiences: [],
         weapons: { primary: null, secondary: null, inventory: [] },
@@ -210,7 +213,7 @@ describe('Character sheets API', () => {
     it.each([
       [
         'a trait out of range',
-        { traits: { ...FULL_SHEET_PATCH.traits, agility: 3 } },
+        { traits: { ...FULL_SHEET_PATCH.traits, agility: 6 } },
         'traits.agility',
       ],
       ['a trait not in the ruleset', { traits: { ...FULL_SHEET_PATCH.traits, luck: 1 } }, 'traits'],
@@ -225,6 +228,8 @@ describe('Character sheets API', () => {
       ['a negative number', { evasion: -1 }, 'evasion'],
       ['a fraction', { evasion: 1.5 }, 'evasion'],
       ['level 0', { level: 0 }, 'level'],
+      ['a level above the ruleset max', { level: 11 }, 'level'],
+      ['a negative Hope bonus', { hopeBonus: -1 }, 'hopeBonus'],
       ['null on a number', { hpMax: null }, 'hpMax'],
       ['null on a list', { experiences: null }, 'experiences'],
       [
@@ -397,6 +402,7 @@ describe('Character sheets API', () => {
       ['Stress above Stress max', { stressMax: 2, stressCurrent: 3 }],
       ['marked slots above the slots', { armorSlotsMax: 1, armorSlotsMarked: 2 }],
       ['a negative number', { evasion: -1 }],
+      ['a negative Hope bonus', { hopeBonus: -1 }],
       ['level 0', { level: 0 }],
       ['a long class name', { className: 'x'.repeat(81) }],
     ])('refuses %s (check constraint)', async (_, values) => {

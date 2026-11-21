@@ -6,6 +6,7 @@
  * Only the data-access layer in `src/campaigns/` queries these tables.
  */
 import {
+  DEFAULT_RULESET_VERSION,
   emptyRichText,
   type Ability,
   type Armor,
@@ -50,7 +51,8 @@ export const campaigns = pgTable(
     gmUserId: uuid('gm_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
-    rulesetVersion: integer('ruleset_version').default(1).notNull(),
+    /** `rulesetFor` (§9). Every campaign moved to version 2 with F4.1 (migration 0020). */
+    rulesetVersion: integer('ruleset_version').default(DEFAULT_RULESET_VERSION).notNull(),
     /** Null = active. Set = archived, which makes the campaign read-only (D-20). */
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -159,6 +161,8 @@ export const characters = pgTable(
     stressMax: sheetInt('stress_max'),
     stressCurrent: sheetInt('stress_current'),
     hope: sheetInt('hope'),
+    /** The PC's own Hope bonus from level-ups, added to the ruleset's when Hope is spent. */
+    hopeBonus: sheetInt('hope_bonus'),
     proficiency: sheetInt('proficiency', 1),
 
     experiences: jsonb('experiences').$type<Experience[]>().default([]).notNull(),
@@ -189,7 +193,7 @@ export const characters = pgTable(
     check('characters_level_min', sql`${table.level} >= 1`),
     check(
       'characters_numbers_nonnegative',
-      sql`least(${table.evasion}, ${table.armorScore}, ${table.armorSlotsMax}, ${table.armorSlotsMarked}, ${table.minorThreshold}, ${table.majorThreshold}, ${table.severeThreshold}, ${table.hpMax}, ${table.hpCurrent}, ${table.stressMax}, ${table.stressCurrent}, ${table.hope}, ${table.proficiency}) >= 0`,
+      sql`least(${table.evasion}, ${table.armorScore}, ${table.armorSlotsMax}, ${table.armorSlotsMarked}, ${table.minorThreshold}, ${table.majorThreshold}, ${table.severeThreshold}, ${table.hpMax}, ${table.hpCurrent}, ${table.stressMax}, ${table.stressCurrent}, ${table.hope}, ${table.hopeBonus}, ${table.proficiency}) >= 0`,
     ),
     check('characters_hp_current_max', sql`${table.hpCurrent} <= ${table.hpMax}`),
     check('characters_stress_current_max', sql`${table.stressCurrent} <= ${table.stressMax}`),

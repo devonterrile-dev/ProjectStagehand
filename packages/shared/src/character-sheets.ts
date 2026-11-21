@@ -65,6 +65,8 @@ export const characterSheetSchema = z.object({
   stressCurrent: z.int(),
 
   hope: z.int(),
+  /** The PC's own Hope bonus from level-ups, added to the ruleset's when Hope is spent (F4.1). */
+  hopeBonus: z.int(),
   proficiency: z.int(),
 
   experiences: z.array(experienceSchema),
@@ -109,6 +111,7 @@ const PLAYER_SHEET_KEYS = {
   stressMax: true,
   stressCurrent: true,
   hope: true,
+  hopeBonus: true,
   proficiency: true,
   experiences: true,
   weapons: true,
@@ -150,6 +153,7 @@ function patchShapeFor(ruleset: Ruleset) {
   const traitIds = traitIdsOf(ruleset);
   const { min, max } = ruleset.traitModifier;
   const range = `Must be from ${String(min)} to +${String(max)}`;
+  const levelMax = ruleset.levels?.max ?? SHEET_NUMBER_MAX;
   const modifier = z.int('Must be a whole number').min(min, range).max(max, range);
   const traits = z.strictObject(Object.fromEntries(traitIds.map((id) => [id, modifier])));
   const weapon = weaponSchemaWith(
@@ -160,7 +164,7 @@ function patchShapeFor(ruleset: Ruleset) {
     level: z
       .int('Must be a whole number')
       .min(1, 'Level must be 1 or more')
-      .max(SHEET_NUMBER_MAX, `Must be ${String(SHEET_NUMBER_MAX)} or less`),
+      .max(levelMax, `Must be ${String(levelMax)} or less`),
     className: shortTextSchema,
     publicDescription: richTextSchema,
     gmNotes: richTextSchema,
@@ -180,6 +184,7 @@ function patchShapeFor(ruleset: Ruleset) {
       .int('Must be a whole number')
       .min(0, 'Must be 0 or more')
       .max(ruleset.hopeMax, `Hope can't be above ${String(ruleset.hopeMax)}`),
+    hopeBonus: sheetNumberSchema,
     proficiency: sheetNumberSchema,
     experiences: sheetListSchema(experienceSchema),
     weapons: z.strictObject({

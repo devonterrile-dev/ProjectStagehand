@@ -312,13 +312,14 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
   const VEX = uuid();
   const BRAM = uuid();
 
-  /** A campaign where Mira plays Vex, with Agility +2 and 2 Hope. */
+  /** A campaign where Mira plays Vex, with Agility +2, 2 Hope and an own Hope bonus of +1. */
   function party(withPc = true) {
     const coast = campaign({ name: 'Painted Coast', role: 'player' });
     const vex = {
       id: VEX,
       name: 'Vex',
       hope: 2,
+      hopeBonus: 1,
       traits: { agility: 2, strength: 0, finesse: 0, instinct: 0, presence: 0, knowledge: 0 },
       assignedToUserId: MIRA.id,
     };

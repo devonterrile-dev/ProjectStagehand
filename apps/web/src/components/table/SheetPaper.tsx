@@ -1,4 +1,5 @@
 import {
+  hopeSpendBonusOf,
   signed,
   traitLabel,
   type PlayerCharacterSheet,
@@ -114,7 +115,7 @@ export function SheetPaper({ sheet, ruleset, call, onRoll, onBack }: SheetPaperP
                 setSpendHope(event.target.checked);
               }}
             />
-            Spend 1 Hope for +{ruleset.hopeSpendBonus}
+            Spend 1 Hope for +{hopeSpendBonusOf(ruleset, sheet.hopeBonus)}
             {!canSpend && <span className="text-sm text-stone-600">(no Hope to spend)</span>}
           </label>
           <button

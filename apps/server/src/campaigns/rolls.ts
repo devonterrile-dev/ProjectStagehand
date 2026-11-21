@@ -224,7 +224,12 @@ export async function makeRoll(
     }
 
     const [pc] = await tx
-      .select({ name: characters.name, hope: characters.hope, traits: characters.traits })
+      .select({
+        name: characters.name,
+        hope: characters.hope,
+        hopeBonus: characters.hopeBonus,
+        traits: characters.traits,
+      })
       .from(characters)
       .where(and(eq(characters.id, call.characterId), eq(characters.campaignId, scope.campaignId)))
       .for('update');
@@ -238,6 +243,7 @@ export async function makeRoll(
       modifier,
       difficulty: call.difficulty,
       spendHope: request.spendHope,
+      pcHopeBonus: pc.hopeBonus,
       hope: pc.hope,
       fear: session.fear,
       ruleset,

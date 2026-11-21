@@ -377,15 +377,18 @@ export {
   rulesetFor,
   traitIdsOf,
   type Ruleset,
+  type RulesetTier,
   type RulesetTrait,
 } from './ruleset';
 export {
   DIE_FACES,
+  hopeSpendBonusOf,
   isDie,
   resolveActionRoll,
   setFear,
   setHope,
   spendFear,
+  tierOf,
   type ActionRollInput,
   type ActionRollOutcome,
   type ActionRollRefusal,

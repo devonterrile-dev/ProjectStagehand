@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import { rulesetFor } from './ruleset';
 import {
+  hopeSpendBonusOf,
   isDie,
   resolveActionRoll,
   setFear,
   setHope,
   spendFear,
+  tierOf,
   type ActionRollInput,
 } from './rules';
 
-const ruleset = rulesetFor(1);
+const ruleset = rulesetFor(2);
 
 function roll(overrides: Partial<ActionRollInput> = {}) {
   return resolveActionRoll({
@@ -18,6 +20,7 @@ function roll(overrides: Partial<ActionRollInput> = {}) {
     modifier: 1,
     difficulty: 12,
     spendHope: false,
+    pcHopeBonus: 0,
     hope: 2,
     fear: 3,
     ruleset,
@@ -75,11 +78,25 @@ describe('resolveActionRoll', () => {
 
   it('spends 1 Hope for the bonus', () => {
     expect(roll({ spendHope: true, dice: { hope: 2, fear: 9 } })).toMatchObject({
-      total: 15,
-      hopeBonus: 3,
+      total: 14,
+      hopeBonus: 2,
       hope: 1,
       fear: 4,
     });
+  });
+
+  it("adds the PC's own Hope bonus when Hope is spent, and only then", () => {
+    expect(roll({ spendHope: true, pcHopeBonus: 2, dice: { hope: 2, fear: 9 } })).toMatchObject({
+      total: 16,
+      hopeBonus: 4,
+    });
+    expect(roll({ pcHopeBonus: 2 })).toMatchObject({ total: 12, hopeBonus: 0 });
+  });
+
+  it('keeps version 1 at +3', () => {
+    expect(
+      roll({ ruleset: rulesetFor(1), spendHope: true, dice: { hope: 2, fear: 9 } }),
+    ).toMatchObject({ total: 15, hopeBonus: 3 });
   });
 
   it('spends then gains back when the Hope die wins', () => {
@@ -132,6 +149,27 @@ describe('resolveActionRoll', () => {
       gained: 'fear',
       fear: 12,
     });
+  });
+});
+
+describe('hopeSpendBonusOf', () => {
+  it("is the ruleset's bonus plus the PC's", () => {
+    expect(hopeSpendBonusOf(ruleset, 0)).toBe(2);
+    expect(hopeSpendBonusOf(ruleset, 3)).toBe(5);
+  });
+});
+
+describe('tierOf', () => {
+  it('finds the tier of each level, edges included', () => {
+    expect([1, 2, 4, 5, 7, 8, 10].map((level) => tierOf(level, ruleset))).toEqual([
+      1, 2, 2, 3, 3, 4, 4,
+    ]);
+  });
+
+  it('is null outside every tier, or for a ruleset without tiers', () => {
+    expect(tierOf(0, ruleset)).toBeNull();
+    expect(tierOf(11, ruleset)).toBeNull();
+    expect(tierOf(3, rulesetFor(1))).toBeNull();
   });
 });
 

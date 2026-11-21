@@ -17,8 +17,10 @@ export interface ActionRollInput {
   /** The PC's modifier for the called trait. */
   readonly modifier: number;
   readonly difficulty: number;
-  /** Whether the player spends 1 Hope for the ruleset's bonus (open question 19.1). */
+  /** Whether the player spends 1 Hope for the bonus (open question 19.1). */
   readonly spendHope: boolean;
+  /** The PC's own Hope bonus from level-ups, added to the ruleset's when Hope is spent. */
+  readonly pcHopeBonus: number;
   /** The PC's Hope before the roll. */
   readonly hope: number;
   /** The GM's Fear before the roll. */
@@ -32,7 +34,7 @@ export interface ActionRollOutcome {
   readonly ok: true;
   /** Dice plus modifier plus the Hope bonus. */
   readonly total: number;
-  /** The bonus added for spending Hope, 0 when none was spent. */
+  /** The bonus added for spending Hope (the ruleset's plus the PC's), 0 when none was spent. */
   readonly hopeBonus: number;
   /** Both dice match: an automatic success that gives the player 1 Hope. */
   readonly critical: boolean;
@@ -64,7 +66,7 @@ export function resolveActionRoll(input: ActionRollInput): ActionRollResult {
   if (!isDie(dice.hope) || !isDie(dice.fear)) return { ok: false, reason: 'BAD_DIE' };
   if (input.spendHope && input.hope < 1) return { ok: false, reason: 'NO_HOPE' };
 
-  const hopeBonus = input.spendHope ? ruleset.hopeSpendBonus : 0;
+  const hopeBonus = input.spendHope ? hopeSpendBonusOf(ruleset, input.pcHopeBonus) : 0;
   const total = dice.hope + dice.fear + input.modifier + hopeBonus;
   const critical = dice.hope === dice.fear;
   const success = critical || total >= input.difficulty;
@@ -74,6 +76,20 @@ export function resolveActionRoll(input: ActionRollInput): ActionRollResult {
   const hope = gained === 'hope' ? Math.min(hopeAfterSpend + 1, ruleset.hopeMax) : hopeAfterSpend;
   const fear = gained === 'fear' ? Math.min(input.fear + 1, ruleset.fearCap) : input.fear;
   return { ok: true, total, hopeBonus, critical, success, gained, hope, fear };
+}
+
+/** What spending 1 Hope adds to a roll: the ruleset's bonus plus the PC's own (§9). */
+export function hopeSpendBonusOf(ruleset: Ruleset, pcHopeBonus: number): number {
+  return ruleset.hopeSpendBonus + pcHopeBonus;
+}
+
+/**
+ * The tier a level is in (§9 "Levels and tiers"), or null for a ruleset without tiers or a
+ * level outside every tier.
+ */
+export function tierOf(level: number, ruleset: Ruleset): number | null {
+  const found = ruleset.tiers?.find((tier) => level >= tier.minLevel && level <= tier.maxLevel);
+  return found?.tier ?? null;
 }
 
 /** The GM's Fear after spending `amount`, or null when that is more than they hold. */

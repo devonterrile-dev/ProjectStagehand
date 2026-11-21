@@ -13,9 +13,9 @@ import { rulesetFor } from './ruleset';
 
 const ITEM_ID = '5d1a0c7e-2b3f-4e8a-9c61-0f4b2d7e8a19';
 
-const v1 = rulesetFor(1);
+const v2 = rulesetFor(2);
 const patch = (body: unknown, current?: CharacterSheetLimits) =>
-  characterSheetPatchSchemaFor(v1, current).safeParse(body);
+  characterSheetPatchSchemaFor(v2, current).safeParse(body);
 const messages = (body: unknown, current?: CharacterSheetLimits) => {
   const result = patch(body, current);
   return result.success
@@ -55,6 +55,7 @@ const SHEET: CharacterSheet = {
   stressMax: 6,
   stressCurrent: 0,
   hope: 2,
+  hopeBonus: 1,
   proficiency: 1,
   experiences: [{ name: 'Sailor', bonus: 2 }],
   weapons: { primary: WEAPON, secondary: null, inventory: [] },
@@ -104,6 +105,7 @@ describe('characterSheetPatchSchemaFor', () => {
       traits: TRAITS,
       evasion: 11,
       hope: 6,
+      hopeBonus: 2,
       experiences: [{ name: 'Sailor', bonus: 2 }],
       weapons: { primary: { ...WEAPON, damageDice: '1D10+3' }, secondary: null, inventory: [] },
       armor: {
@@ -141,15 +143,34 @@ describe('characterSheetPatchSchemaFor', () => {
   });
 
   it('checks traits against the ruleset: every trait, in range, nothing else', () => {
-    expect(messages({ traits: { ...TRAITS, agility: 3 } })).toEqual([
-      'traits.agility: Must be from -1 to +2',
+    expect(patch({ traits: { ...TRAITS, agility: 5 } }).success).toBe(true);
+    expect(messages({ traits: { ...TRAITS, agility: 6 } })).toEqual([
+      'traits.agility: Must be from -1 to +5',
     ]);
     expect(messages({ traits: { ...TRAITS, presence: -2 } })).toEqual([
-      'traits.presence: Must be from -1 to +2',
+      'traits.presence: Must be from -1 to +5',
     ]);
     expect(patch({ traits: { ...TRAITS, luck: 1 } }).success).toBe(false);
     const missing = Object.fromEntries(Object.entries(TRAITS).filter(([id]) => id !== 'knowledge'));
     expect(patch({ traits: missing }).success).toBe(false);
+  });
+
+  it('keeps version 1 at -1 to +2 and no level cap', () => {
+    const v1 = characterSheetPatchSchemaFor(rulesetFor(1));
+    expect(v1.safeParse({ traits: { ...TRAITS, agility: 3 } }).success).toBe(false);
+    expect(v1.safeParse({ level: 11 }).success).toBe(true);
+  });
+
+  it("caps the level at the ruleset's highest (F4.1)", () => {
+    expect(patch({ level: 10 }).success).toBe(true);
+    expect(messages({ level: 11 })).toEqual(['level: Must be 10 or less']);
+  });
+
+  it("takes the PC's own Hope bonus as a number of 0 or more", () => {
+    expect(patch({ hopeBonus: 0 }).success).toBe(true);
+    expect(patch({ hopeBonus: 3 }).success).toBe(true);
+    expect(patch({ hopeBonus: -1 }).success).toBe(false);
+    expect(patch({ hopeBonus: 1.5 }).success).toBe(false);
   });
 
   it('caps Hope at the ruleset max', () => {
