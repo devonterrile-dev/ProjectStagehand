@@ -34,6 +34,7 @@ import { registerCharacterRoutes } from './routes/characters';
 import { registerGameplayRoutes } from './routes/gameplay';
 import { registerClassRoutes } from './routes/classes';
 import { registerGearRoutes } from './routes/gear';
+import { registerSpeciesRoutes } from './routes/species';
 import { registerInviteRoutes } from './routes/invites';
 import { registerJournalRoutes } from './routes/journal';
 import { registerMeRoutes } from './routes/me';
@@ -219,6 +220,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerGameplayRoutes(app, { auth: options.auth, db: handle.db });
     registerGearRoutes(app, { auth: options.auth, db: handle.db });
     registerClassRoutes(app, { auth: options.auth, db: handle.db });
+    registerSpeciesRoutes(app, { auth: options.auth, db: handle.db });
     registerImportRoutes(app, {
       auth: options.auth,
       db: handle.db,

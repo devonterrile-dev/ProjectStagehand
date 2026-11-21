@@ -5,7 +5,7 @@
  * records change apart.
  *
  * Each gameplay type is copied here: domains and cards (F4.3), weapons and armor (F4.4), classes
- * and subclasses (F4.5); species join them in F4.6.
+ * and subclasses (F4.5), and species (F4.6).
  */
 import { randomUUID } from 'node:crypto';
 
@@ -17,6 +17,7 @@ import {
   classes,
   domainCards,
   domains,
+  species,
   statBlocks,
   subclasses,
   weapons,
@@ -37,8 +38,8 @@ export async function seedDefaultDomains(tx: DbOrTx, campaignId: string): Promis
 
 /**
  * Copies every gameplay record of `fromId` into `toId`: domains, their cards (pointed at the new
- * domains), stat blocks, weapons, armor, classes (pointed at the new domains and gear) and their
- * subclasses. Stat blocks come without the NPCs that link them: campaign records aren't copied.
+ * domains), stat blocks, weapons, armor, classes (pointed at the new domains and gear), their
+ * subclasses, and species. Stat blocks come without the NPCs that link them: campaign records aren't copied.
  * The caller checks the user may read `fromId` as its GM.
  *
  * Gear and class names needn't be unique, so their copies get ids made here, kept in a map from
@@ -213,4 +214,16 @@ export async function copyGameplayRecords(tx: DbOrTx, fromId: string, toId: stri
     ];
   });
   if (subs.length > 0) await tx.insert(subclasses).values(subs);
+
+  const fromSpecies = await tx.select().from(species).where(eq(species.campaignId, fromId));
+  if (fromSpecies.length > 0) {
+    await tx.insert(species).values(
+      fromSpecies.map((one) => ({
+        campaignId: toId,
+        name: one.name,
+        description: one.description,
+        features: one.features,
+      })),
+    );
+  }
 }

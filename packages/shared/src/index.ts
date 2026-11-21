@@ -177,6 +177,20 @@ export {
   type UpdateSubclassRequest,
 } from './classes';
 export {
+  createSpeciesRequestSchema,
+  SPECIES_NAME_MAX,
+  speciesListResponseSchema,
+  speciesNameSchema,
+  speciesRecordSchema,
+  speciesSummarySchema,
+  updateSpeciesRequestSchema,
+  type CreateSpeciesRequest,
+  type SpeciesListResponse,
+  type SpeciesRecord,
+  type SpeciesSummary,
+  type UpdateSpeciesRequest,
+} from './species';
+export {
   createDomainCardRequestSchema,
   createDomainRequestSchema,
   DEFAULT_DOMAINS,

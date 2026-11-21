@@ -176,6 +176,13 @@
       "when": 1795289542776,
       "tag": "0024_classes",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795292131831,
+      "tag": "0025_species",
+      "breakpoints": true
     }
   ]
 }

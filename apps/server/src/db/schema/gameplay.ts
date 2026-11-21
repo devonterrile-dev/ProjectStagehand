@@ -1,6 +1,6 @@
 /**
  * Gameplay records (governance §8 "Gameplay records", D-58, D-61, D-62): domains and domain
- * cards (F4.3), weapons and armor (F4.4), classes and subclasses (F4.5); species join them in F4.6. Each
+ * cards (F4.3), weapons and armor (F4.4), classes and subclasses (F4.5), and species (F4.6). Each
  * type has its own table with real columns, per campaign. Every member reads them; only the GM writes them.
  *
  * Only the data-access layer in `src/campaigns/` queries these tables.
@@ -335,5 +335,38 @@ export const subclasses = pgTable(
     }).onDelete('cascade'),
     check('subclasses_name_length', sql`char_length(${table.name}) between 1 and 80`),
     check('subclasses_description_length', sql`char_length(${table.description}) <= 2000`),
+  ],
+);
+
+/**
+ * A campaign's species (F4.6, D-64). Features are an ordered list, so a mixed ancestry (F4.8)
+ * can take the first of one species and the second of another. No picture yet (19.19).
+ */
+export const species = pgTable(
+  'species',
+  {
+    id: uuid('id')
+      .default(sql`pg_catalog.gen_random_uuid()`)
+      .primaryKey(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description').default('').notNull(),
+    /** Validated JSON: `FeatureRow[]`, in the GM's order. */
+    features: jsonb('features').$type<FeatureRow[]>().default([]).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    /** One species of a name per campaign, whatever its case. */
+    uniqueIndex('species_campaign_name_idx').on(table.campaignId, sql`lower(${table.name})`),
+    /** Target of the composite FK from sheets (F4.7). */
+    unique('species_id_campaign_id_unique').on(table.id, table.campaignId),
+    check('species_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    check('species_description_length', sql`char_length(${table.description}) <= 2000`),
   ],
 );

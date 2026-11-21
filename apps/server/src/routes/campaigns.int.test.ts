@@ -202,6 +202,22 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/subclasses/:subclassId', gmOnly: true },
+  // Species (F4.6): the same rule.
+  { method: 'GET', path: '/api/campaigns/:campaignId/species', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/species',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/species/:speciesId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/species/:speciesId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/species/:speciesId', gmOnly: true },
   { method: 'GET', path: '/api/campaigns/:campaignId/imports', gmOnly: true },
   {
     method: 'POST',
