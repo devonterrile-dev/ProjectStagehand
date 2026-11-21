@@ -105,6 +105,16 @@ import {
   type UpdateDomainRequest,
   armorListResponseSchema,
   armorRecordSchema,
+  classListResponseSchema,
+  classRecordSchema,
+  subclassRecordSchema,
+  type ClassRecord,
+  type ClassSummary,
+  type CreateClassRequest,
+  type CreateSubclassRequest,
+  type SubclassRecord,
+  type UpdateClassRequest,
+  type UpdateSubclassRequest,
   weaponListResponseSchema,
   weaponRecordSchema,
   type ArmorRecord,
@@ -674,6 +684,81 @@ export async function patchArmor(
 
 export async function deleteArmor(campaignId: string, armorId: string): Promise<void> {
   await send(armorPath(campaignId, armorId), 'DELETE');
+}
+
+const classesPath = (campaignId: string, classId?: string) =>
+  campaignPath(
+    campaignId,
+    classId === undefined ? '/classes' : `/classes/${encodeURIComponent(classId)}`,
+  );
+const subclassesPath = (campaignId: string, subclassId?: string) =>
+  campaignPath(
+    campaignId,
+    subclassId === undefined ? '/subclasses' : `/subclasses/${encodeURIComponent(subclassId)}`,
+  );
+
+/** The campaign's classes, by name (F4.5). Any member. */
+export async function fetchClasses(campaignId: string): Promise<ClassSummary[]> {
+  return classListResponseSchema.parse(await getJson(classesPath(campaignId))).classes;
+}
+
+/** A class with its subclasses, or null when it isn't in this campaign. */
+export async function fetchClass(campaignId: string, classId: string): Promise<ClassRecord | null> {
+  return getOrNull(classesPath(campaignId, classId), (body) => classRecordSchema.parse(body));
+}
+
+export async function createClass(
+  campaignId: string,
+  input: CreateClassRequest,
+): Promise<ClassRecord> {
+  const response = await send(classesPath(campaignId), 'POST', input);
+  return classRecordSchema.parse(await response.json());
+}
+
+export async function patchClass(
+  campaignId: string,
+  classId: string,
+  patch: UpdateClassRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<ClassRecord> {
+  const response = await send(classesPath(campaignId, classId), 'PATCH', patch, init);
+  return classRecordSchema.parse(await response.json());
+}
+
+export async function deleteClass(campaignId: string, classId: string): Promise<void> {
+  await send(classesPath(campaignId, classId), 'DELETE');
+}
+
+/** A subclass, or null when it isn't in this campaign. */
+export async function fetchSubclass(
+  campaignId: string,
+  subclassId: string,
+): Promise<SubclassRecord | null> {
+  return getOrNull(subclassesPath(campaignId, subclassId), (body) =>
+    subclassRecordSchema.parse(body),
+  );
+}
+
+export async function createSubclass(
+  campaignId: string,
+  input: CreateSubclassRequest,
+): Promise<SubclassRecord> {
+  const response = await send(subclassesPath(campaignId), 'POST', input);
+  return subclassRecordSchema.parse(await response.json());
+}
+
+export async function patchSubclass(
+  campaignId: string,
+  subclassId: string,
+  patch: UpdateSubclassRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<SubclassRecord> {
+  const response = await send(subclassesPath(campaignId, subclassId), 'PATCH', patch, init);
+  return subclassRecordSchema.parse(await response.json());
+}
+
+export async function deleteSubclass(campaignId: string, subclassId: string): Promise<void> {
+  await send(subclassesPath(campaignId, subclassId), 'DELETE');
 }
 
 const importsPath = (campaignId: string, rest = '') => campaignPath(campaignId, `/imports${rest}`);

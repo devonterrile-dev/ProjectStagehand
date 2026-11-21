@@ -34,8 +34,12 @@ import type {
   UpdateDomainCardRequest,
   UpdateDomainRequest,
   CreateArmorRequest,
+  CreateClassRequest,
+  CreateSubclassRequest,
   CreateWeaponRequest,
   UpdateArmorRequest,
+  UpdateClassRequest,
+  UpdateSubclassRequest,
   UpdateWeaponRequest,
 } from '@stagehand/shared';
 import {
@@ -136,14 +140,23 @@ import {
   patchDomain,
   patchDomainCard,
   createArmor,
+  createClass,
+  createSubclass,
   createWeapon,
   deleteArmor,
+  deleteClass,
+  deleteSubclass,
   deleteWeapon,
   fetchArmor,
   fetchArmorList,
+  fetchClass,
+  fetchClasses,
+  fetchSubclass,
   fetchWeapon,
   fetchWeapons,
   patchArmor,
+  patchClass,
+  patchSubclass,
   patchWeapon,
 } from './api';
 import { signOut } from './auth-client';
@@ -857,6 +870,109 @@ export function useDeleteArmor(campaignId: string) {
     mutationFn: (armorId: string) => deleteArmor(campaignId, armorId),
     onSuccess: (_result, armorId) => {
       queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'armor', armorId) });
+      refetch();
+    },
+  });
+}
+
+/** The campaign's classes (F4.5), by name. Any member. */
+export function useClasses(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'classes'),
+    queryFn: () => fetchClasses(campaignId),
+  });
+}
+
+/** A class with its subclasses (`null` when not found). */
+export function useClass(campaignId: string, classId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'class', classId),
+    queryFn: () => fetchClass(campaignId, classId),
+  });
+}
+
+export function useCreateClass(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateClassRequest) => createClass(campaignId, input),
+    onSuccess: (cls) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'class', cls.id), cls);
+      refetch(gameplayKey(campaignId, 'class', cls.id));
+    },
+  });
+}
+
+/** Saves part of a class; the response becomes the cached class. */
+export function usePatchClass(campaignId: string, classId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'class', classId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateClassRequest; keepalive?: boolean }) =>
+      patchClass(campaignId, classId, patch, { keepalive }),
+    onSuccess: (cls) => {
+      queryClient.setQueryData(key, cls);
+      refetch(key);
+    },
+  });
+}
+
+/** Deletes a class and its subclasses. */
+export function useDeleteClass(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (classId: string) => deleteClass(campaignId, classId),
+    onSuccess: (_result, classId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'class', classId) });
+      refetch();
+    },
+  });
+}
+
+/** A subclass (`null` when not found). */
+export function useSubclass(campaignId: string, subclassId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'subclass', subclassId),
+    queryFn: () => fetchSubclass(campaignId, subclassId),
+  });
+}
+
+export function useCreateSubclass(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateSubclassRequest) => createSubclass(campaignId, input),
+    onSuccess: (sub) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'subclass', sub.id), sub);
+      refetch(gameplayKey(campaignId, 'subclass', sub.id));
+    },
+  });
+}
+
+/** Saves part of a subclass; the response becomes the cached subclass. */
+export function usePatchSubclass(campaignId: string, subclassId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'subclass', subclassId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateSubclassRequest; keepalive?: boolean }) =>
+      patchSubclass(campaignId, subclassId, patch, { keepalive }),
+    onSuccess: (sub) => {
+      queryClient.setQueryData(key, sub);
+      refetch(key);
+    },
+  });
+}
+
+export function useDeleteSubclass(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (subclassId: string) => deleteSubclass(campaignId, subclassId),
+    onSuccess: (_result, subclassId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'subclass', subclassId) });
       refetch();
     },
   });

@@ -1,10 +1,25 @@
 /**
  * The gameplay records part of the fake API: domains and domain cards (F4.3), weapons and armor
- * (F4.4), following the server's rules and messages (`apps/server/src/campaigns/domains.ts`,
- * `domain-cards.ts`, `gear.ts`).
+ * (F4.4), classes and subclasses (F4.5), following the server's rules and messages
+ * (`apps/server/src/campaigns/domains.ts`, `domain-cards.ts`, `gear.ts`, `classes.ts`).
  * Every campaign starts with the ten default domains unless a test seeds its own.
  */
 import {
+  createClassRequestSchema,
+  createSubclassRequestSchema,
+  DEFAULT_STARTING_EVASION,
+  DEFAULT_STARTING_HP,
+  emptyHopeFeature,
+  SAME_DOMAIN_TWICE,
+  SUGGESTION_NOT_FIT,
+  updateClassRequestSchema,
+  updateSubclassRequestSchema,
+  type ClassRecord,
+  type ClassSummary,
+  type FeatureRow,
+  type HopeFeature,
+  type SubclassRecord,
+  type SuggestedTraits,
   createArmorRequestSchema,
   createDomainCardRequestSchema,
   createDomainRequestSchema,
@@ -51,6 +66,39 @@ export interface GameplayWorldOptions {
   weapons?: Record<string, (Partial<WeaponRecord> & { id: string; name: string })[]>;
   /** A campaign's armor, by campaign id (F4.4). */
   armor?: Record<string, (Partial<ArmorRecord> & { id: string; name: string })[]>;
+  /** A campaign's classes, by campaign id (F4.5). */
+  classes?: Record<string, (Partial<StoredClass> & { id: string; name: string })[]>;
+  /** A campaign's subclasses, by campaign id. */
+  subclasses?: Record<
+    string,
+    (Partial<StoredSubclass> & { id: string; classId: string; name: string })[]
+  >;
+}
+
+export interface StoredClass {
+  id: string;
+  name: string;
+  description: string;
+  domainIds: [string | null, string | null];
+  startingEvasion: number;
+  startingHp: number;
+  hopeFeature: HopeFeature;
+  classFeatures: FeatureRow[];
+  suggestedTraits: SuggestedTraits;
+  suggestedPrimaryWeaponId: string | null;
+  suggestedSecondaryWeaponId: string | null;
+  suggestedArmorId: string | null;
+}
+
+export interface StoredSubclass {
+  id: string;
+  classId: string;
+  name: string;
+  description: string;
+  spellcastTrait: string | null;
+  foundation: FeatureRow[];
+  specialization: FeatureRow[];
+  mastery: FeatureRow[];
 }
 
 interface Ctx {
@@ -123,6 +171,50 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     updatedAt: AT,
     ...seed,
   });
+
+  const classStores = new Map<string, StoredClass[]>();
+  const subclassStores = new Map<string, StoredSubclass[]>();
+  const newClass = (seed: Partial<StoredClass> & { name: string }): StoredClass => ({
+    id: id(),
+    description: '',
+    domainIds: [null, null],
+    startingEvasion: DEFAULT_STARTING_EVASION,
+    startingHp: DEFAULT_STARTING_HP,
+    hopeFeature: emptyHopeFeature(),
+    classFeatures: [],
+    suggestedTraits: {},
+    suggestedPrimaryWeaponId: null,
+    suggestedSecondaryWeaponId: null,
+    suggestedArmorId: null,
+    ...seed,
+  });
+  const newSubclass = (
+    seed: Partial<StoredSubclass> & { classId: string; name: string },
+  ): StoredSubclass => ({
+    id: id(),
+    description: '',
+    spellcastTrait: null,
+    foundation: [],
+    specialization: [],
+    mastery: [],
+    ...seed,
+  });
+  const classesOf = (campaignId: string): StoredClass[] => {
+    let list = classStores.get(campaignId);
+    if (list === undefined) {
+      list = (options.classes?.[campaignId] ?? []).map(newClass);
+      classStores.set(campaignId, list);
+    }
+    return list;
+  };
+  const subclassesOf = (campaignId: string): StoredSubclass[] => {
+    let list = subclassStores.get(campaignId);
+    if (list === undefined) {
+      list = (options.subclasses?.[campaignId] ?? []).map(newSubclass);
+      subclassStores.set(campaignId, list);
+    }
+    return list;
+  };
   const weaponsOf = (campaignId: string): WeaponRecord[] => {
     let list = weaponStores.get(campaignId);
     if (list === undefined) {
@@ -198,6 +290,73 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     const cards = sortedCards(campaignId, domain.id);
     return { ...domain, cardCount: cards.length, cards, createdAt: AT, updatedAt: AT };
   };
+
+  const subclassSummary = (sub: StoredSubclass) => ({
+    id: sub.id,
+    classId: sub.classId,
+    name: sub.name,
+    spellcastTrait: sub.spellcastTrait,
+    updatedAt: AT,
+  });
+  const subclassView = (campaignId: string, sub: StoredSubclass): SubclassRecord => ({
+    ...subclassSummary(sub),
+    className: classesOf(campaignId).find((cls) => cls.id === sub.classId)?.name ?? '',
+    description: sub.description,
+    foundation: sub.foundation,
+    specialization: sub.specialization,
+    mastery: sub.mastery,
+    createdAt: AT,
+  });
+  const domainRef = (campaignId: string, domainId: string | null) => {
+    const domain = domainsOf(campaignId).find((entry) => entry.id === domainId);
+    return domain === undefined ? null : { id: domain.id, name: domain.name };
+  };
+  const classSummary = (campaignId: string, cls: StoredClass): ClassSummary => ({
+    id: cls.id,
+    name: cls.name,
+    domains: [domainRef(campaignId, cls.domainIds[0]), domainRef(campaignId, cls.domainIds[1])],
+    startingEvasion: cls.startingEvasion,
+    startingHp: cls.startingHp,
+    subclassCount: subclassesOf(campaignId).filter((sub) => sub.classId === cls.id).length,
+    updatedAt: AT,
+  });
+  const classView = (campaignId: string, cls: StoredClass): ClassRecord => {
+    const weapon = (weaponId: string | null) =>
+      weaponsOf(campaignId).find((entry) => entry.id === weaponId) ?? null;
+    const primary = weapon(cls.suggestedPrimaryWeaponId);
+    const secondary = weapon(cls.suggestedSecondaryWeaponId);
+    const piece = armorOf(campaignId).find((entry) => entry.id === cls.suggestedArmorId) ?? null;
+    const warnings: string[] = [];
+    if (primary !== null && (primary.tier !== 1 || primary.slot !== 'primary')) {
+      warnings.push(`${primary.name} is no longer a tier 1 primary weapon`);
+    }
+    if (secondary !== null && (secondary.tier !== 1 || secondary.slot !== 'secondary')) {
+      warnings.push(`${secondary.name} is no longer a tier 1 secondary weapon`);
+    }
+    if (piece !== null && piece.tier !== 1)
+      warnings.push(`${piece.name} is no longer tier 1 armor`);
+    if (primary !== null && secondary !== null && primary.burden === 'two_handed') {
+      warnings.push(`${primary.name} is two-handed, which leaves no hand for ${secondary.name}`);
+    }
+    const ref = (gear: { id: string; name: string } | null) =>
+      gear === null ? null : { id: gear.id, name: gear.name };
+    return {
+      ...classSummary(campaignId, cls),
+      description: cls.description,
+      hopeFeature: cls.hopeFeature,
+      classFeatures: cls.classFeatures,
+      suggestedTraits: cls.suggestedTraits,
+      suggestedPrimaryWeapon: ref(primary),
+      suggestedSecondaryWeapon: ref(secondary),
+      suggestedArmor: ref(piece),
+      suggestionWarnings: warnings,
+      subclasses: subclassesOf(campaignId)
+        .filter((sub) => sub.classId === cls.id)
+        .sort(byName)
+        .map(subclassSummary),
+      createdAt: AT,
+    };
+  };
   const nameTaken = (campaignId: string, name: string, except?: string) =>
     domainsOf(campaignId).some(
       (domain) => domain.id !== except && domain.name.toLowerCase() === name.toLowerCase(),
@@ -227,10 +386,196 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
       campaignId,
       weaponsOf(from).map((weapon) => ({ ...weapon, id: id() })),
     );
+    const newGearOf = new Map<string, string>();
+    weaponStores.set(
+      campaignId,
+      weaponsOf(from).map((weapon) => {
+        const copy = { ...weapon, id: id() };
+        newGearOf.set(weapon.id, copy.id);
+        return copy;
+      }),
+    );
     armorStores.set(
       campaignId,
-      armorOf(from).map((piece) => ({ ...piece, id: id() })),
+      armorOf(from).map((piece) => {
+        const copy = { ...piece, id: id() };
+        newGearOf.set(piece.id, copy.id);
+        return copy;
+      }),
     );
+    const mapped = (map: Map<string, string>, old: string | null) =>
+      old === null ? null : (map.get(old) ?? null);
+    const newClassOf = new Map<string, string>();
+    classStores.set(
+      campaignId,
+      classesOf(from).map((cls) => {
+        const copy: StoredClass = {
+          ...cls,
+          id: id(),
+          domainIds: [mapped(newIdOf, cls.domainIds[0]), mapped(newIdOf, cls.domainIds[1])],
+          suggestedPrimaryWeaponId: mapped(newGearOf, cls.suggestedPrimaryWeaponId),
+          suggestedSecondaryWeaponId: mapped(newGearOf, cls.suggestedSecondaryWeaponId),
+          suggestedArmorId: mapped(newGearOf, cls.suggestedArmorId),
+        };
+        newClassOf.set(cls.id, copy.id);
+        return copy;
+      }),
+    );
+    subclassStores.set(
+      campaignId,
+      subclassesOf(from).map((sub) => ({
+        ...sub,
+        id: id(),
+        classId: newClassOf.get(sub.classId) ?? sub.classId,
+      })),
+    );
+  }
+
+  /** Clears the class suggestions of gear about to be deleted (F4.5). */
+  function clearSuggestions(campaignId: string, gearId: string) {
+    for (const cls of classesOf(campaignId)) {
+      if (cls.suggestedPrimaryWeaponId === gearId) cls.suggestedPrimaryWeaponId = null;
+      if (cls.suggestedSecondaryWeaponId === gearId) cls.suggestedSecondaryWeaponId = null;
+      if (cls.suggestedArmorId === gearId) cls.suggestedArmorId = null;
+    }
+  }
+
+  /** Classes and subclasses (F4.5); null for any other request. */
+  function respondClasses(
+    campaignId: string,
+    path: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null {
+    const classMatch = /^\/classes\/([^/]+)$/.exec(path);
+    const subclassMatch = /^\/subclasses\/([^/]+)$/.exec(path);
+    const classTaken = (name: string, except?: string) =>
+      classesOf(campaignId).some(
+        (cls) => cls.id !== except && cls.name.toLowerCase() === name.toLowerCase(),
+      );
+    if (path === '/classes') {
+      if (method === 'GET') {
+        const classes = [...classesOf(campaignId)]
+          .sort(byName)
+          .map((cls) => classSummary(campaignId, cls));
+        return Response.json({ classes });
+      }
+      if (method === 'POST') {
+        const parsed = createClassRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return ctx.invalid(parsed.error.issues);
+        if (classTaken(parsed.data.name)) {
+          return ctx.refused(409, 'A class with that name already exists');
+        }
+        const cls = newClass(parsed.data);
+        classesOf(campaignId).push(cls);
+        return Response.json(classView(campaignId, cls), { status: 201 });
+      }
+      return null;
+    }
+    if (classMatch) {
+      const cls = classesOf(campaignId).find((entry) => entry.id === classMatch[1]);
+      if (cls === undefined) return ctx.notFound('Class not found');
+      if (method === 'GET') return Response.json(classView(campaignId, cls));
+      if (method === 'PATCH') {
+        const parsed = updateClassRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return ctx.invalid(parsed.error.issues);
+        const { domainIds, ...rest } = parsed.data;
+        if (rest.name !== undefined && classTaken(rest.name, cls.id)) {
+          return ctx.refused(409, 'A class with that name already exists');
+        }
+        if (domainIds !== undefined) {
+          for (const domainId of domainIds) {
+            if (domainId !== null && domainRef(campaignId, domainId) === null) {
+              return ctx.notFound('Domain not found');
+            }
+          }
+          if (domainIds[0] !== null && domainIds[0] === domainIds[1]) {
+            return ctx.refused(400, SAME_DOMAIN_TWICE);
+          }
+        }
+        const weapon = (weaponId: string | null | undefined) =>
+          weaponsOf(campaignId).find((entry) => entry.id === weaponId);
+        if (rest.suggestedPrimaryWeaponId) {
+          const primary = weapon(rest.suggestedPrimaryWeaponId);
+          if (primary === undefined) return ctx.notFound('Weapon not found');
+          if (primary.tier !== 1 || primary.slot !== 'primary') {
+            return ctx.refused(400, SUGGESTION_NOT_FIT.primary);
+          }
+        }
+        if (rest.suggestedSecondaryWeaponId) {
+          const secondary = weapon(rest.suggestedSecondaryWeaponId);
+          if (secondary === undefined) return ctx.notFound('Weapon not found');
+          if (secondary.tier !== 1 || secondary.slot !== 'secondary') {
+            return ctx.refused(400, SUGGESTION_NOT_FIT.secondary);
+          }
+        }
+        if (rest.suggestedArmorId) {
+          const piece = armorOf(campaignId).find((entry) => entry.id === rest.suggestedArmorId);
+          if (piece === undefined) return ctx.notFound('Armor not found');
+          if (piece.tier !== 1) return ctx.refused(400, SUGGESTION_NOT_FIT.armor);
+        }
+        if (
+          rest.suggestedPrimaryWeaponId !== undefined ||
+          rest.suggestedSecondaryWeaponId !== undefined
+        ) {
+          const primary = weapon(rest.suggestedPrimaryWeaponId ?? cls.suggestedPrimaryWeaponId);
+          const secondaryId =
+            rest.suggestedSecondaryWeaponId === undefined
+              ? cls.suggestedSecondaryWeaponId
+              : rest.suggestedSecondaryWeaponId;
+          if (primary?.burden === 'two_handed' && secondaryId !== null) {
+            return ctx.refused(400, SUGGESTION_NOT_FIT.twoHanded);
+          }
+        }
+        Object.assign(cls, rest, domainIds === undefined ? {} : { domainIds });
+        return Response.json(classView(campaignId, cls));
+      }
+      if (method === 'DELETE') {
+        classStores.set(
+          campaignId,
+          classesOf(campaignId).filter((entry) => entry.id !== cls.id),
+        );
+        subclassStores.set(
+          campaignId,
+          subclassesOf(campaignId).filter((sub) => sub.classId !== cls.id),
+        );
+        return new Response(null, { status: 204 });
+      }
+      return null;
+    }
+    if (path === '/subclasses') {
+      if (method === 'POST') {
+        const parsed = createSubclassRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return ctx.invalid(parsed.error.issues);
+        if (!classesOf(campaignId).some((cls) => cls.id === parsed.data.classId)) {
+          return ctx.notFound('Class not found');
+        }
+        const sub = newSubclass(parsed.data);
+        subclassesOf(campaignId).push(sub);
+        return Response.json(subclassView(campaignId, sub), { status: 201 });
+      }
+      return null;
+    }
+    if (subclassMatch) {
+      const sub = subclassesOf(campaignId).find((entry) => entry.id === subclassMatch[1]);
+      if (sub === undefined) return ctx.notFound('Subclass not found');
+      if (method === 'GET') return Response.json(subclassView(campaignId, sub));
+      if (method === 'PATCH') {
+        const parsed = updateSubclassRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return ctx.invalid(parsed.error.issues);
+        Object.assign(sub, parsed.data);
+        return Response.json(subclassView(campaignId, sub));
+      }
+      if (method === 'DELETE') {
+        subclassStores.set(
+          campaignId,
+          subclassesOf(campaignId).filter((entry) => entry.id !== sub.id),
+        );
+        return new Response(null, { status: 204 });
+      }
+      return null;
+    }
+    return null;
   }
 
   /** Weapons and armor (F4.4); null for any other request. */
@@ -273,6 +618,7 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
         return Response.json(weapon);
       }
       if (method === 'DELETE') {
+        clearSuggestions(campaignId, weapon.id);
         weaponStores.set(
           campaignId,
           weaponsOf(campaignId).filter((entry) => entry.id !== weapon.id),
@@ -303,6 +649,7 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
         return Response.json(piece);
       }
       if (method === 'DELETE') {
+        clearSuggestions(campaignId, piece.id);
         armorStores.set(
           campaignId,
           armorOf(campaignId).filter((entry) => entry.id !== piece.id),
@@ -324,7 +671,15 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     const domainMatch = /^\/domains\/([^/]+)$/.exec(path);
     const cardMatch = /^\/domain-cards\/([^/]+)$/.exec(path);
     const gear = /^\/(weapons|armor)(\/[^/]+)?$/.test(path);
-    if (path !== '/domains' && path !== '/domain-cards' && !domainMatch && !cardMatch && !gear) {
+    const classes = /^\/(classes|subclasses)(\/[^/]+)?$/.test(path);
+    if (
+      path !== '/domains' &&
+      path !== '/domain-cards' &&
+      !domainMatch &&
+      !cardMatch &&
+      !gear &&
+      !classes
+    ) {
       return null;
     }
     const campaignId = found.id;
@@ -333,6 +688,7 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
       if (found.archivedAt !== null) return ctx.refused(409, 'Campaign is archived');
     }
     if (gear) return respondGear(campaignId, path, method, rawBody);
+    if (classes) return respondClasses(campaignId, path, method, rawBody);
 
     if (path === '/domains') {
       if (method === 'GET') {
@@ -372,10 +728,13 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
         return Response.json(domainView(campaignId, domain));
       }
       if (method === 'DELETE') {
-        const used = sortedCards(campaignId, domain.id);
+        const users = classesOf(campaignId)
+          .filter((cls) => cls.domainIds.includes(domain.id))
+          .sort(byName);
+        const used = [...users, ...sortedCards(campaignId, domain.id)];
         if (used.length > 0) {
-          const names = used.map((card) => card.name);
-          return ctx.refused(409, `Used by ${names.join(', ')}. Move or delete them first.`);
+          const names = used.map((entry) => entry.name);
+          return ctx.refused(409, `Used by ${names.join(', ')}. Change or delete them first.`);
         }
         domainStores.set(
           campaignId,

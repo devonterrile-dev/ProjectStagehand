@@ -1,4 +1,10 @@
-import { DOMAIN_NAME_MAX, domainNameSchema, type Campaign } from '@stagehand/shared';
+import {
+  CLASS_NAME_MAX,
+  classNameSchema,
+  DOMAIN_NAME_MAX,
+  domainNameSchema,
+  type Campaign,
+} from '@stagehand/shared';
 import { PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -6,14 +12,23 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useArmorList, useCampaign, useCreateDomain, useDomains, useWeapons } from '@/lib/queries';
-import { armorListPath, domainPath, statBlocksPath, weaponsPath } from '@/lib/records';
+import { domainsLabel } from '@/components/gameplay/labels';
+import {
+  useArmorList,
+  useCampaign,
+  useClasses,
+  useCreateClass,
+  useCreateDomain,
+  useDomains,
+  useWeapons,
+} from '@/lib/queries';
+import { armorListPath, classPath, domainPath, statBlocksPath, weaponsPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
  * `/campaigns/:campaignId/gameplay` (F4.3, governance §8 "Gameplay records"): the game's
- * mechanics, apart from the campaign's records. Domains, weapons and armor (F4.4) for everyone;
- * stat blocks for the GM.
+ * mechanics, apart from the campaign's records. Classes (F4.5), domains, weapons and armor (F4.4)
+ * for everyone; stat blocks for the GM.
  */
 export function GameplayPage() {
   const { campaignId = '' } = useParams();
@@ -48,6 +63,8 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
         ← {campaign.name}
       </Link>
       <h1 className="text-2xl font-bold">Gameplay</h1>
+
+      <ClassesCard campaign={campaign} canWrite={canWrite} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -137,6 +154,81 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
         }}
       />
     </div>
+  );
+}
+
+/** Classes (F4.5): each with its domains and how many subclasses it has. */
+function ClassesCard({ campaign, canWrite }: { campaign: Campaign; canWrite: boolean }) {
+  const { data: classes, isPending, isError } = useClasses(campaign.id);
+  const create = useCreateClass(campaign.id);
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <div className="space-y-1.5">
+          <CardTitle>
+            <h2 className="text-xl">Classes</h2>
+          </CardTitle>
+          <CardDescription>
+            A class gives a character two domains, a Hope feature and its features. Open one to read
+            it and its subclasses.
+          </CardDescription>
+        </div>
+        {canWrite && (
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreating(true);
+            }}
+          >
+            <PlusIcon aria-hidden />
+            New class
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isPending && <p className="text-muted-foreground">Loading classes…</p>}
+        {isError && <p role="alert">Could not load the classes. Try again in a moment.</p>}
+        {classes?.length === 0 && <p className="text-sm text-muted-foreground">No classes yet.</p>}
+        {classes !== undefined && classes.length > 0 && (
+          <ul aria-label="Classes" className="divide-y rounded-md border">
+            {classes.map((cls) => (
+              <li key={cls.id}>
+                <Link
+                  to={classPath(campaign.id, cls.id)}
+                  className="flex items-start justify-between gap-4 px-4 py-3 hover:bg-muted"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium">{cls.name}</span>
+                    <span className="block text-sm text-muted-foreground">
+                      {domainsLabel(cls.domains)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm text-muted-foreground">
+                    {countOf(cls.subclassCount, 'subclass', 'subclasses')}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+      <CampaignNameDialog
+        open={creating}
+        onOpenChange={setCreating}
+        title="New class"
+        description="You can set its domains, features and subclasses after."
+        submitLabel="Create class"
+        label="Name"
+        schema={classNameSchema}
+        maxLength={CLASS_NAME_MAX}
+        onSave={async (name) => {
+          const cls = await create.mutateAsync({ name });
+          void navigate(classPath(campaign.id, cls.id));
+        }}
+      />
+    </Card>
   );
 }
 

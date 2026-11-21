@@ -15,7 +15,7 @@ import { bonusesLabel, burdenLabel, damageKindLabel, rangeLabel, slotLabel } fro
  * F4.7 lays beside the sheet page. Read, never run (§8): only the bonuses apply themselves, and
  * only once a sheet equips the gear (19.25).
  */
-function GearCard({
+export function GearCard({
   label,
   corner,
   name,
@@ -42,7 +42,7 @@ function GearCard({
   );
 }
 
-function Facts({ facts }: { facts: [string, string][] }) {
+export function Facts({ facts }: { facts: [string, string][] }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
       {facts.map(([term, value]) => (

@@ -7,6 +7,7 @@ import { RequireAuth } from '@/components/RequireAuth';
 import { ArmorPage } from '@/pages/ArmorPage';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
+import { ClassPage } from '@/pages/ClassPage';
 import { DomainCardPage } from '@/pages/DomainCardPage';
 import { DomainPage } from '@/pages/DomainPage';
 import { EntryPage } from '@/pages/EntryPage';
@@ -23,6 +24,7 @@ import { ScenesPage } from '@/pages/ScenesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
+import { SubclassPage } from '@/pages/SubclassPage';
 import { WeaponPage } from '@/pages/WeaponPage';
 import { statBlockPath, statBlocksPath } from '@/lib/records';
 
@@ -147,6 +149,22 @@ export function App() {
           element={
             <RequireAuth>
               <DomainCardPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/classes/:classId"
+          element={
+            <RequireAuth>
+              <ClassPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/classes/:classId/subclasses/:subclassId"
+          element={
+            <RequireAuth>
+              <SubclassPage />
             </RequireAuth>
           }
         />

@@ -4,11 +4,33 @@ import {
   type Burden,
   type DamageKind,
   type DomainCardType,
+  type GameplayRef,
   type GearBonuses,
+  type HopeFeature,
   type Ruleset,
+  type SuggestedTraits,
   type WeaponRange,
   type WeaponSlot,
 } from '@stagehand/shared';
+
+/** A class's domains: "Blade & Bone", "Blade" with one unset, "None yet" with neither (F4.5). */
+export function domainsLabel(domains: readonly (GameplayRef | null)[]): string {
+  const names = domains.filter((domain) => domain !== null).map((domain) => domain.name);
+  return names.length === 0 ? 'None yet' : names.join(' & ');
+}
+
+/** "Rally (3 Hope)", or "Hope feature (3 Hope)" while unnamed. */
+export function hopeFeatureLabel(hope: HopeFeature): string {
+  return `${hope.name === '' ? 'Hope feature' : hope.name} (${String(hope.cost)} Hope)`;
+}
+
+/** "Agility +2, Strength +1, …" in ruleset order; empty when there is no suggestion. */
+export function suggestedTraitsLabel(traits: SuggestedTraits, ruleset: Ruleset): string {
+  if (Object.keys(traits).length === 0) return '';
+  return ruleset.traits
+    .map((trait) => `${trait.label} ${signed(traits[trait.id] ?? 0)}`)
+    .join(', ');
+}
 
 const TYPE_LABELS: Record<DomainCardType, string> = {
   ability: 'Ability',

@@ -134,7 +134,7 @@ describe('A domain', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: /Delete/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Delete domain' }));
     expect(
-      await screen.findByText('Used by Undertow, Crest. Move or delete them first.'),
+      await screen.findByText('Used by Undertow, Crest. Change or delete them first.'),
     ).toBeDefined();
     expect(currentUrl()).toBe(domainUrl(coast, TIDE));
   });
