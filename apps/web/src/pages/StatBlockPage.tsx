@@ -7,7 +7,7 @@ import { useRememberRecent } from '@/lib/recent-items';
 import { statBlocksPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
-/** `/campaigns/:campaignId/stat-blocks/:statBlockId`: one stat block, autosaving. GM only. */
+/** `/campaigns/:campaignId/gameplay/stat-blocks/:statBlockId`: one stat block, autosaving. GM only. */
 export function StatBlockPage() {
   const { campaignId = '', statBlockId = '' } = useParams();
   const campaignQuery = useCampaign(campaignId);

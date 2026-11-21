@@ -51,6 +51,7 @@ import { vi } from 'vitest';
 import { App } from '@/App';
 
 import { importsWorld, type ImportsWorldOptions } from './imports-world';
+import { gameplayWorld, type GameplayWorldOptions } from './gameplay-world';
 import { journalWorld, type JournalWorldOptions } from './journal-world';
 import { scenesWorld, type ScenesWorldOptions } from './scenes-world';
 import { visualsWorld, type VisualsWorldOptions } from './visuals-world';
@@ -70,6 +71,7 @@ interface RequestBody {
   characterId?: string | null;
   assignToUserId?: string;
   expiresIn?: string;
+  copyGameplayFrom?: string;
 }
 
 let nextId = 0;
@@ -238,7 +240,12 @@ type CampaignSeed = Partial<Omit<CampaignData, 'characters'>> & {
 };
 
 export interface FakeWorld
-  extends ImportsWorldOptions, VisualsWorldOptions, ScenesWorldOptions, JournalWorldOptions {
+  extends
+    ImportsWorldOptions,
+    VisualsWorldOptions,
+    ScenesWorldOptions,
+    JournalWorldOptions,
+    GameplayWorldOptions {
   /** Extra members, PCs, invites, records and stat blocks per campaign id. Each campaign also has `me` as a member. */
   campaignData?: Record<string, CampaignSeed>;
   /** Invites `me` can open, by code. Accepting one adds its campaign as a player. */
@@ -352,6 +359,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
   });
   const scenes = scenesWorld(world, { refused, notFound, invalid });
   const journal = journalWorld(world, { me, refused, notFound, invalid });
+  const gameplay = gameplayWorld(world, { refused, notFound, invalid });
   /** The running session of each campaign that has one, and how many each has had. */
   const playSessions = new Map(Object.entries(world.playSessions ?? {}));
   const sessionsPlayed = new Map(
@@ -805,7 +813,17 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     }
     if (url === '/api/campaigns' && method === 'POST') {
       const created = campaign({ name: String(body.name) });
+      // A copy of another campaign's gameplay records (F4.3, 19.14): one `me` is GM of.
+      const from = body.copyGameplayFrom;
+      if (from !== undefined) {
+        const source = store.get(from);
+        if (source?.role !== 'gm') return notFound('Campaign not found');
+        const blocks = dataFor(source).statBlocks.map((block) => ({ ...block, id: uuid() }));
+        store.set(created.id, created);
+        dataFor(created).statBlocks.push(...blocks);
+      }
       store.set(created.id, created);
+      gameplay.created(created.id, from);
       return Response.json(created, { status: 201 });
     }
 
@@ -918,6 +936,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         return Response.json({ session }, { status: 201 });
       }
 
+      const played = gameplay.respond(found, rest, method, rawBody);
+      if (played !== null) return played;
       const visual = visuals.respond(found, d, rest, method, rawBody);
       if (visual !== null) return visual;
       const written = journal.respond(found, d.records, rest, method, rawBody);

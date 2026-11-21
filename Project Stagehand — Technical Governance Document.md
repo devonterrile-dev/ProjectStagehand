@@ -51,7 +51,7 @@ These are fixed. A design that breaks one needs a Decision log entry first.
 | GMs per campaign | Exactly 1 | No co-GM permissions. |
 | Players' setup | Browser only (or Discord Activity) | No downloads or plugins for players. |
 | Multi-group use | Other groups will use it eventually | Multi-campaign, multi-user from day one, with strict campaign isolation. |
-| Ruleset | Homebrew, 2d12 Hope/Fear core | Rules live in one shared engine with ruleset values in config. Official Daggerheart text and layouts are not copied. |
+| Ruleset | Homebrew, 2d12 Hope/Fear core | Rules live in one shared engine with ruleset values in config. Official Daggerheart text and layouts are not copied, except SRD content used under the Darrington Press Community Gaming License with its attribution (D-61). |
 
 ## 4. Scope and roadmap
 
@@ -211,7 +211,7 @@ Every person has one account and signs in with Discord. Their role is set per ca
 | Edit or delete a player entry | Delete any entry | Own entries only |
 | View own PC sheet | Yes (all sheets) | Own sheet only |
 | Edit own PC sheet | Yes | Not in Phase 1: view only (D-23). Spends Hope on a called roll from the sheet page at the table (F3.6, D-54). Planned for Phase 4: builds the character with the creation guide (F4.8), levels up once the GM grants a level (F4.9), and moves domain cards between loadout and vault (F4.7). Combat option picks arrive with battle scenes (F5.2); all other edits by the GM, who also corrects Hope from the desk |
-| Create, edit and delete gameplay records | Yes | No. Planned: reads every gameplay record except stat blocks (F4.3, 19.15) |
+| Create, edit and delete gameplay records | Yes | No. Reads every gameplay record except stat blocks (F4.3, 19.15) |
 | Free rolls from the dice tray | Yes | Yes. Planned (F4.2, 19.20) |
 | Start a session, load scenes, call rolls, spend Fear | Yes | No |
 | Emote a puppet, inspect props, roll when called | Yes (any puppet) | Yes (own puppet only for emotes) |
@@ -316,7 +316,8 @@ A campaign has two kinds of records. **Campaign records** are the narrative ones
 - Only the GM creates, edits or deletes them. Every member of the campaign can read them, except stat blocks, which stay the GM's (19.15).
 - Feature text is read, not run. A feature shows on a card; the app applies only the numbers that character creation, level-ups and gear name (section 9, 19.25). The GM and players apply the rest.
 - A gameplay record a sheet uses can't be deleted until no sheet uses it; the GM is told which sheets do. A sheet reads its linked records live, so the GM's fix reaches every sheet.
-- Stagehand ships none of the content except the names of the ten default domains, with descriptions of its own (D-13, 19.26). The GM enters classes, cards and gear.
+- Stagehand ships none of the content except the ten default domains, whose names and descriptions come from the Daggerheart SRD 2.0, used under the Darrington Press Community Gaming License with its attribution on the gameplay page (19.26, D-61). The GM enters classes, cards and gear.
+- A new campaign starts with the ten default domains, or with a copy of the gameplay records of another campaign its GM runs (19.14, D-61). The copy is made once, when the campaign is created; afterwards the two campaigns change apart.
 - Items stay campaign records. Starting gear puts them on a sheet as inventory lines, linked to an Item record when the GM has one (D-24).
 
 The types: character sheets and stat blocks (both built in Phase 1; stat blocks move into the gameplay section with F4.3), then domains and domain cards, classes and subclasses, species, and weapons and armor, all planned below.
@@ -357,7 +358,7 @@ Standalone records. Monsters are stat blocks with a visual; an NPC can link one 
 
 A stat block is a template: it holds HP and Stress maximums only. In a battle, each copy of a monster on stage tracks its own current HP and Stress (F5.2, open question 19.9). Deleting a stat block unlinks the NPCs that used it (D-23).
 
-### Domains and domain cards (planned, F4.3)
+### Domains and domain cards (F4.3)
 
 | Type | Fields |
 | --- | --- |
@@ -365,6 +366,13 @@ A stat block is a template: it holds HP and Stress maximums only. In a battle, e
 | Domain card | Name; domain (link); level (1 to 10: the PC must be at least this level to take it); recall cost (a whole number, 0 or more: the Stress marked to bring it from the vault into the loadout); type (ability, spell or grimoire); feature (rich text, the bulk of the card) |
 
 A PC can take a card only from one of their class's two domains, or from a multiclass third domain at no more than half their level, rounded up (F4.10).
+
+As built (F4.3, D-61):
+
+- Tables `domains` and `domain_cards` (migration 0022), which also gave every campaign that existed then the ten defaults. A domain's name is unique in its campaign, whatever its case; its description is plain text up to 2,000 characters. A card's recall cost runs from 0 to 99, and its feature is rich text.
+- A domain that still has cards can't be deleted: the refusal names up to five of them. Classes will join that check (F4.5), and sheets holding a card will keep it from being deleted (F4.7).
+- The **Gameplay** page, reached from the campaign page, lists the domains with their card counts and, for the GM, links to the stat blocks, which moved there (old stat block links still work). A domain's page lists its cards under a heading for each level. A card's page is the GM's form, or for a player the card drawn as a card, which F4.7 will lay beside the sheet page.
+- The New campaign dialog asks a GM who runs another campaign whether to start fresh or copy one of theirs. A copy takes its domains, cards and stat blocks; NPC links to stat blocks aren't copied, since campaign records aren't.
 
 ### Classes and subclasses (planned, F4.5)
 
@@ -405,7 +413,7 @@ Each campaign sets how new characters get their gear:
 | Table | Holds |
 | --- | --- |
 | domains | Campaign, name, description; the ten defaults are added to every campaign, old ones by the migration |
-| domain\_cards | Campaign, domain, name, level, recall cost, type, feature |
+| domain\_cards | Campaign, domain, name, level, recall cost, type, feature. Built with F4.3, with `domains` (migration 0022) |
 | classes | Campaign, name, description, two domains, starting evasion and HP, Hope feature, suggested traits, suggested weapons and armor |
 | subclasses | Campaign, class, name, description, spellcast trait (nullable), foundation, specialization and mastery features |
 | species | Campaign, name, description, visual asset, features |
@@ -976,7 +984,7 @@ The biggest risks are scope creep and art consistency; both are handled by phase
 | Home PC offline during someone's session | Medium | Medium | Acceptable for one group; move to a VPS before onboarding other groups (F5.5) | Any missed session |
 | Data loss | Low | High | Verified, encrypted backups on every shutdown, on a second disk. No off-site copy yet, an accepted risk until hosted (D-19) | A failed restore drill; a session ended with `--skip-backup` or without `stack:shutdown` |
 | Private field leaks to players | Low | High | Allow-list responses; per-type tests | Any failing visibility test |
-| Licensing: using Daggerheart's official text or layouts | Low | Medium | Homebrew field names and own layouts; the 2d12 mechanic itself isn't copied text. Gameplay content (classes, cards, gear) is entered by each GM; Stagehand ships only the default domain names, with its own descriptions (19.26) | Any copied wording in the UI or the seed data |
+| Licensing: using Daggerheart's official text or layouts | Low | Medium | Homebrew field names and own layouts; the 2d12 mechanic itself isn't copied text. Gameplay content (classes, cards, gear) is entered by each GM. Stagehand ships only the ten default domains, from the SRD 2.0, under the Darrington Press Community Gaming License with its attribution on the gameplay page (19.26, D-61); the attribution's wording is checked against the license | Any copied wording beyond the SRD, or an attribution that doesn't match the license |
 | Phase 4 is ten features plus a lot of content entry | High | Medium | Built in order, each usable on its own; the guides work with a few classes and cards, so the playtest needn't wait for a full rulebook | Entering one class with its subclasses and level-1 cards takes the GM over an hour |
 
 ## 18. Decision log
@@ -985,6 +993,7 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 
 | ID | Date | Decision | Why | Rejected options |
 | --- | --- | --- | --- | --- |
+| D-61 | 2026-11-20 | F4.3 as built, in two parts: F4.3a (shared and server: `domains` and `domain_cards`, migration 0022, copying at creation) and F4.3b (web: the Gameplay section). **Every campaign starts with the ten default domains**, seeded with their names and descriptions from the Daggerheart SRD 2.0 (the designer supplied the text). This changes D-13 for SRD content: it may be used under the Darrington Press Community Gaming License, with the license's attribution where it shows. **A new campaign can copy another's gameplay records instead**: one its GM runs, archived or not, copied once at creation (domains, cards and stat blocks); later edits stay apart. **Every member reads domains and cards**; only the GM writes them, and stat blocks stay the GM's. A domain with cards can't be deleted. Stat blocks moved to the Gameplay section, and their old links redirect. Answers 19.14, 19.15 and 19.26 | The designer's choices: GMs reuse their content between campaigns without the two staying tied, and the SRD's domains are free to use | A shared library across a GM's campaigns (a fix in one would change the other, and deletes would have to check every campaign); descriptions Stagehand writes; empty descriptions |
 | D-60 | 2026-11-20 | F4.2 as built: **the dice tray** rolls 1 to 20 of one die (d4, d6, d8, d10, d%, d12, d20) on the server. It sits at the top right of a player's sheet page and in a **Dice** section of the GM's control desk. A roll is logged as `free_roll` (migration 0021) and sent once with `roll:free`, like an emote, without sending the stage again. **Everyone sees a free roll**, the roller too: its dice are tossed on the table like the d12s, one die tossed and then rerolled for each further result (the first toss 1.6 seconds, each reroll 0.8), with a notice that grows as they land. d% is two d10s, tens and ones. Pressing Roll on the sheet page goes back to the theater; the sheet page shows no result, and the GM's desk tray says the GM's own roll. **Only the GM rolls privately**, and a private roll reaches the GM alone. One free roll a second per connection. Answers 19.20 | The designer's choices: the table shares its dice as it would around a real table, and the GM keeps rolls behind the screen when needed. A roll that changes nothing on stage doesn't need the whole stage sent to everyone | Rolls shown only to the roller and the GM; no private rolls; the GM's tray in the small panel over the theater; carrying the last free roll in the stage; the result played back in the tray on the sheet page (built first, then changed at the designer's test); a full toss for every die (20 dice would take 32 seconds); one d10 for d% |
 | D-59 | 2026-11-20 | F4.1 as built: **ruleset v2** is published, and migration 0020 moves every campaign to it (archived ones too) and makes it the default. v2 keeps v1's traits, Hope max, teamwork cost and Fear values. It changes the trait range to −1 to +5 and the Hope spend bonus to +2. It adds levels 1 to 10, the four tiers, proficiency (1, +1 per new tier), the creation trait spread, the start values and the domain card counts. **v2 grows add-only**: a later Phase 4 feature may add a new field to v2, but never change a value already in it. **Each PC has its own Hope bonus** (`characters.hope_bonus`), added to the ruleset's when Hope is spent. **A new PC starts with 0 of 6 Hope and 6 Stress slots, none marked**, answering 19.17. The planned "2 Hope" was a misreading of the brief, corrected by the designer. A PC created from F4.1 on gets these values; older PCs keep theirs | Settled numbers let F4.3 to F4.10 build on them. Adding a field can't break stored data, while changing a value could; a new version for every Phase 4 feature would mean a migration each time for nothing | Put every Phase 4 number in v2 now, before the level-up and multiclass plans exist; a new ruleset version for each feature |
 | D-58 | 2026-11-20 | **Phase 4 is re-planned as gameplay records and characters** (F4.1 to F4.10); the old Phase 4 (transition and battle scenes, recap tools, onboarding, VPS) becomes Phase 5, stretch goals, as F5.1 to F5.5 in the same order. **Gameplay records are a section of their own**, apart from the campaign's records: stat blocks (moved in), domains and domain cards, classes and subclasses, species, weapons and armor. Each gets its own table, like stat blocks (D-23); they are never revealed, never take player notes, and are never sent to or proposed by the AI. Items stay campaign records and are the one thing both sides use. **The Hope bonus drops from +3 to +2**, plus each PC's own bonus from level-ups, in ruleset v2 (published versions are never edited). **Feature text is read, not run:** the app applies only the numbers that creation, level-ups and gear name. A step-by-step creation guide and a level-up guide (with the tier option lists and multiclassing) replace leveling by hand (answering 19.8). New questions: 19.14 to 19.27 | The designer's choice after the Phase 3 test sessions: players need full characters, and a guided way to build and level them, before richer scenes | Keep Phase 4 as planned and level up by hand (19.8); gameplay records as new types in the `records` table (they would pick up reveals, notes and AI import, which they must never have) |
@@ -1065,8 +1074,8 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.11 | Can inspecting a prop show more than its public description (hidden details, a roll to notice more)? | No; it shows the public description only. The GM shares more by editing that description or by calling a roll | Phase 3 |
 | 19.12 | Where do dice appear when a roll is made? | Answered by D-54: two 3D d12s tossed onto the table in front of the theater, the same throw for everyone, with no physics engine | Phase 3 |
 | 19.13 | Where does the player journal live in the table view? | Answered by D-53: a three-ring binder on the table in front of the theater | Phase 3 |
-| 19.14 | Are gameplay records kept per campaign, or in a library a GM shares across their campaigns? | Per campaign, like stat blocks, keeping campaign isolation simple. A copy tool can come later if re-entering content gets painful | F4.3 |
-| 19.15 | Can players read gameplay records? | Yes, every one except stat blocks, with no reveal step: players need them to pick a class, cards and gear | F4.3 |
+| 19.14 | Are gameplay records kept per campaign, or in a library a GM shares across their campaigns? | Answered by D-61: per campaign. When creating a campaign, the GM starts fresh or copies the gameplay records of another campaign they run, once | F4.3 |
+| 19.15 | Can players read gameplay records? | Answered by D-61: yes, every one except stat blocks, with no reveal step: players need them to pick a class, cards and gear | F4.3 |
 | 19.16 | Armor gives two thresholds; the sheet stores three (minor, major, severe). How do they line up? | The armor's two numbers are the two lines between minor, major and severe damage; the sheet keeps two thresholds, each the armor's base plus the level, and drops the third | F4.4 |
 | 19.17 | What does a new character start with that the class doesn't give: Hope, Stress slots, experiences, armor slots? | Answered by D-59: 0 Hope (of 6) and 6 Stress slots with none marked (ruleset v2). Still working assumptions: armor slots from the armor's base score; experiences stay on the sheet, entered by the GM, not a guide step | F4.1 |
 | 19.18 | What does "set gear" mean? | The GM picks one starting kit for the campaign, and every new character gets it without choosing | F4.8 |
@@ -1077,7 +1086,7 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.23 | Who runs the creation and level-up guides? | The GM creates a blank PC and assigns it; the player runs the guides on the site; the GM can run them for an absent player, edit the sheet afterwards, reset a PC to unbuilt, and undo the latest level-up | F4.8 |
 | 19.24 | Recall with too little Stress left: refused, or does it spill into HP? | Refused | F4.7 |
 | 19.25 | Do gear features that change a number (−1 evasion, +1 armor) apply themselves? | Yes for evasion, armor score and thresholds, entered as numbers beside the feature text; everything else is text only | F4.4 |
-| 19.26 | Is shipping the ten default domain names fine under the Darrington Press Community Gaming License? | Names only, with descriptions Stagehand writes; checked against the license before F4.3 ships | F4.3 |
+| 19.26 | Is shipping the ten default domain names fine under the Darrington Press Community Gaming License? | Answered by D-61: the ten domains are in the Daggerheart SRD 2.0, free to use under the license. Their SRD descriptions are seeded too, with the license's attribution on the gameplay page | F4.3 |
 | 19.27 | What happens to the PCs that exist today? | They keep their typed values and get no links until the GM resets them and the player runs the creation guide | F4.7 |
 
 ## Sources

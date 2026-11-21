@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useCampaign, useRenameCampaign, useSetCampaignArchived } from '@/lib/queries';
 import { importPath } from '@/lib/ai-import';
-import { recordsPath, statBlocksPath } from '@/lib/records';
+import { gameplayPath, recordsPath } from '@/lib/records';
 import { scenesPath } from '@/lib/scenes';
 
 /** `/campaigns/:campaignId`. Rendered inside RequireAuth, so the user is signed in. */
@@ -170,21 +170,23 @@ function CampaignView({ campaign }: { campaign: Campaign }) {
         </Card>
       )}
 
-      {isGm && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
-            <div className="space-y-1.5">
-              <CardTitle>
-                <h2 className="text-xl">Stat blocks</h2>
-              </CardTitle>
-              <CardDescription>Monsters, and NPCs who may fight.</CardDescription>
-            </div>
-            <Button asChild size="sm" variant="outline">
-              <Link to={statBlocksPath(campaign.id)}>Open stat blocks</Link>
-            </Button>
-          </CardHeader>
-        </Card>
-      )}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <CardTitle>
+              <h2 className="text-xl">Gameplay</h2>
+            </CardTitle>
+            <CardDescription>
+              {isGm
+                ? 'Domains, domain cards and stat blocks: the game’s mechanics.'
+                : 'Domains and domain cards: what characters are built from.'}
+            </CardDescription>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link to={gameplayPath(campaign.id)}>Open gameplay</Link>
+          </Button>
+        </CardHeader>
+      </Card>
 
       <CharactersPanel campaign={campaign} />
       <MembersPanel campaign={campaign} />

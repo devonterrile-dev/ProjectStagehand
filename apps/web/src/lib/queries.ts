@@ -29,6 +29,10 @@ import type {
   UpdateSceneRequest,
   UpdateStatBlockRequest,
   VisualsResponse,
+  CreateDomainCardRequest,
+  CreateDomainRequest,
+  UpdateDomainCardRequest,
+  UpdateDomainRequest,
 } from '@stagehand/shared';
 import {
   keepPreviousData,
@@ -117,6 +121,16 @@ import {
   updateNote,
   type NoteSubjectRef,
   type RecordListFilter,
+  createDomain,
+  createDomainCard,
+  deleteDomain,
+  deleteDomainCard,
+  fetchDomain,
+  fetchDomainCard,
+  fetchDomainCards,
+  fetchDomains,
+  patchDomain,
+  patchDomainCard,
 } from './api';
 import { signOut } from './auth-client';
 
@@ -230,7 +244,8 @@ type CampaignPart =
   | 'stage-records'
   | 'play-session'
   | 'play-session-log'
-  | 'journal';
+  | 'journal'
+  | 'gameplay';
 const partKey = (campaignId: string, part: CampaignPart) =>
   [...CAMPAIGNS_KEY, campaignId, part] as const;
 
@@ -594,6 +609,131 @@ export function useDeleteStatBlock(campaignId: string) {
       queryClient.removeQueries({ queryKey: statBlockKey(campaignId, statBlockId) });
       void queryClient.invalidateQueries({ queryKey: [...CAMPAIGNS_KEY, campaignId, 'record'] });
       refetchList();
+    },
+  });
+}
+
+/** Gameplay records (F4.3): every member reads them; one key holds them all. */
+const gameplayKey = (campaignId: string, ...rest: string[]) =>
+  [...partKey(campaignId, 'gameplay'), ...rest] as const;
+
+/** Refetches every gameplay list and domain, but not `except`, the card or domain just saved. */
+function useRefetchGameplay(campaignId: string) {
+  const queryClient = useQueryClient();
+  return (except?: readonly unknown[]) => {
+    void queryClient.invalidateQueries({
+      queryKey: gameplayKey(campaignId),
+      predicate: (query) =>
+        except === undefined || JSON.stringify(query.queryKey) !== JSON.stringify(except),
+    });
+  };
+}
+
+/** The campaign's domains, with their card counts. Any member. */
+export function useDomains(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'domains'),
+    queryFn: () => fetchDomains(campaignId),
+  });
+}
+
+/** A domain with its cards (`null` when not found). */
+export function useDomain(campaignId: string, domainId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'domain', domainId),
+    queryFn: () => fetchDomain(campaignId, domainId),
+  });
+}
+
+/** Every domain card of the campaign. */
+export function useDomainCards(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'cards'),
+    queryFn: () => fetchDomainCards(campaignId),
+  });
+}
+
+/** A domain card (`null` when not found). */
+export function useDomainCard(campaignId: string, cardId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'card', cardId),
+    queryFn: () => fetchDomainCard(campaignId, cardId),
+  });
+}
+
+export function useCreateDomain(campaignId: string) {
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateDomainRequest) => createDomain(campaignId, input),
+    onSuccess: () => {
+      refetch();
+    },
+  });
+}
+
+/** Saves part of a domain; the response becomes the cached domain. */
+export function usePatchDomain(campaignId: string, domainId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'domain', domainId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateDomainRequest; keepalive?: boolean }) =>
+      patchDomain(campaignId, domainId, patch, { keepalive }),
+    onSuccess: (domain) => {
+      queryClient.setQueryData(key, domain);
+      refetch(key);
+    },
+  });
+}
+
+/** Deletes a domain no card uses; the refusal names the cards. */
+export function useDeleteDomain(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (domainId: string) => deleteDomain(campaignId, domainId),
+    onSuccess: (_result, domainId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'domain', domainId) });
+      refetch();
+    },
+  });
+}
+
+export function useCreateDomainCard(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateDomainCardRequest) => createDomainCard(campaignId, input),
+    onSuccess: (card) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'card', card.id), card);
+      refetch(gameplayKey(campaignId, 'card', card.id));
+    },
+  });
+}
+
+/** Saves part of a domain card; the response becomes the cached card. */
+export function usePatchDomainCard(campaignId: string, cardId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'card', cardId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateDomainCardRequest; keepalive?: boolean }) =>
+      patchDomainCard(campaignId, cardId, patch, { keepalive }),
+    onSuccess: (card) => {
+      queryClient.setQueryData(key, card);
+      refetch(key);
+    },
+  });
+}
+
+export function useDeleteDomainCard(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (cardId: string) => deleteDomainCard(campaignId, cardId),
+    onSuccess: (_result, cardId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'card', cardId) });
+      refetch();
     },
   });
 }

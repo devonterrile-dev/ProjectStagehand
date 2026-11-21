@@ -1,12 +1,15 @@
 import { lazy, Suspense, useState } from 'react';
-import { Link, Route, Routes } from 'react-router';
+import { Link, Navigate, Route, Routes, useParams } from 'react-router';
 
 import { isActivityFrame } from '@/activity/frame';
 import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
+import { DomainCardPage } from '@/pages/DomainCardPage';
+import { DomainPage } from '@/pages/DomainPage';
 import { EntryPage } from '@/pages/EntryPage';
+import { GameplayPage } from '@/pages/GameplayPage';
 import { HomePage } from '@/pages/HomePage';
 import { ImportPage } from '@/pages/ImportPage';
 import { ImportReviewPage } from '@/pages/ImportReviewPage';
@@ -18,6 +21,7 @@ import { ScenesPage } from '@/pages/ScenesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
+import { statBlockPath, statBlocksPath } from '@/lib/records';
 
 // The stage brings Three.js with it, so it loads only when a stage page is opened (F3.1).
 const StageTestPage = lazy(() =>
@@ -120,7 +124,31 @@ export function App() {
           }
         />
         <Route
-          path="/campaigns/:campaignId/stat-blocks"
+          path="/campaigns/:campaignId/gameplay"
+          element={
+            <RequireAuth>
+              <GameplayPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/domains/:domainId"
+          element={
+            <RequireAuth>
+              <DomainPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/domain-cards/:cardId"
+          element={
+            <RequireAuth>
+              <DomainCardPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/stat-blocks"
           element={
             <RequireAuth>
               <StatBlocksPage />
@@ -128,12 +156,18 @@ export function App() {
           }
         />
         <Route
-          path="/campaigns/:campaignId/stat-blocks/:statBlockId"
+          path="/campaigns/:campaignId/gameplay/stat-blocks/:statBlockId"
           element={
             <RequireAuth>
               <StatBlockPage />
             </RequireAuth>
           }
+        />
+        {/* Stat blocks moved into the gameplay section (F4.3): old links still work. */}
+        <Route path="/campaigns/:campaignId/stat-blocks" element={<StatBlocksMoved />} />
+        <Route
+          path="/campaigns/:campaignId/stat-blocks/:statBlockId"
+          element={<StatBlocksMoved />}
         />
         <Route
           path="/campaigns/:campaignId/scenes"
@@ -215,4 +249,12 @@ function NotFound() {
       </Link>
     </div>
   );
+}
+
+/** An old stat block link (before F4.3): the same page, now in the gameplay section. */
+function StatBlocksMoved() {
+  const { campaignId = '', statBlockId } = useParams();
+  const to =
+    statBlockId === undefined ? statBlocksPath(campaignId) : statBlockPath(campaignId, statBlockId);
+  return <Navigate to={to} replace />;
 }

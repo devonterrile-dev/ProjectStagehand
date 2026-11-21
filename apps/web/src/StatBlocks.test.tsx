@@ -44,14 +44,16 @@ function world(overrides: Partial<Campaign> = {}) {
   return { coast, shark, rook, harbor, fetchMock };
 }
 
-const listUrl = (c: Campaign) => `/campaigns/${c.id}/stat-blocks`;
-const blockUrl = (c: Campaign, b: StatBlock) => `/campaigns/${c.id}/stat-blocks/${b.id}`;
+// In the gameplay section since F4.3.
+const listUrl = (c: Campaign) => `/campaigns/${c.id}/gameplay/stat-blocks`;
+const blockUrl = (c: Campaign, b: StatBlock) => `/campaigns/${c.id}/gameplay/stat-blocks/${b.id}`;
 
 describe('Stat blocks list', () => {
-  it('is linked from the campaign page and lists the blocks', async () => {
+  it('is reached from the campaign page through gameplay, and lists the blocks', async () => {
     const { coast } = world();
     renderAt(`/campaigns/${coast.id}`);
 
+    fireEvent.click(await screen.findByRole('link', { name: 'Open gameplay' }));
     fireEvent.click(await screen.findByRole('link', { name: 'Open stat blocks' }));
     const list = await screen.findByRole('list', { name: 'Stat blocks' });
     expect(within(list).getByText('Reef Shark')).toBeDefined();
@@ -75,6 +77,14 @@ describe('Stat blocks list', () => {
       'value',
       'Gull Swarm',
     );
+  });
+
+  it('takes an old stat block link to its new place (F4.3)', async () => {
+    const { coast, shark } = world();
+    renderAt(`/campaigns/${coast.id}/stat-blocks/${shark.id}`);
+    await waitFor(() => {
+      expect(currentUrl()).toBe(blockUrl(coast, shark));
+    });
   });
 
   it('tells players stat blocks are the GM’s, and never fetches them', async () => {

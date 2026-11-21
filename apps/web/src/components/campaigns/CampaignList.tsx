@@ -3,8 +3,8 @@ import { PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
-import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { CampaignRoleBadge } from '@/components/campaigns/CampaignRoleBadge';
+import { NewCampaignDialog, type NewCampaign } from '@/components/campaigns/NewCampaignDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCampaigns, useCreateCampaign, useSetCampaignArchived } from '@/lib/queries';
@@ -16,8 +16,8 @@ export function CampaignList() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
 
-  async function handleCreate(name: string) {
-    const campaign = await createCampaign.mutateAsync(name);
+  async function handleCreate(input: NewCampaign) {
+    const campaign = await createCampaign.mutateAsync(input);
     void navigate(`/campaigns/${campaign.id}`);
   }
 
@@ -66,13 +66,11 @@ export function CampaignList() {
         {archived.length > 0 && <ArchivedCampaigns campaigns={archived} />}
       </CardContent>
 
-      <CampaignNameDialog
+      <NewCampaignDialog
         open={creating}
         onOpenChange={setCreating}
-        title="New campaign"
-        description="You'll be its GM. You can rename it later."
-        submitLabel="Create campaign"
-        onSave={handleCreate}
+        sources={(campaigns ?? []).filter((campaign) => campaign.role === 'gm')}
+        onCreate={handleCreate}
       />
     </Card>
   );

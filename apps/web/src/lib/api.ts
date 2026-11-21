@@ -91,6 +91,18 @@ import {
   type UpdateMeRequest,
   type UpdateRecordRequest,
   type UpdateStatBlockRequest,
+  domainCardListResponseSchema,
+  domainCardSchema,
+  domainListResponseSchema,
+  domainSchema,
+  type CreateDomainCardRequest,
+  type CreateDomainRequest,
+  type Domain,
+  type DomainCard,
+  type DomainCardSummary,
+  type DomainSummary,
+  type UpdateDomainCardRequest,
+  type UpdateDomainRequest,
 } from '@stagehand/shared';
 
 export class ApiError extends Error {
@@ -182,9 +194,15 @@ export async function fetchCampaign(id: string): Promise<Campaign | null> {
   return campaignSchema.parse(await response.json());
 }
 
-/** Creates a campaign; the signed-in user becomes its GM. */
-export async function createCampaign(name: string): Promise<Campaign> {
-  return campaignWrite('/api/campaigns', 'POST', { name });
+/**
+ * Creates a campaign; the signed-in user becomes its GM. With `copyGameplayFrom` (a campaign
+ * they run), it starts with a copy of that campaign's gameplay records (F4.3).
+ */
+export async function createCampaign(input: {
+  name: string;
+  copyGameplayFrom?: string;
+}): Promise<Campaign> {
+  return campaignWrite('/api/campaigns', 'POST', input);
 }
 
 export async function renameCampaign(id: string, name: string): Promise<Campaign> {
@@ -489,6 +507,85 @@ export async function patchStatBlock(
 /** Deletes a stat block for good; NPCs that used it are unlinked. GM only. */
 export async function deleteStatBlock(campaignId: string, statBlockId: string): Promise<void> {
   await send(statBlocksPath(campaignId, statBlockId), 'DELETE');
+}
+
+const domainsPath = (campaignId: string, domainId?: string) =>
+  campaignPath(
+    campaignId,
+    domainId === undefined ? '/domains' : `/domains/${encodeURIComponent(domainId)}`,
+  );
+const cardsPath = (campaignId: string, cardId?: string) =>
+  campaignPath(
+    campaignId,
+    cardId === undefined ? '/domain-cards' : `/domain-cards/${encodeURIComponent(cardId)}`,
+  );
+
+/** The campaign's domains, by name (F4.3). Any member. */
+export async function fetchDomains(campaignId: string): Promise<DomainSummary[]> {
+  return domainListResponseSchema.parse(await getJson(domainsPath(campaignId))).domains;
+}
+
+/** A domain with its cards, or null when it isn't in this campaign. */
+export async function fetchDomain(campaignId: string, domainId: string): Promise<Domain | null> {
+  return getOrNull(domainsPath(campaignId, domainId), (body) => domainSchema.parse(body));
+}
+
+export async function createDomain(
+  campaignId: string,
+  input: CreateDomainRequest,
+): Promise<Domain> {
+  const response = await send(domainsPath(campaignId), 'POST', input);
+  return domainSchema.parse(await response.json());
+}
+
+export async function patchDomain(
+  campaignId: string,
+  domainId: string,
+  patch: UpdateDomainRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<Domain> {
+  const response = await send(domainsPath(campaignId, domainId), 'PATCH', patch, init);
+  return domainSchema.parse(await response.json());
+}
+
+/** Deletes a domain no card uses; otherwise refused with the cards named. GM only. */
+export async function deleteDomain(campaignId: string, domainId: string): Promise<void> {
+  await send(domainsPath(campaignId, domainId), 'DELETE');
+}
+
+/** Every domain card of the campaign, by domain, level and name. Any member. */
+export async function fetchDomainCards(campaignId: string): Promise<DomainCardSummary[]> {
+  return domainCardListResponseSchema.parse(await getJson(cardsPath(campaignId))).cards;
+}
+
+/** A domain card, or null when it isn't in this campaign. */
+export async function fetchDomainCard(
+  campaignId: string,
+  cardId: string,
+): Promise<DomainCard | null> {
+  return getOrNull(cardsPath(campaignId, cardId), (body) => domainCardSchema.parse(body));
+}
+
+export async function createDomainCard(
+  campaignId: string,
+  input: CreateDomainCardRequest,
+): Promise<DomainCard> {
+  const response = await send(cardsPath(campaignId), 'POST', input);
+  return domainCardSchema.parse(await response.json());
+}
+
+export async function patchDomainCard(
+  campaignId: string,
+  cardId: string,
+  patch: UpdateDomainCardRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<DomainCard> {
+  const response = await send(cardsPath(campaignId, cardId), 'PATCH', patch, init);
+  return domainCardSchema.parse(await response.json());
+}
+
+export async function deleteDomainCard(campaignId: string, cardId: string): Promise<void> {
+  await send(cardsPath(campaignId, cardId), 'DELETE');
 }
 
 const importsPath = (campaignId: string, rest = '') => campaignPath(campaignId, `/imports${rest}`);

@@ -100,7 +100,7 @@ describe('Quick jump', () => {
     fireEvent.keyDown(input(), { key: 'Enter' });
 
     await waitFor(() => {
-      expect(currentUrl()).toBe(`/campaigns/${coast.id}/stat-blocks/${bruiser.id}`);
+      expect(currentUrl()).toBe(`/campaigns/${coast.id}/gameplay/stat-blocks/${bruiser.id}`);
     });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

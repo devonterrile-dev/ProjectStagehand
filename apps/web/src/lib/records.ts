@@ -28,12 +28,26 @@ export function characterPath(campaignId: string, characterId: string): string {
   return `/campaigns/${campaignId}/characters/${characterId}`;
 }
 
+/** The gameplay section (F4.3): domains and their cards, and the GM's stat blocks. */
+export function gameplayPath(campaignId: string): string {
+  return `/campaigns/${campaignId}/gameplay`;
+}
+
+export function domainPath(campaignId: string, domainId: string): string {
+  return `/campaigns/${campaignId}/gameplay/domains/${domainId}`;
+}
+
+export function domainCardPath(campaignId: string, cardId: string): string {
+  return `/campaigns/${campaignId}/gameplay/domain-cards/${cardId}`;
+}
+
+/** Stat blocks live in the gameplay section since F4.3; the old paths redirect here. */
 export function statBlocksPath(campaignId: string): string {
-  return `/campaigns/${campaignId}/stat-blocks`;
+  return `/campaigns/${campaignId}/gameplay/stat-blocks`;
 }
 
 export function statBlockPath(campaignId: string, statBlockId: string): string {
-  return `/campaigns/${campaignId}/stat-blocks/${statBlockId}`;
+  return `/campaigns/${campaignId}/gameplay/stat-blocks/${statBlockId}`;
 }
 
 /** The `?type=` filter, or null for "all" (including unknown values). */

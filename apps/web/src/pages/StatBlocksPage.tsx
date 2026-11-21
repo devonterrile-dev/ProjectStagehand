@@ -9,10 +9,10 @@ import { StatBlockList } from '@/components/stat-blocks/StatBlockList';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCampaign, useCreateStatBlock, useStatBlocks } from '@/lib/queries';
-import { statBlockPath } from '@/lib/records';
+import { gameplayPath, statBlockPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
-/** `/campaigns/:campaignId/stat-blocks`: the GM's monsters and fighting NPCs. */
+/** `/campaigns/:campaignId/gameplay/stat-blocks`: the GM's monsters and fighting NPCs (F4.3). */
 export function StatBlocksPage() {
   const { campaignId = '' } = useParams();
   const { data: campaign, isPending, isError } = useCampaign(campaignId);
@@ -34,10 +34,10 @@ function StatBlocksView({ campaign }: { campaign: Campaign }) {
   return (
     <div className="space-y-4">
       <Link
-        to={`/campaigns/${campaign.id}`}
+        to={gameplayPath(campaign.id)}
         className="text-sm text-muted-foreground hover:underline"
       >
-        ← {campaign.name}
+        ← Gameplay
       </Link>
 
       <Card>
