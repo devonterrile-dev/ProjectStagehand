@@ -17,6 +17,7 @@ import { createAuth } from '../src/auth/auth';
 import { createDb, type DbHandle } from '../src/db/client';
 import type { AnthropicProvider } from '../src/providers/anthropic';
 import type { OpenRouterProvider } from '../src/providers/openrouter';
+import type { RollAny } from '../src/campaigns/free-rolls';
 import type { RollDie } from '../src/campaigns/rolls';
 import type { CredentialDeps } from '../src/routes/provider-credentials';
 import { processStoredVisual, processVisualJob, type ImageProcessor } from '../src/visuals/job';
@@ -63,6 +64,8 @@ export async function buildTestApp(
     rateLimit?: boolean;
     /** The live room's dice (F3.6); secure random ones unless a test fixes them. */
     rollDie?: RollDie;
+    /** The dice tray's dice (F4.2); secure random ones unless a test fixes them. */
+    rollAny?: RollAny;
   } = {},
 ): Promise<{
   app: FastifyInstance;
@@ -143,6 +146,7 @@ export async function buildTestApp(
     visuals: { queue, storage, bible: STYLE_BIBLE },
     activity: options.activity === true ? { clientId: DISCORD_CLIENT_ID } : undefined,
     rollDie: options.rollDie,
+    rollAny: options.rollAny,
     activityTest:
       options.activityTest === true
         ? { discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' } }

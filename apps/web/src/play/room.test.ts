@@ -554,6 +554,7 @@ describe('the live room, from the browser', () => {
         sheetChanged: null,
         log: 0,
         emotes: {},
+        lastFreeRoll: null,
       });
 
       // Nothing that arrives late changes a closed room.
@@ -566,6 +567,41 @@ describe('the live room, from the browser', () => {
       expect(socket.connects).toBe(2);
       socket.receive('connect');
       expect(socket.requests).toHaveLength(2);
+    });
+  });
+
+  describe('free rolls (F4.2)', () => {
+    const freeRoll = (n: number) => ({
+      id: `00000000-0000-4000-a000-00000000080${String(n)}`,
+      userId: '00000000-0000-4000-a000-000000000301',
+      rollerName: 'Vex',
+      die: 6,
+      results: [5, 3],
+      total: 8,
+      private: false,
+      at: '2026-11-20T12:00:00.000Z',
+    });
+
+    it('keeps the last free roll, ignores nonsense, and forgets it when the session ends', async () => {
+      await joined();
+      socket.receive(PLAY_SOCKET.freeRoll, freeRoll(1));
+      socket.receive(PLAY_SOCKET.freeRoll, freeRoll(2));
+      socket.receive(PLAY_SOCKET.freeRoll, { ...freeRoll(3), die: 7 });
+      expect(state().lastFreeRoll).toEqual(freeRoll(2));
+      socket.receive(PLAY_SOCKET.ended);
+      expect(state().lastFreeRoll).toBeNull();
+    });
+
+    it('asks the server to roll, and gives back its answer', async () => {
+      await joined();
+      const answer = room.freeRoll(100, 3, true);
+      expect(socket.last(PLAY_SOCKET.freeRoll).payload).toEqual({
+        die: 100,
+        count: 3,
+        private: true,
+      });
+      socket.last(PLAY_SOCKET.freeRoll).answer({ ok: true });
+      expect(await answer).toEqual({ ok: true });
     });
   });
 

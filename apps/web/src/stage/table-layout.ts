@@ -122,6 +122,17 @@ export const DICE = {
   from: [-0.35, 0.55, 1.1] as Point3,
 } as const;
 
+/**
+ * Where a free roll's die lands (F4.2), on the same strip, left of the Hope and Fear dice; a d%
+ * roll's ones die lands at `second`. Tossed from the players' side, like the d12s.
+ */
+export const FREE_DICE = {
+  landing: [0.08, TOP, FRONT + 0.5] as Point3,
+  second: [0.26, TOP, FRONT + 0.47] as Point3,
+  size: 0.07,
+  from: [-0.3, 0.55, 1.1] as Point3,
+} as const;
+
 /** The GM's Fear (F3.6): a bowl of beads on the strip in front of the theater. */
 export const FEAR_BOWL = {
   center: [1.42, TOP, FRONT + 0.5] as Point3,

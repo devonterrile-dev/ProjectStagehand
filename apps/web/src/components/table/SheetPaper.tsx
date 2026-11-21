@@ -6,7 +6,7 @@ import {
   type RollCall,
   type Ruleset,
 } from '@stagehand/shared';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { CharacterSheetView } from '@/components/sheets/CharacterSheetView';
 
@@ -21,6 +21,8 @@ interface SheetPaperProps {
   /** Rolls the call. Answers why it was refused, or null once it is rolled. */
   onRoll: (spendHope: boolean) => Promise<string | null>;
   onBack: () => void;
+  /** The dice tray (F4.2), at the top right of the page. */
+  tray?: ReactNode;
 }
 
 /** Hope as pips: one filled for each Hope held, out of the most a PC can hold. */
@@ -46,7 +48,7 @@ function HopePips({ hope, max }: { hope: number; max: number }) {
  * Hope for the bonus, and Roll. Plain DOM with no router or query context: it is drawn inside
  * the 3D scene (drei `Html`).
  */
-export function SheetPaper({ sheet, ruleset, call, onRoll, onBack }: SheetPaperProps) {
+export function SheetPaper({ sheet, ruleset, call, onRoll, onBack, tray }: SheetPaperProps) {
   const [spendHope, setSpendHope] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -77,14 +79,17 @@ export function SheetPaper({ sheet, ruleset, call, onRoll, onBack }: SheetPaperP
             </p>
           )}
         </div>
-        <button
-          type="button"
-          className="shrink-0 rounded px-2 py-1 text-lg underline-offset-4 hover:underline"
-          aria-label="Put the sheet down"
-          onClick={onBack}
-        >
-          ✕ Back
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-lg underline-offset-4 hover:underline"
+            aria-label="Put the sheet down"
+            onClick={onBack}
+          >
+            ✕ Back
+          </button>
+          {tray}
+        </div>
       </div>
 
       {sheet != null && <HopePips hope={hope} max={ruleset.hopeMax} />}

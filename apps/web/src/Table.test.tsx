@@ -1,6 +1,7 @@
 import {
   PLAY_SOCKET,
   type Campaign,
+  type FreeRoll,
   type LiveStage,
   type RichText,
   type RollCall,
@@ -466,6 +467,107 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
       expect(props().table?.fear).toMatchObject({ count: 2, spendId: spend.id });
     });
     expect(await screen.findByText('The GM spends 2 Fear: The bridge gives way')).toBeDefined();
+  });
+
+  describe('the dice tray (F4.2)', () => {
+    const BRAM_USER = uuid();
+    const freeRoll = (overrides: Partial<FreeRoll> = {}): FreeRoll => ({
+      id: uuid(),
+      userId: MIRA.id,
+      rollerName: 'Vex',
+      die: 6,
+      results: [5, 3, 2],
+      total: 10,
+      private: false,
+      at: '2026-11-20T12:00:00.000Z',
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      // The result at once, with no playback to wait through.
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      return () => {
+        vi.unstubAllGlobals();
+      };
+    });
+
+    async function tray() {
+      const { coast } = party();
+      await seated(coast, playerStage());
+      fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+      return within(await screen.findByRole('group', { name: 'Dice tray' }));
+    }
+
+    it('rolls from the sheet page, back to the theater, and tosses the dice on the table', async () => {
+      const dice = await tray();
+      expect(dice.queryByLabelText('Private')).toBeNull();
+      fireEvent.click(dice.getByRole('button', { name: 'd6' }));
+      expect(dice.getByRole('button', { name: 'd6' }).getAttribute('aria-pressed')).toBe('true');
+      fireEvent.change(dice.getByLabelText('How many dice'), { target: { value: '3' } });
+      fireEvent.click(dice.getByRole('button', { name: 'Roll 3' }));
+      expect(socket.last(PLAY_SOCKET.freeRoll).payload).toEqual({
+        die: 6,
+        count: 3,
+        private: false,
+      });
+
+      const mine = freeRoll();
+      serverSends(PLAY_SOCKET.freeRoll, mine);
+      // The sheet page says no result: the dice and the notice do (D-60).
+      expect(dice.queryByRole('status', { name: 'Dice result' })).toBeNull();
+      await answer(PLAY_SOCKET.freeRoll, { ok: true });
+      await waitFor(() => {
+        expect(view()).toBe('stage');
+      });
+      expect(props().table?.freeDice).toEqual({ id: mine.id, die: 6, results: [5, 3, 2] });
+
+      // The roller is told too.
+      const notice = within(await screen.findByRole('status', { name: 'Dice rolled' }));
+      expect(notice.getByText('Vex rolled 3d6')).toBeDefined();
+      expect(notice.getByText('3d6: 5 + 3 + 2 = 10')).toBeDefined();
+    });
+
+    it('asks for 1 to 20 dice, and says why a roll was refused', async () => {
+      const dice = await tray();
+      fireEvent.change(dice.getByLabelText('How many dice'), { target: { value: '21' } });
+      expect(dice.getByText('From 1 to 20 dice')).toBeDefined();
+      expect(dice.getByRole('button', { name: 'Roll N' })).toHaveProperty('disabled', true);
+
+      fireEvent.change(dice.getByLabelText('How many dice'), { target: { value: '2' } });
+      fireEvent.click(dice.getByRole('button', { name: 'Roll 2' }));
+      await answer(PLAY_SOCKET.freeRoll, { ok: false, message: 'Too quick: wait a moment' });
+      expect((await dice.findByRole('alert')).textContent).toBe('Too quick: wait a moment');
+    });
+
+    it("tosses someone else's roll and tells it, as the dice land", async () => {
+      const { coast } = party();
+      await seated(coast, playerStage());
+      const theirs = freeRoll({
+        userId: BRAM_USER,
+        rollerName: 'Bram',
+        die: 20,
+        results: [14],
+        total: 14,
+      });
+      serverSends(PLAY_SOCKET.freeRoll, theirs);
+      expect(props().table?.freeDice).toEqual({ id: theirs.id, die: 20, results: [14] });
+      const notice = within(await screen.findByRole('status', { name: 'Dice rolled' }));
+      expect(notice.getByText('Bram rolled a d20')).toBeDefined();
+      expect(notice.getByText('d20: 14')).toBeDefined();
+    });
+
+    it('tells a roll as it goes while the dice are still in the air', async () => {
+      vi.unstubAllGlobals();
+      const { coast } = party();
+      await seated(coast, playerStage());
+      serverSends(
+        PLAY_SOCKET.freeRoll,
+        freeRoll({ userId: BRAM_USER, rollerName: 'Bram', die: 8, results: [7, 2], total: 9 }),
+      );
+      const notice = within(await screen.findByRole('status', { name: 'Dice rolling' }));
+      expect(notice.getByText('Bram rolls 2d8')).toBeDefined();
+      expect(notice.getByText('…')).toBeDefined();
+    });
   });
 });
 

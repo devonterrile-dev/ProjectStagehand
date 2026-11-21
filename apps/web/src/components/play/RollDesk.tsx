@@ -5,6 +5,7 @@
  */
 import {
   describeRoll,
+  type FreeRoll,
   DIFFICULTY_MAX,
   FEAR_REASON_MAX,
   ROLL_LABEL_MAX,
@@ -21,11 +22,13 @@ import { useSessionLog } from '@/lib/queries';
 import { rollTitle } from '@/lib/rolls';
 import type { PlayRoom } from '@/play/room';
 
+import { DiceTray } from '@/components/table/DiceTray';
+
 import { Section } from './DeskSection';
 
 export type RollRoom = Pick<
   PlayRoom,
-  'callRolls' | 'cancelRoll' | 'revealRoll' | 'spendFear' | 'setFear' | 'setHope'
+  'callRolls' | 'cancelRoll' | 'revealRoll' | 'spendFear' | 'setFear' | 'setHope' | 'freeRoll'
 >;
 
 interface DeskPartProps {
@@ -36,6 +39,40 @@ interface DeskPartProps {
   idle: boolean;
   /** Sends one action; a refusal is said at the top of the desk. */
   send: (action: () => Promise<ActionResult>) => Promise<void>;
+}
+
+/**
+ * The GM's dice tray (F4.2): the same tray as a player's sheet page, plus Private, and the GM's
+ * own last roll in words. Its refusals show in the tray, not at the top of the desk.
+ */
+export function DiceSection({
+  room,
+  userId,
+  lastFreeRoll,
+}: {
+  room: Pick<RollRoom, 'freeRoll'>;
+  userId: string | null;
+  lastFreeRoll: FreeRoll | null;
+}) {
+  // A roll that was already there when the desk opened isn't said again.
+  const [seenId] = useState(lastFreeRoll?.id ?? null);
+  const mine =
+    lastFreeRoll !== null && lastFreeRoll.userId === userId && lastFreeRoll.id !== seenId
+      ? lastFreeRoll
+      : null;
+  return (
+    <Section title="Dice">
+      <DiceTray
+        shown={mine}
+        canHide
+        tone="desk"
+        onRoll={async (die, count, hidden) => {
+          const result = await room.freeRoll(die, count, hidden);
+          return result.ok ? null : result.message;
+        }}
+      />
+    </Section>
+  );
 }
 
 /** Calling a roll, the calls waiting, and the last roll. */

@@ -34,6 +34,9 @@ export const STAGE_COLORS = {
   hopeDieInk: '#3b2a08',
   fearDie: '#5b3a8c',
   fearDieInk: '#f4efe2',
+  /** A free roll's dice (F4.2): ivory, with dark numbers. */
+  freeDie: '#efe6d2',
+  freeDieInk: '#2b2418',
   /** The Fear bowl and its beads (F3.6). */
   bowl: '#7a5a3e',
   fearBead: '#7d4fc2',

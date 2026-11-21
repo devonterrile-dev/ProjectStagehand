@@ -1,0 +1,1 @@
+ALTER TYPE "public"."session_event_kind" ADD VALUE 'free_roll';

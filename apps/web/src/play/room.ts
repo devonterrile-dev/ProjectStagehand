@@ -9,6 +9,7 @@
 import {
   actionResultSchema,
   emotePlayedSchema,
+  freeRollSchema,
   joinResultSchema,
   liveStageSchema,
   PLAY_SOCKET,
@@ -18,6 +19,8 @@ import {
   type AddObjectRequest,
   type Emote,
   type EmotePlayed,
+  type FreeDie,
+  type FreeRoll,
   type RollCallRequest,
   type LiveStage,
   type ObjectChanges,
@@ -93,6 +96,8 @@ export interface RoomState {
    * is what makes the puppet play it; an id no longer on the stage is simply never drawn.
    */
   emotes: Readonly<Record<string, EmotePlayed>>;
+  /** The last free roll that landed (F4.2), sent once; a private one reaches the GM only. */
+  lastFreeRoll: FreeRoll | null;
 }
 
 export interface PlayRoom {
@@ -127,6 +132,8 @@ export interface PlayRoom {
   setHope(characterId: string, hope: number): Promise<ActionResult>;
   /** Puppet motion (F3.7): the GM on any raised puppet, a player on their own PC's. */
   emote(objectId: string, emote: Emote): Promise<ActionResult>;
+  /** The dice tray (F4.2): anyone at the table; only the GM privately. */
+  freeRoll(die: FreeDie, count: number, hidden: boolean): Promise<ActionResult>;
   /** NPC takeover (F3.8), GM only: the GM's voice goes to a raised NPC puppet, or back. */
   takeOverNpc(objectId: string): Promise<ActionResult>;
   releaseNpc(): Promise<ActionResult>;
@@ -173,6 +180,7 @@ const INITIAL: RoomState = {
   sheetChanged: null,
   log: 0,
   emotes: {},
+  lastFreeRoll: null,
 };
 
 /** Whether the stage already shows every change in `changes`, or no longer has the object. */
@@ -363,7 +371,7 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     transition = NO_STAGE;
     forgetMoves();
     forgetSpeaking();
-    store.setState({ stage: null, view: null, presence: [], emotes: {} });
+    store.setState({ stage: null, view: null, presence: [], emotes: {}, lastFreeRoll: null });
   }
 
   function retryJoinLater(): void {
@@ -491,6 +499,12 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     store.setState({ emotes: { ...store.getState().emotes, [played.objectId]: played } });
   });
 
+  socket.on(PLAY_SOCKET.freeRoll, (payload) => {
+    const parsed = freeRollSchema.safeParse(payload);
+    if (!isOpen || !parsed.success || store.getState().phase !== 'joined') return;
+    store.setState({ lastFreeRoll: parsed.data });
+  });
+
   socket.on(PLAY_SOCKET.started, () => {
     if (isOpen) join();
   });
@@ -547,6 +561,7 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     setFear: (fear) => act(PLAY_SOCKET.setFear, { fear }),
     setHope: (characterId, hope) => act(PLAY_SOCKET.setHope, { characterId, hope }),
     emote: (objectId, emote) => act(PLAY_SOCKET.emote, { id: objectId, emote }),
+    freeRoll: (die, count, hidden) => act(PLAY_SOCKET.freeRoll, { die, count, private: hidden }),
     takeOverNpc: (objectId) => act(PLAY_SOCKET.takeOverNpc, { id: objectId }),
     releaseNpc: () => act(PLAY_SOCKET.releaseNpc, {}),
     setSpeaking(speaking) {

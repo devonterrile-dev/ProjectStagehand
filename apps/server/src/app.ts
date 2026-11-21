@@ -28,6 +28,7 @@ import { createRealtime } from './realtime/io';
 import { registerImportRoutes } from './routes/ai-imports';
 import { registerSecurityHeaders } from './http/security-headers';
 import { registerCampaignRoutes } from './routes/campaigns';
+import type { RollAny } from './campaigns/free-rolls';
 import type { RollDie } from './campaigns/rolls';
 import { registerCharacterRoutes } from './routes/characters';
 import { registerInviteRoutes } from './routes/invites';
@@ -93,6 +94,8 @@ export interface BuildAppOptions {
   activity?: { clientId: string } | undefined;
   /** Rolls a d12 for the live room's rolls (F3.6). A secure random roll unless a test fixes it. */
   rollDie?: RollDie | undefined;
+  /** Rolls a die of a free roll (F4.2). A secure random roll unless a test fixes it. */
+  rollAny?: RollAny | undefined;
 }
 
 /**
@@ -183,6 +186,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       db: handle.db,
       log: app.log,
       ...(options.rollDie === undefined ? {} : { rollDie: options.rollDie }),
+      ...(options.rollAny === undefined ? {} : { rollAny: options.rollAny }),
     });
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
     // The Activity test's routes are called from Discord's proxy origin and carry no session.

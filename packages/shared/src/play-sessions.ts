@@ -173,6 +173,8 @@ export type Presence = z.infer<typeof presenceSchema>;
  *   only: `makeRoll` (`makeRollRequestSchema`).
  * - `emote` (F3.7, `motion.ts`): `emoteRequestSchema` → `actionResultSchema`. The GM on any
  *   raised puppet; a player on their own PC's. At most one a connection every 800 ms.
+ * - `freeRoll` (F4.2, `rolls.ts`): `freeRollRequestSchema` → `actionResultSchema`. Anyone at
+ *   the table; only the GM may roll privately. At most one a connection every second.
  * - `takeOverNpc` (F3.8): `objectRequestSchema` → `actionResultSchema`. GM only: a raised NPC
  *   puppet's voice becomes the GM's (presence `voicing`). `releaseNpc`: `releaseRequestSchema`
  *   → `actionResultSchema`. Lowering, removing or loading a scene over that NPC releases it.
@@ -194,6 +196,8 @@ export type Presence = z.infer<typeof presenceSchema>;
  * - `sheetChanged`: a PC's sheet changed (`sheetChangedSchema`, F3.6); its player reads it again.
  * - `logChanged`: to the GM only, the session's log grew (F3.6); the desk reads it again.
  * - `emote`: an emote plays (`emotePlayedSchema`, F3.7); sent once, never stored.
+ * - `freeRoll`: a free roll landed (`freeRollSchema`, F4.2); sent once, logged. A private one
+ *   goes to the GM only.
  */
 export const PLAY_SOCKET = {
   /** Socket.IO's default path, the one Discord's proxy was tried with (D-48). */
@@ -222,6 +226,7 @@ export const PLAY_SOCKET = {
   spendFear: 'fear:spend',
   setFear: 'fear:adjust',
   setHope: 'hope:adjust',
+  freeRoll: 'roll:free',
   sheetChanged: 'sheet:changed',
   logChanged: 'log:changed',
   emote: 'emote',

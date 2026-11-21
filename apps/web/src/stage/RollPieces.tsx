@@ -1,6 +1,7 @@
 /**
  * What rolls put on the table (F3.6, governance §9 and §12, D-54): the player's sheet page, the
- * two d12s tossed in front of the theater, and the GM's Fear as beads in a bowl. Everyone sees
+ * two d12s tossed in front of the theater, the dice of a free roll (F4.2), and the GM's Fear as
+ * beads in a bowl. Everyone sees
  * the dice and the bowl from the Stage view; the sheet page is each player's own.
  *
  * Nothing here decides anything: the dice land on the numbers the server rolled, and the bowl
@@ -8,11 +9,11 @@
  * was drawn is shown at rest; only what happens while a player watches is played.
  */
 import { useFrame } from '@react-three/fiber';
+import type { FreeDie } from '@stagehand/shared';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BufferGeometry,
   CanvasTexture,
-  DodecahedronGeometry,
   DoubleSide,
   Float32BufferAttribute,
   LatheGeometry,
@@ -28,9 +29,18 @@ import {
 } from 'three';
 
 import { STAGE_COLORS } from './colors';
-import { d12Faces, TOSS_SECONDS, tossPose } from './dice';
+import {
+  DIE_SHAPES,
+  freeDiceTimeline,
+  freeDieAt,
+  REROLL_FROM,
+  TOSS_SECONDS,
+  tossedAs,
+  tossPose,
+  type DieShape,
+} from './dice';
 import type { Point3 } from './dimensions';
-import { DICE, FEAR_BOWL, SHEET } from './table-layout';
+import { DICE, FEAR_BOWL, FREE_DICE, SHEET } from './table-layout';
 import { Paper } from './TablePieces';
 
 /** Keeps a click on a piece from counting as a click on nothing. */
@@ -91,12 +101,17 @@ export function SheetPage({
   );
 }
 
-/** The numbers 1 to 12 drawn in a 4 × 3 grid, for the faces of a die. */
-function numberAtlas(ink: string): CanvasTexture {
+/** A die's labels drawn in a grid, 4 across for up to 12, 5 across for more (the d20). */
+function labelAtlas(
+  labels: readonly string[],
+  ink: string,
+): { texture: CanvasTexture; columns: number; rows: number } {
   const cell = 128;
+  const columns = labels.length <= 12 ? 4 : 5;
+  const rows = Math.ceil(labels.length / columns);
   const canvas = document.createElement('canvas');
-  canvas.width = cell * 4;
-  canvas.height = cell * 3;
+  canvas.width = cell * columns;
+  canvas.height = cell * rows;
   const context = canvas.getContext('2d');
   if (context !== null) {
     context.fillStyle = ink;
@@ -104,56 +119,52 @@ function numberAtlas(ink: string): CanvasTexture {
     context.lineWidth = 7;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    // A font every browser has: nothing is loaded from elsewhere (§13, Discord's policy).
-    context.font = 'bold 84px Georgia, "Times New Roman", serif';
-    for (let n = 1; n <= 12; n += 1) {
-      const cx = ((n - 1) % 4) * cell + cell / 2;
-      const cy = Math.floor((n - 1) / 4) * cell + cell / 2;
-      context.fillText(String(n), cx, cy + 4);
+    labels.forEach((label, index) => {
+      // A font every browser has: nothing is loaded from elsewhere (§13, Discord's policy).
+      context.font = `bold ${label.length > 1 ? '64' : '84'}px Georgia, "Times New Roman", serif`;
+      const cx = (index % columns) * cell + cell / 2;
+      const cy = Math.floor(index / columns) * cell + cell / 2;
+      context.fillText(label, cx, cy + 4);
       // 6 and 9 are underlined, so they can't be mistaken for each other.
-      if (n === 6 || n === 9) {
+      if (label === '6' || label === '9') {
         context.beginPath();
         context.moveTo(cx - 22, cy + 42);
         context.lineTo(cx + 22, cy + 42);
         context.stroke();
       }
-    }
+    });
   }
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.anisotropy = 4;
-  return texture;
+  return { texture, columns, rows };
 }
 
-/** A small square on each face of a d12, each showing its number from the atlas. */
-function numberQuads(radius: number): BufferGeometry {
+/** A small square for each of a die's printed labels, showing it from the atlas. */
+function labelQuads(
+  shape: DieShape,
+  radius: number,
+  columns: number,
+  rows: number,
+): BufferGeometry {
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
-  const up = new Vector3(0, 1, 0);
-  const side = new Vector3(1, 0, 0);
-  for (const face of d12Faces(radius)) {
-    const n = face.normal;
-    const across = new Vector3().crossVectors(Math.abs(n.y) < 0.9 ? up : side, n).normalize();
-    const upward = new Vector3().crossVectors(n, across);
-    const half = face.center.length() * 0.45;
-    const center = face.center.clone().addScaledVector(n, 0.0008);
-    const corners = [
-      new Vector2(-1, -1),
-      new Vector2(1, -1),
-      new Vector2(1, 1),
-      new Vector2(-1, 1),
-    ];
+  const corners = [new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1)];
+  for (const spot of shape.spots) {
+    const across = new Vector3().crossVectors(spot.upward, spot.normal).normalize();
+    const center = spot.center.clone().multiplyScalar(radius);
+    const half = spot.half * radius;
     const base = positions.length / 3;
-    const col = (face.number - 1) % 4;
-    const row = Math.floor((face.number - 1) / 4);
+    const col = spot.reading % columns;
+    const row = Math.floor(spot.reading / columns);
     for (const corner of corners) {
       const point = center
         .clone()
         .addScaledVector(across, corner.x * half)
-        .addScaledVector(upward, corner.y * half);
+        .addScaledVector(spot.upward, corner.y * half);
       positions.push(point.x, point.y, point.z);
-      uvs.push((col + (corner.x + 1) / 2) / 4, 1 - (row + (1 - corner.y) / 2) / 3);
+      uvs.push((col + (corner.x + 1) / 2) / columns, 1 - (row + (1 - corner.y) / 2) / rows);
     }
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
@@ -164,49 +175,70 @@ function numberQuads(radius: number): BufferGeometry {
   return geometry;
 }
 
-function Die({
-  face,
-  seed,
-  landing,
-  color,
-  ink,
-  toss,
-}: {
+interface DieProps {
+  shape: DieShape;
+  /** Its radius, to its corners. */
+  size: number;
+  /** The reading it ends on, counted from 1. */
   face: number;
+  /** A new seed throws it again. */
   seed: string;
   landing: Point3;
+  /** Where it leaves the hand, relative to `landing`. */
+  from: Point3;
+  /** How long the throw takes. */
+  seconds: number;
   color: string;
   ink: string;
   /** Play the toss; otherwise it lies still from the start. */
   toss: boolean;
-}) {
+}
+
+function Die({ shape, size, face, seed, landing, from, seconds, color, ink, toss }: DieProps) {
   const group = useRef<Group>(null);
   const started = useRef<number | null>(null);
+  /** The throw being played: a new seed starts another. */
+  const playing = useRef(seed);
   /** Lying still at its final pose: nothing left to move. */
   const still = useRef(false);
-  const body = useMemo(() => new DodecahedronGeometry(DICE.size, 0), []);
-  const numbers = useMemo(() => numberQuads(DICE.size), []);
-  const atlas = useMemo(() => numberAtlas(ink), [ink]);
-  const rest = useMemo(() => d12Faces(DICE.size)[0]?.center.length() ?? DICE.size, []);
+  const body = useMemo(() => shape.geometry(size), [shape, size]);
+  const atlas = useMemo(
+    () =>
+      labelAtlas(
+        shape.readings.map((reading) => reading.label),
+        ink,
+      ),
+    [shape, ink],
+  );
+  const labels = useMemo(
+    () => labelQuads(shape, size, atlas.columns, atlas.rows),
+    [shape, size, atlas],
+  );
+  const rest = shape.rest * size;
   useEffect(
     () => () => {
       body.dispose();
-      numbers.dispose();
-      atlas.dispose();
+      labels.dispose();
+      atlas.texture.dispose();
     },
-    [body, numbers, atlas],
+    [body, labels, atlas],
   );
 
   useFrame(({ clock }) => {
     const die = group.current;
     if (die === null) return;
+    if (playing.current !== seed) {
+      playing.current = seed;
+      started.current = null;
+      still.current = false;
+    }
     started.current ??= clock.elapsedTime;
-    const seconds = toss ? clock.elapsedTime - started.current : TOSS_SECONDS;
+    const elapsed = toss ? clock.elapsedTime - started.current : seconds;
     if (still.current) return;
-    const pose = tossPose({ landing, rest, from: DICE.from, face, seed }, seconds);
+    const pose = tossPose({ landing, rest, from, face, seed, shape, seconds }, elapsed);
     die.position.set(...pose.position);
     die.quaternion.copy(pose.rotation);
-    still.current = seconds >= TOSS_SECONDS;
+    still.current = elapsed >= seconds;
   });
 
   return (
@@ -214,9 +246,9 @@ function Die({
       <mesh geometry={body}>
         <meshLambertMaterial color={color} flatShading />
       </mesh>
-      <mesh geometry={numbers}>
+      <mesh geometry={labels}>
         <meshBasicMaterial
-          map={atlas}
+          map={atlas.texture}
           transparent
           depthWrite={false}
           polygonOffset
@@ -243,25 +275,87 @@ export function Dice({ roll }: { roll: DiceRoll | null }) {
   const [atStart] = useState(roll?.id ?? null);
   if (roll === null) return null;
   const toss = roll.id !== atStart;
+  const common = {
+    shape: DIE_SHAPES.d12,
+    size: DICE.size,
+    from: DICE.from,
+    seconds: TOSS_SECONDS,
+    toss,
+  };
   return (
     <group key={roll.id}>
       <Die
+        {...common}
         face={roll.hope}
         seed={`${roll.id}:hope`}
         landing={DICE.hope}
         color={STAGE_COLORS.hopeDie}
         ink={STAGE_COLORS.hopeDieInk}
-        toss={toss}
       />
       <Die
+        {...common}
         face={roll.fear}
         seed={`${roll.id}:fear`}
         landing={DICE.fear}
         color={STAGE_COLORS.fearDie}
         ink={STAGE_COLORS.fearDieInk}
-        toss={toss}
       />
     </group>
+  );
+}
+
+/** The last free roll's dice (F4.2), as the tray's roll carries them. */
+export interface FreeDiceRoll {
+  id: string;
+  die: FreeDie;
+  results: readonly number[];
+}
+
+/**
+ * A free roll from the dice tray (F4.2, D-60): one die tossed onto the table, then tossed again
+ * for each further result as soon as it lands, the same throws for everyone; a d% roll is two
+ * d10s, tens and ones. The last lies there until the next free roll.
+ */
+export function FreeDice({ roll }: { roll: FreeDiceRoll | null }) {
+  // A roll that was there before this table was: lying still, not thrown again.
+  const [atStart] = useState(roll?.id ?? null);
+  if (roll === null) return null;
+  return <FreeDiceRun key={roll.id} roll={roll} play={roll.id !== atStart} />;
+}
+
+function FreeDiceRun({ roll, play }: { roll: FreeDiceRoll; play: boolean }) {
+  const count = roll.results.length;
+  const [step, setStep] = useState(play ? 0 : count - 1);
+  const started = useRef<number | null>(null);
+
+  useFrame(({ clock }) => {
+    if (!play) return;
+    started.current ??= clock.elapsedTime;
+    const next = freeDieAt(count, clock.elapsedTime - started.current);
+    if (next !== step) setStep(next);
+  });
+
+  const timing = freeDiceTimeline(count)[step];
+  const result = roll.results[step];
+  if (timing === undefined || result === undefined) return null;
+  return (
+    <>
+      {tossedAs(roll.die, result).map((die, index) => (
+        <Die
+          key={index}
+          shape={die.shape}
+          size={FREE_DICE.size}
+          face={die.reading + 1}
+          seed={`${roll.id}:${String(step)}:${String(index)}`}
+          landing={index === 0 ? FREE_DICE.landing : FREE_DICE.second}
+          from={step === 0 ? FREE_DICE.from : REROLL_FROM}
+          seconds={timing.seconds}
+          color={STAGE_COLORS.freeDie}
+          ink={STAGE_COLORS.freeDieInk}
+          toss={play}
+        />
+      ))}
+    </>
   );
 }
 

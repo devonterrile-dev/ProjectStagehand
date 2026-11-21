@@ -3,7 +3,7 @@
  * a listening server and a real Postgres: who may connect, joining and waiting, each role's
  * view of the stage, the GM's actions and a player trying them, the 6-player cap, coming back
  * after a drop, ending, and a removed member; rolls, Hope and Fear (F3.6), with fixed dice; and
- * puppet motion (F3.7): emotes and who is talking.
+ * puppet motion (F3.7): emotes and who is talking; free rolls from the dice tray (F4.2).
  */
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -15,6 +15,7 @@ import {
   type Campaign,
   type CampaignRecord,
   type EmotePlayed,
+  type FreeRoll,
   type GmStage,
   type JoinResult,
   type LiveStage,
@@ -64,10 +65,14 @@ interface Client {
   logs: number;
   /** Emotes played (F3.7). */
   emotes: EmotePlayed[];
+  /** Free rolls that landed (F4.2). */
+  freeRolls: FreeRoll[];
 }
 
 /** The next dice the server rolls (F3.6), Hope die first; a 6 when none are queued. */
 const dice: number[] = [];
+/** The next faces a free roll gets (F4.2), whatever the die; a 1 when none are queued. */
+const faces: number[] = [];
 
 const WAIT_MS = 3000;
 
@@ -81,7 +86,10 @@ describe('The live room', () => {
   const open: Socket[] = [];
 
   beforeAll(async () => {
-    ({ app, handle } = await buildTestApp({ rollDie: () => dice.shift() ?? 6 }));
+    ({ app, handle } = await buildTestApp({
+      rollDie: () => dice.shift() ?? 6,
+      rollAny: () => faces.shift() ?? 1,
+    }));
     await app.listen({ port: 0, host: '127.0.0.1' });
     ({ port } = app.server.address() as AddressInfo);
 
@@ -242,6 +250,7 @@ describe('The live room', () => {
       sheets: [],
       logs: 0,
       emotes: [],
+      freeRolls: [],
     };
     socket.on(PLAY_SOCKET.stage, (stage: LiveStage) => client.stages.push(stage));
     socket.on(PLAY_SOCKET.presence, (presence: Presence) => client.presences.push(presence));
@@ -253,6 +262,7 @@ describe('The live room', () => {
     );
     socket.on(PLAY_SOCKET.logChanged, () => (client.logs += 1));
     socket.on(PLAY_SOCKET.emote, (played: EmotePlayed) => client.emotes.push(played));
+    socket.on(PLAY_SOCKET.freeRoll, (roll: FreeRoll) => client.freeRolls.push(roll));
     return new Promise((resolve, reject) => {
       socket.once('connect', () => {
         resolve(client);
@@ -1280,6 +1290,117 @@ describe('The live room', () => {
       expect(await hopeOf(campaign, mira)).toBe(2);
       await end(other);
       await end(campaign);
+    });
+
+    describe('free rolls (F4.2)', () => {
+      interface LogEntries {
+        entries: { kind: string; text: string; actorName: string }[];
+      }
+
+      it('rolls any dice for anyone at the table, logs them, and tells everyone once', async () => {
+        const { campaign, director, first, second } = await rollTable('Dice Tray');
+        const stagesBefore = director.client.stages.length;
+
+        faces.push(5, 3, 2, 6, 1);
+        expect(
+          await act(first.client, PLAY_SOCKET.freeRoll, { die: 6, count: 5, private: false }),
+        ).toEqual({ ok: true });
+        await vi.waitFor(() => {
+          for (const client of [director.client, first.client, second.client]) {
+            expect(client.freeRolls).toHaveLength(1);
+          }
+          expect(director.client.logs).toBeGreaterThan(0);
+        });
+        expect(first.client.freeRolls[0]).toMatchObject({
+          userId: players[0]?.id,
+          rollerName: 'Mira',
+          die: 6,
+          results: [5, 3, 2, 6, 1],
+          total: 17,
+          private: false,
+        });
+        const ids = [director, first, second].map((seat) => seat.client.freeRolls[0]?.id);
+        expect(new Set(ids).size).toBe(1);
+        // Nothing on the stage changed, so it isn't sent again.
+        expect(director.client.stages).toHaveLength(stagesBefore);
+
+        expect((await logOf(campaign)).json<LogEntries>().entries[0]).toMatchObject({
+          kind: 'free_roll',
+          actorName: 'Live Player 1',
+          text: 'Mira rolled 5d6: 5 + 3 + 2 + 6 + 1 = 17',
+        });
+        await end(campaign);
+      });
+
+      it('lets only the GM roll privately, and tells only the GM', async () => {
+        const { campaign, director, first, second } = await rollTable('Behind the Screen');
+
+        expect(
+          await act(first.client, PLAY_SOCKET.freeRoll, { die: 20, count: 1, private: true }),
+        ).toEqual({ ok: false, message: 'Only the GM can roll privately' });
+
+        faces.push(14);
+        expect(
+          await act(director.client, PLAY_SOCKET.freeRoll, { die: 20, count: 1, private: true }),
+        ).toEqual({ ok: true });
+        faces.push(37, 82);
+        expect(
+          await act(second.client, PLAY_SOCKET.freeRoll, { die: 100, count: 2, private: false }),
+        ).toEqual({ ok: true });
+        await vi.waitFor(() => {
+          expect(director.client.freeRolls).toHaveLength(2);
+          expect(first.client.freeRolls).toHaveLength(1);
+        });
+        expect(director.client.freeRolls[0]).toMatchObject({
+          rollerName: 'The GM',
+          results: [14],
+          private: true,
+        });
+        // Sent in turn: the GM's private roll would have come first.
+        expect(first.client.freeRolls.map((roll) => roll.rollerName)).toEqual(['Bram']);
+
+        const entries = (await logOf(campaign)).json<LogEntries>().entries;
+        expect(entries.slice(0, 2).map((entry) => entry.text)).toEqual([
+          'Bram rolled 2d%: 37 + 82 = 119',
+          'The GM rolled d20: 14, private',
+        ]);
+        await end(campaign);
+      });
+
+      it('refuses dice not in the tray, too many, and rolls too quick', async () => {
+        const { campaign, first } = await rollTable('Too Many Dice');
+        for (const payload of [
+          { die: 3, count: 1, private: false },
+          { die: 6, count: 21, private: false },
+          { die: 6, count: 0, private: false },
+        ]) {
+          expect(await act(first.client, PLAY_SOCKET.freeRoll, payload)).toEqual({
+            ok: false,
+            message: 'Choose a die and how many',
+          });
+        }
+        const roll = { die: 8, count: 2, private: false };
+        expect(await act(first.client, PLAY_SOCKET.freeRoll, roll)).toEqual({ ok: true });
+        expect(await act(first.client, PLAY_SOCKET.freeRoll, roll)).toEqual({
+          ok: false,
+          message: 'Too quick: wait a moment',
+        });
+        await end(campaign);
+      });
+
+      it('needs a running session', async () => {
+        const { campaign, first } = await rollTable('After Hours');
+        await end(campaign);
+        await vi.waitFor(() => {
+          expect(first.client.ended).toBe(1);
+        });
+        const answer = await act(first.client, PLAY_SOCKET.freeRoll, {
+          die: 4,
+          count: 1,
+          private: false,
+        });
+        expect(answer.ok).toBe(false);
+      });
     });
   });
 

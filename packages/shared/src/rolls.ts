@@ -155,6 +155,7 @@ export const SESSION_LOG_KINDS = [
   'fear_spend',
   'fear_adjust',
   'hope_adjust',
+  'free_roll',
 ] as const;
 export const sessionLogKindSchema = z.enum(SESSION_LOG_KINDS);
 export type SessionLogKind = z.infer<typeof sessionLogKindSchema>;
@@ -173,6 +174,54 @@ export type SessionLogEntry = z.infer<typeof sessionLogEntrySchema>;
 /** `GET /api/campaigns/:campaignId/play-session/log` (GM only): the running session's log. */
 export const sessionLogResponseSchema = z.object({ entries: z.array(sessionLogEntrySchema) });
 export type SessionLogResponse = z.infer<typeof sessionLogResponseSchema>;
+
+/**
+ * Free rolls (F4.2, §9 "Free rolls"): any number of one kind of die from the dice tray, rolled
+ * on the server. No trait, difficulty or modifier, and never any Hope or Fear. The dice, in the
+ * tray's order; 100 is the percentile die, d%.
+ */
+export const FREE_DICE = [4, 6, 8, 10, 100, 12, 20] as const;
+export type FreeDie = (typeof FREE_DICE)[number];
+/** Most dice in one free roll. */
+export const FREE_ROLL_COUNT_MAX = 20;
+
+const freeDieSchema = z.literal(FREE_DICE);
+
+/** Anyone at the table: rolls `count` dice. Only the GM may roll privately (19.20). */
+export const freeRollRequestSchema = z.strictObject({
+  die: freeDieSchema,
+  count: z.int().min(1).max(FREE_ROLL_COUNT_MAX),
+  private: z.boolean(),
+});
+export type FreeRollRequest = z.infer<typeof freeRollRequestSchema>;
+
+/** Server to browser: a free roll as it landed, sent once. A private one goes to the GM only. */
+export const freeRollSchema = z.object({
+  id: z.uuid(),
+  /** Who rolled, so their own tray plays it. */
+  userId: z.uuid(),
+  /** The PC's name for a player with one, otherwise the person's name; "The GM" for the GM. */
+  rollerName: z.string(),
+  die: freeDieSchema,
+  /** Each die, in the order rolled. */
+  results: z.array(z.int().positive()).min(1).max(FREE_ROLL_COUNT_MAX),
+  total: z.int().positive(),
+  private: z.boolean(),
+  at: timestamp,
+});
+export type FreeRoll = z.infer<typeof freeRollSchema>;
+
+/** "d6", or "d%" for the percentile die. */
+export function dieLabel(die: FreeDie): string {
+  return die === 100 ? 'd%' : `d${String(die)}`;
+}
+
+/** "5d6: 5 + 3 + 2 + 6 + 1 = 17", or "d20: 14" for one die. */
+export function describeFreeRoll(roll: Pick<FreeRoll, 'die' | 'results' | 'total'>): string {
+  const dice = `${roll.results.length > 1 ? String(roll.results.length) : ''}${dieLabel(roll.die)}`;
+  if (roll.results.length === 1) return `${dice}: ${String(roll.total)}`;
+  return `${dice}: ${roll.results.join(' + ')} = ${String(roll.total)}`;
+}
 
 /** A trait's label in a ruleset, or its id when the ruleset has no such trait. */
 export function traitLabel(ruleset: Ruleset, trait: string): string {

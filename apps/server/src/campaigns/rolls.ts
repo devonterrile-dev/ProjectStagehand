@@ -11,6 +11,7 @@
  * sheets changed, so their players read them again.
  */
 import {
+  describeFreeRoll,
   describeRoll,
   partyMemberSchema,
   resolveActionRoll,
@@ -47,6 +48,7 @@ import {
 import { httpError } from '../http/errors';
 import { shownName } from '../users/profile';
 
+import { freeRollEventSchema } from './free-rolls';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 import { lockRunning, logEvent, running, type SessionRow } from './session-core';
@@ -631,6 +633,12 @@ function logText(
       return adjust.success
         ? `Set Fear from ${String(adjust.data.from)} to ${String(adjust.data.to)}`
         : 'Set Fear';
+    }
+    case 'free_roll': {
+      const free = freeRollEventSchema.safeParse(data);
+      if (!free.success) return 'Rolled dice';
+      const { rollerName, private: hidden } = free.data;
+      return `${rollerName} rolled ${describeFreeRoll(free.data)}${hidden ? ', private' : ''}`;
     }
     case 'hope_adjust': {
       const adjust = hopeAdjustEventSchema.safeParse(data);

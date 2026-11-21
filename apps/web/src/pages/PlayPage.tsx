@@ -3,6 +3,7 @@ import {
   rulesetFor,
   type Campaign,
   type Emote,
+  type FreeDie,
   type ObjectChanges,
 } from '@stagehand/shared';
 import { useQueryClient } from '@tanstack/react-query';
@@ -114,6 +115,7 @@ function Table({ campaign }: { campaign: Campaign }) {
     sheetChanged,
     log,
     emotes,
+    lastFreeRoll,
   } = useStore(room.store);
 
   // Talking (F3.7, F3.9): the mic in a tab or Discord in the Activity, and holding T.
@@ -128,7 +130,11 @@ function Table({ campaign }: { campaign: Campaign }) {
     (callId: string, spendHope: boolean) => room.makeRoll(callId, spendHope),
     [room],
   );
-  const table = useTable(campaign, { stage, makeRoll });
+  const freeRoll = useCallback(
+    (die: FreeDie, count: number, hidden: boolean) => room.freeRoll(die, count, hidden),
+    [room],
+  );
+  const table = useTable(campaign, { stage, makeRoll, freeRoll, lastFreeRoll });
   const atStage = table.state.at === 'stage';
   const { back: tableBack, openSheet, characterId } = table;
   const ruleset = rulesetFor(campaign.rulesetVersion);
@@ -432,6 +438,7 @@ function Table({ campaign }: { campaign: Campaign }) {
           characterId={characterId}
           atSheet={table.state.at === 'sheet'}
           onGoToSheet={openSheet}
+          freeRoll={lastFreeRoll}
         />
         {!connected && (
           <p
@@ -493,6 +500,8 @@ function Table({ campaign }: { campaign: Campaign }) {
           presence={presence}
           connected={connected}
           room={room}
+          lastFreeRoll={lastFreeRoll}
+          userId={table.userId}
           selectedId={picked}
           onSelect={setSelectedId}
           asPlayers={asPlayers}

@@ -7,7 +7,14 @@ import type { Place } from './placement';
 import { PuppetMenu } from './PuppetMenu';
 import { SceneObjects, type StageMotion } from './SceneObjects';
 import { StageCanvas } from './StageCanvas';
-import { Dice, FearBowl, SheetPage, type DiceRoll } from './RollPieces';
+import {
+  Dice,
+  FearBowl,
+  FreeDice,
+  SheetPage,
+  type DiceRoll,
+  type FreeDiceRoll,
+} from './RollPieces';
 import { BINDER_PAD, INSPECT_PAD } from './table-layout';
 import { Binder, InspectStage, StickyPad, type InspectImage } from './TablePieces';
 
@@ -42,6 +49,8 @@ export interface TableScene {
   onOpenSheet: () => void;
   /** The last roll's dice (F3.6); null before the session's first. */
   dice: DiceRoll | null;
+  /** The last free roll's dice (F4.2); null before the session's first. */
+  freeDice: FreeDiceRoll | null;
   /** The GM's Fear (F3.6): the count, and the last spend. */
   fear: { count: number; spendId: string | null };
 }
@@ -235,6 +244,7 @@ export const PlayCanvas = memo(function PlayCanvas({
             />
           )}
           <Dice roll={table.dice} />
+          <FreeDice roll={table.freeDice} />
           <FearBowl fear={table.fear.count} spendId={table.fear.spendId} />
         </Suspense>
       )}

@@ -6,6 +6,7 @@ import {
   STAGE_MAX_OBJECTS,
   type ActionResult,
   type Campaign,
+  type FreeRoll,
   type GmStage,
   type GmStageObject,
   type ObjectChanges,
@@ -28,7 +29,14 @@ import type { PlayRoom } from '@/play/room';
 import { Section } from './DeskSection';
 import { EMOTE_ICONS } from './emote-icons';
 import { PresenceList } from './PresenceList';
-import { FearSection, HopeSection, LogSection, RollsSection, type RollRoom } from './RollDesk';
+import {
+  DiceSection,
+  FearSection,
+  HopeSection,
+  LogSection,
+  RollsSection,
+  type RollRoom,
+} from './RollDesk';
 
 export type DeskRoom = Pick<
   PlayRoom,
@@ -54,6 +62,10 @@ interface GmDeskProps {
   /** False while the connection is down: nothing can be sent. */
   connected: boolean;
   room: DeskRoom;
+  /** The last free roll that landed (F4.2), for the desk's dice tray. */
+  lastFreeRoll: FreeRoll | null;
+  /** The GM's own user id: their free rolls are the ones the tray plays. */
+  userId: string | null;
   /** The object picked here or in the theater; null for none. */
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -277,6 +289,8 @@ export function GmDesk({
   presence,
   connected,
   room,
+  lastFreeRoll,
+  userId,
   selectedId,
   onSelect,
   asPlayers,
@@ -395,6 +409,7 @@ export function GmDesk({
       <RollsSection {...rolls} />
       <FearSection {...rolls} />
       <HopeSection {...rolls} />
+      <DiceSection room={room} userId={userId} lastFreeRoll={lastFreeRoll} />
 
       {selected !== null && stageObject !== null && (
         <section

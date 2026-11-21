@@ -3,6 +3,8 @@ import {
   type ActionResult,
   type Campaign,
   type CreateEntryRequest,
+  type FreeDie,
+  type FreeRoll,
   type LiveStage,
   type RollCall,
 } from '@stagehand/shared';
@@ -38,6 +40,7 @@ import {
 import type { TableScene } from '@/stage/PlayCanvas';
 
 import { BinderBook } from './BinderBook';
+import { DiceTray } from './DiceTray';
 import { InspectCard, InspectTitle } from './InspectPapers';
 import { SheetPaper } from './SheetPaper';
 import { StickyNoteForm } from './StickyNoteForm';
@@ -45,10 +48,13 @@ import { StickyNoteForm } from './StickyNoteForm';
 /** A subject no query asks for: what the hooks get while nothing is open. */
 const NOTHING = '00000000-0000-4000-8000-000000000000';
 
-/** What the table needs from the live room (F3.6): the stage, and a way to roll. */
+/** What the table needs from the live room (F3.6): the stage, and ways to roll. */
 export interface TableLive {
   stage: LiveStage | null;
   makeRoll: (callId: string, spendHope: boolean) => Promise<ActionResult>;
+  /** The dice tray (F4.2): a free roll, and the last one that landed. */
+  freeRoll: (die: FreeDie, count: number, hidden: boolean) => Promise<ActionResult>;
+  lastFreeRoll: FreeRoll | null;
 }
 
 /** The same value while its contents stay the same, so the scene isn't made anew each stage. */
@@ -68,6 +74,8 @@ export interface Table {
   openSheet: () => void;
   /** The player's own PC, if they have one: whose sheet page is on the table (F3.6). */
   characterId: string | null;
+  /** Who is at this browser; null until known. */
+  userId: string | null;
   /** One step back: Back, or Escape. */
   back: () => void;
 }
@@ -91,7 +99,8 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     ? null
     : (members.data?.find((member) => member.userId === me.data?.id)?.character?.id ?? null);
   const sheet = useOwnCharacterSheet(campaign.id, characterId ?? NOTHING, characterId !== null);
-  const { stage, makeRoll } = live;
+  const { stage, makeRoll, freeRoll, lastFreeRoll } = live;
+  const userId = me.data?.id ?? null;
   const call = useSteady<RollCall | null>(
     stage?.calls.find((entry) => entry.characterId === characterId) ?? null,
   );
@@ -154,6 +163,21 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     },
     [call, makeRoll],
   );
+
+  // The dice tray on the sheet page (F4.2): a player never rolls privately. Rolling turns the
+  // camera back to the theater, to watch the dice land with everyone.
+  const rollFree = useCallback(
+    async (die: FreeDie, count: number): Promise<string | null> => {
+      const result = await freeRoll(die, count, false);
+      if (!result.ok) return result.message;
+      setState(AT_STAGE);
+      return null;
+    },
+    [freeRoll],
+  );
+  const freeId = lastFreeRoll?.id ?? null;
+  const freeDie = lastFreeRoll?.die ?? null;
+  const freeResults = useSteady(lastFreeRoll?.results ?? null);
 
   const scene = useMemo((): TableScene => {
     const imageUrl = (image: Parameters<typeof stageImageUrl>[1]) =>
@@ -236,6 +260,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
                   call={call}
                   onRoll={rollCall}
                   onBack={putDown}
+                  tray={<DiceTray onRoll={rollFree} tone="paper" />}
                 />
               ) : null,
             waiting: call !== null,
@@ -243,6 +268,10 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
         : null,
       onOpenSheet: lookDown,
       dice: diceId === null ? null : { id: diceId, hope: hopeDie, fear: fearDie },
+      freeDice:
+        freeId === null || freeDie === null || freeResults === null
+          ? null
+          : { id: freeId, die: freeDie, results: freeResults },
       fear: { count: fear, spendId },
     };
   }, [
@@ -267,10 +296,14 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     ruleset,
     call,
     rollCall,
+    rollFree,
     lookDown,
     diceId,
     hopeDie,
     fearDie,
+    freeId,
+    freeDie,
+    freeResults,
     fear,
     spendId,
   ]);
@@ -282,6 +315,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     openBinder: pickUpBinder,
     openSheet: lookDown,
     characterId,
+    userId,
     back: goBack,
   };
 }

@@ -148,6 +148,13 @@
       "when": 1795222622576,
       "tag": "0020_ruleset_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795226240767,
+      "tag": "0021_free_rolls",
+      "breakpoints": true
     }
   ]
 }

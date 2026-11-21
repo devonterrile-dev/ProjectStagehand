@@ -12,6 +12,8 @@
  *   their own PC, and the dice are rolled here (`rollDie`), never in a browser (§9).
  * - Everything sent about one campaign goes out in turn (`inTurn`): a join's snapshot and the
  *   broadcasts around it can't overtake each other, so nobody is left holding an older stage.
+ * - Free rolls (F4.2): rolled here like action rolls (`rollAny`), logged, and sent once, to the
+ *   GM only when private. They change nothing on the stage.
  * - Puppet motion (F3.7): an emote is sent once to everyone and never stored; who is talking is
  *   kept with presence, in memory, and never touches the database.
  * - NPC takeover (F3.8, D-56): the NPC puppet the GM voices is kept in memory too, and travels
@@ -22,6 +24,7 @@ import {
   addObjectRequestSchema,
   cancelRollRequestSchema,
   emoteRequestSchema,
+  freeRollRequestSchema,
   joinRequestSchema,
   joinResultSchema,
   loadSceneRequestSchema,
@@ -49,6 +52,7 @@ import type { z } from 'zod';
 
 import type { Auth } from '../auth/auth';
 import { checkEmote, checkTakeover, NO_NPC } from '../campaigns/emotes';
+import { makeFreeRoll, type RollAny } from '../campaigns/free-rolls';
 import { presenceMemberOf } from '../campaigns/members';
 import {
   addLiveObject,
@@ -105,6 +109,8 @@ export interface PlaySocketDeps {
   log: FastifyBaseLogger;
   /** Rolls one d12 for a roll (F3.6): a secure random 1 to 12 unless a test passes its own. */
   rollDie?: RollDie;
+  /** Rolls one die of a free roll (F4.2): a secure random 1 to `sides` unless a test passes its own. */
+  rollAny?: RollAny;
 }
 
 /** What an action did beyond the stage, for the room to pass on (F3.6). */
@@ -122,6 +128,8 @@ type ActionRole = CampaignRole | 'either';
 
 /** A secure d12. */
 const secureDie: RollDie = () => randomInt(1, 13);
+/** A secure die of any size. */
+const secureAny: RollAny = (sides) => randomInt(1, sides + 1);
 
 interface SocketData {
   userId: string;
@@ -131,6 +139,8 @@ interface SocketData {
   waiting: string | null;
   /** When this connection last asked for an emote (F3.7), for `EMOTE_GAP_MS`. */
   lastEmoteAt: number;
+  /** When this connection last made a free roll (F4.2), for `FREE_ROLL_GAP_MS`. */
+  lastFreeRollAt: number;
 }
 
 type PlayNamespace = Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
@@ -153,6 +163,8 @@ export const EVENT_BUDGET = { events: 60, perMs: 10_000 } as const;
  * so to play; faster than this is a page gone wrong, and is refused rather than disconnected.
  */
 export const EMOTE_GAP_MS = 800;
+/** The shortest wait between two free rolls from one connection (F4.2). */
+export const FREE_ROLL_GAP_MS = 1000;
 const TOO_QUICK = 'Too quick: wait a moment';
 
 const ONLY_GM = 'Only the GM can do that';
@@ -163,6 +175,7 @@ const NOT_ON_STAGE = 'Choose something on the stage';
 export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
   const { auth, db, log } = deps;
   const rollDie = deps.rollDie ?? secureDie;
+  const rollAny = deps.rollAny ?? secureAny;
   const nsp = io.of(PLAY_SOCKET.namespace) as PlayNamespace;
   const hub = new PlayHub();
 
@@ -343,6 +356,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         socket.data.seat = null;
         socket.data.waiting = null;
         socket.data.lastEmoteAt = 0;
+        socket.data.lastFreeRollAt = 0;
         next();
       })
       .catch((error: unknown) => {
@@ -535,6 +549,28 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       async (scope, request) => {
         const { characterId } = await makeRoll(db, scope, request, rollDie);
         return { logged: true, sheets: [characterId] };
+      },
+    );
+
+    // Free rolls (F4.2): anyone at the table; only the GM privately, and then to the GM only.
+    on(
+      'either',
+      PLAY_SOCKET.freeRoll,
+      freeRollRequestSchema,
+      'Choose a die and how many',
+      async (scope, request) => {
+        const now = Date.now();
+        if (now - socket.data.lastFreeRollAt < FREE_ROLL_GAP_MS) throw httpError(429, TOO_QUICK);
+        socket.data.lastFreeRollAt = now;
+        const roll = await makeFreeRoll(db, scope, request, rollAny);
+        await inTurn(scope.campaignId, 'free roll broadcast failed', () => {
+          const to = nsp.to(room.gm(scope.campaignId));
+          (roll.private ? to : to.to(room.player(scope.campaignId))).emit(
+            PLAY_SOCKET.freeRoll,
+            roll,
+          );
+        });
+        return { stage: false, logged: true };
       },
     );
 

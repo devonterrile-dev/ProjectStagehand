@@ -874,6 +874,40 @@ describe('The table, for the GM', () => {
       expect(desk().getByRole('alert').textContent).toBe('Hope is from 0 to 6');
     });
 
+    it('rolls dice from the desk, privately when the GM likes (F4.2)', async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      try {
+        await seated(coast, stageWith({ party }), [GM_HERE]);
+        const dice = within(desk().getByRole('region', { name: 'Dice' }));
+        fireEvent.click(dice.getByRole('button', { name: 'd%' }));
+        fireEvent.change(dice.getByLabelText('How many dice'), { target: { value: '2' } });
+        fireEvent.click(dice.getByLabelText('Private'));
+        fireEvent.click(dice.getByRole('button', { name: 'Roll 2' }));
+        expect(socket.last(PLAY_SOCKET.freeRoll).payload).toEqual({
+          die: 100,
+          count: 2,
+          private: true,
+        });
+
+        serverSends(PLAY_SOCKET.freeRoll, {
+          id: uuid(),
+          userId: MIRA.id,
+          rollerName: 'The GM',
+          die: 100,
+          results: [37, 82],
+          total: 119,
+          private: true,
+          at: '2026-11-20T12:00:00.000Z',
+        });
+        await answer(PLAY_SOCKET.freeRoll, { ok: true });
+        expect((await dice.findByRole('status', { name: 'Dice result' })).textContent).toBe(
+          '2d%: 37 + 82 = 119 (private)',
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('shows the session’s log, and reads it again when it grows', async () => {
       fetchMock = mockApi(MIRA, [coast], {
         playSessions: { [coast.id]: SESSION },

@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { rulesetFor } from './ruleset';
 import {
+  describeFreeRoll,
   describeRoll,
+  dieLabel,
+  FREE_DICE,
+  freeRollRequestSchema,
   rollCallRequestSchema,
   signed,
   spendFearRequestSchema,
@@ -79,5 +83,32 @@ describe('labels', () => {
     expect(traitLabel(rulesetFor(1), 'knowledge')).toBe('Knowledge');
     expect(traitLabel(rulesetFor(1), 'luck')).toBe('luck');
     expect([signed(2), signed(0), signed(-1)]).toEqual(['+2', '0', '−1']);
+  });
+});
+
+describe('free rolls (F4.2)', () => {
+  it('names the dice, with d% for the percentile die', () => {
+    expect(FREE_DICE.map(dieLabel)).toEqual(['d4', 'd6', 'd8', 'd10', 'd%', 'd12', 'd20']);
+  });
+
+  it('says a roll with every die and the total, or one die alone', () => {
+    expect(describeFreeRoll({ die: 6, results: [5, 3, 2, 6, 1], total: 17 })).toBe(
+      '5d6: 5 + 3 + 2 + 6 + 1 = 17',
+    );
+    expect(describeFreeRoll({ die: 20, results: [14], total: 14 })).toBe('d20: 14');
+    expect(describeFreeRoll({ die: 100, results: [37, 82], total: 119 })).toBe(
+      '2d%: 37 + 82 = 119',
+    );
+  });
+
+  it('takes one of the tray dice, 1 to 20 of them', () => {
+    const ok = (body: object) => freeRollRequestSchema.safeParse(body).success;
+    expect(ok({ die: 100, count: 1, private: false })).toBe(true);
+    expect(ok({ die: 20, count: 20, private: true })).toBe(true);
+    expect(ok({ die: 3, count: 1, private: false })).toBe(false);
+    expect(ok({ die: 6, count: 0, private: false })).toBe(false);
+    expect(ok({ die: 6, count: 21, private: false })).toBe(false);
+    expect(ok({ die: 6, count: 1.5, private: false })).toBe(false);
+    expect(ok({ die: 6, count: 2 })).toBe(false);
   });
 });
