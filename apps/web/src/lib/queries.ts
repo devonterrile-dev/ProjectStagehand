@@ -35,10 +35,12 @@ import type {
   UpdateDomainRequest,
   CreateArmorRequest,
   CreateClassRequest,
+  CreateSpeciesRequest,
   CreateSubclassRequest,
   CreateWeaponRequest,
   UpdateArmorRequest,
   UpdateClassRequest,
+  UpdateSpeciesRequest,
   UpdateSubclassRequest,
   UpdateWeaponRequest,
 } from '@stagehand/shared';
@@ -141,21 +143,26 @@ import {
   patchDomainCard,
   createArmor,
   createClass,
+  createSpecies,
   createSubclass,
   createWeapon,
   deleteArmor,
   deleteClass,
+  deleteSpecies,
   deleteSubclass,
   deleteWeapon,
   fetchArmor,
   fetchArmorList,
   fetchClass,
   fetchClasses,
+  fetchSpecies,
+  fetchSpeciesList,
   fetchSubclass,
   fetchWeapon,
   fetchWeapons,
   patchArmor,
   patchClass,
+  patchSpecies,
   patchSubclass,
   patchWeapon,
 } from './api';
@@ -973,6 +980,61 @@ export function useDeleteSubclass(campaignId: string) {
     mutationFn: (subclassId: string) => deleteSubclass(campaignId, subclassId),
     onSuccess: (_result, subclassId) => {
       queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'subclass', subclassId) });
+      refetch();
+    },
+  });
+}
+
+/** The campaign's species (F4.6), by name. Any member. */
+export function useSpeciesList(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'species-list'),
+    queryFn: () => fetchSpeciesList(campaignId),
+  });
+}
+
+/** A species (`null` when not found). */
+export function useSpecies(campaignId: string, speciesId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'species', speciesId),
+    queryFn: () => fetchSpecies(campaignId, speciesId),
+  });
+}
+
+export function useCreateSpecies(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (input: CreateSpeciesRequest) => createSpecies(campaignId, input),
+    onSuccess: (one) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'species', one.id), one);
+      refetch(gameplayKey(campaignId, 'species', one.id));
+    },
+  });
+}
+
+/** Saves part of a species; the response becomes the cached species. */
+export function usePatchSpecies(campaignId: string, speciesId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  const key = gameplayKey(campaignId, 'species', speciesId);
+  return useMutation({
+    mutationFn: ({ patch, keepalive }: { patch: UpdateSpeciesRequest; keepalive?: boolean }) =>
+      patchSpecies(campaignId, speciesId, patch, { keepalive }),
+    onSuccess: (one) => {
+      queryClient.setQueryData(key, one);
+      refetch(key);
+    },
+  });
+}
+
+export function useDeleteSpecies(campaignId: string) {
+  const queryClient = useQueryClient();
+  const refetch = useRefetchGameplay(campaignId);
+  return useMutation({
+    mutationFn: (speciesId: string) => deleteSpecies(campaignId, speciesId),
+    onSuccess: (_result, speciesId) => {
+      queryClient.removeQueries({ queryKey: gameplayKey(campaignId, 'species', speciesId) });
       refetch();
     },
   });

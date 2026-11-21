@@ -3,6 +3,7 @@ import {
   type ClassRecord,
   type FeatureRow,
   type Ruleset,
+  type SpeciesRecord,
   type SubclassRecord,
 } from '@stagehand/shared';
 
@@ -10,8 +11,9 @@ import { Facts, GearCard } from './GearViews';
 import { domainsLabel, hopeFeatureLabel, suggestedTraitsLabel } from './labels';
 
 /**
- * Classes and subclasses drawn as cards (F4.5): what players read on the gameplay pages, and
- * what F4.7 lays beside the sheet page. Feature text is read by the table, never run (§8).
+ * Classes and subclasses (F4.5) and species (F4.6) drawn as cards: what players read on the
+ * gameplay pages, and what F4.7 lays beside the sheet page. Feature text is read by the table,
+ * never run (§8).
  */
 
 /** A list of features under a heading; "None yet." when empty. */
@@ -105,6 +107,17 @@ export function SubclassView({
       <FeatureList title="Foundation" features={subclass.foundation} />
       <FeatureList title="Specialization" features={subclass.specialization} />
       <FeatureList title="Mastery" features={subclass.mastery} />
+    </GearCard>
+  );
+}
+
+export function SpeciesView({ species }: { species: SpeciesRecord }) {
+  return (
+    <GearCard label={`${species.name}, a species`} corner="Species" name={species.name}>
+      {species.description !== '' && (
+        <p className="text-sm whitespace-pre-line text-muted-foreground">{species.description}</p>
+      )}
+      <FeatureList title="Features" features={species.features} />
     </GearCard>
   );
 }

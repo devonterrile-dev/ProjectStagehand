@@ -107,6 +107,12 @@ import {
   armorRecordSchema,
   classListResponseSchema,
   classRecordSchema,
+  speciesListResponseSchema,
+  speciesRecordSchema,
+  type CreateSpeciesRequest,
+  type SpeciesRecord,
+  type SpeciesSummary,
+  type UpdateSpeciesRequest,
   subclassRecordSchema,
   type ClassRecord,
   type ClassSummary,
@@ -759,6 +765,47 @@ export async function patchSubclass(
 
 export async function deleteSubclass(campaignId: string, subclassId: string): Promise<void> {
   await send(subclassesPath(campaignId, subclassId), 'DELETE');
+}
+
+const speciesPath = (campaignId: string, speciesId?: string) =>
+  campaignPath(
+    campaignId,
+    speciesId === undefined ? '/species' : `/species/${encodeURIComponent(speciesId)}`,
+  );
+
+/** The campaign's species, by name (F4.6). Any member. */
+export async function fetchSpeciesList(campaignId: string): Promise<SpeciesSummary[]> {
+  return speciesListResponseSchema.parse(await getJson(speciesPath(campaignId))).species;
+}
+
+/** A species, or null when it isn't in this campaign. */
+export async function fetchSpecies(
+  campaignId: string,
+  speciesId: string,
+): Promise<SpeciesRecord | null> {
+  return getOrNull(speciesPath(campaignId, speciesId), (body) => speciesRecordSchema.parse(body));
+}
+
+export async function createSpecies(
+  campaignId: string,
+  input: CreateSpeciesRequest,
+): Promise<SpeciesRecord> {
+  const response = await send(speciesPath(campaignId), 'POST', input);
+  return speciesRecordSchema.parse(await response.json());
+}
+
+export async function patchSpecies(
+  campaignId: string,
+  speciesId: string,
+  patch: UpdateSpeciesRequest,
+  init: { keepalive?: boolean } = {},
+): Promise<SpeciesRecord> {
+  const response = await send(speciesPath(campaignId, speciesId), 'PATCH', patch, init);
+  return speciesRecordSchema.parse(await response.json());
+}
+
+export async function deleteSpecies(campaignId: string, speciesId: string): Promise<void> {
+  await send(speciesPath(campaignId, speciesId), 'DELETE');
 }
 
 const importsPath = (campaignId: string, rest = '') => campaignPath(campaignId, `/imports${rest}`);

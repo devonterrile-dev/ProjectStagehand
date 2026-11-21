@@ -3,6 +3,8 @@ import {
   classNameSchema,
   DOMAIN_NAME_MAX,
   domainNameSchema,
+  SPECIES_NAME_MAX,
+  speciesNameSchema,
   type Campaign,
 } from '@stagehand/shared';
 import { PlusIcon } from 'lucide-react';
@@ -19,16 +21,25 @@ import {
   useClasses,
   useCreateClass,
   useCreateDomain,
+  useCreateSpecies,
   useDomains,
+  useSpeciesList,
   useWeapons,
 } from '@/lib/queries';
-import { armorListPath, classPath, domainPath, statBlocksPath, weaponsPath } from '@/lib/records';
+import {
+  armorListPath,
+  classPath,
+  domainPath,
+  speciesPath,
+  statBlocksPath,
+  weaponsPath,
+} from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
  * `/campaigns/:campaignId/gameplay` (F4.3, governance §8 "Gameplay records"): the game's
- * mechanics, apart from the campaign's records. Classes (F4.5), domains, weapons and armor (F4.4)
- * for everyone; stat blocks for the GM.
+ * mechanics, apart from the campaign's records. Classes (F4.5), species (F4.6), domains, weapons
+ * and armor (F4.4) for everyone; stat blocks for the GM.
  */
 export function GameplayPage() {
   const { campaignId = '' } = useParams();
@@ -65,6 +76,7 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
       <h1 className="text-2xl font-bold">Gameplay</h1>
 
       <ClassesCard campaign={campaign} canWrite={canWrite} />
+      <SpeciesCard campaign={campaign} canWrite={canWrite} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -226,6 +238,82 @@ function ClassesCard({ campaign, canWrite }: { campaign: Campaign; canWrite: boo
         onSave={async (name) => {
           const cls = await create.mutateAsync({ name });
           void navigate(classPath(campaign.id, cls.id));
+        }}
+      />
+    </Card>
+  );
+}
+
+/** Species (F4.6): each with the first sentence of its description and its feature count. */
+function SpeciesCard({ campaign, canWrite }: { campaign: Campaign; canWrite: boolean }) {
+  const { data: species, isPending, isError } = useSpeciesList(campaign.id);
+  const create = useCreateSpecies(campaign.id);
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <div className="space-y-1.5">
+          <CardTitle>
+            <h2 className="text-xl">Species</h2>
+          </CardTitle>
+          <CardDescription>
+            Each species has features only it has. Open one to read them.
+          </CardDescription>
+        </div>
+        {canWrite && (
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreating(true);
+            }}
+          >
+            <PlusIcon aria-hidden />
+            New species
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isPending && <p className="text-muted-foreground">Loading species…</p>}
+        {isError && <p role="alert">Could not load the species. Try again in a moment.</p>}
+        {species?.length === 0 && <p className="text-sm text-muted-foreground">No species yet.</p>}
+        {species !== undefined && species.length > 0 && (
+          <ul aria-label="Species" className="divide-y rounded-md border">
+            {species.map((one) => (
+              <li key={one.id}>
+                <Link
+                  to={speciesPath(campaign.id, one.id)}
+                  className="flex items-start justify-between gap-4 px-4 py-3 hover:bg-muted"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium">{one.name}</span>
+                    {one.description !== '' && (
+                      <span className="block text-sm text-muted-foreground">
+                        {firstSentence(one.description)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-sm text-muted-foreground">
+                    {countOf(one.featureCount, 'feature', 'features')}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+      <CampaignNameDialog
+        open={creating}
+        onOpenChange={setCreating}
+        title="New species"
+        description="You can describe it and add its features after."
+        submitLabel="Create species"
+        label="Name"
+        schema={speciesNameSchema}
+        maxLength={SPECIES_NAME_MAX}
+        onSave={async (name) => {
+          const one = await create.mutateAsync({ name });
+          void navigate(speciesPath(campaign.id, one.id));
         }}
       />
     </Card>

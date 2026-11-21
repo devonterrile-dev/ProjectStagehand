@@ -1,10 +1,14 @@
 /**
  * The gameplay records part of the fake API: domains and domain cards (F4.3), weapons and armor
- * (F4.4), classes and subclasses (F4.5), following the server's rules and messages
- * (`apps/server/src/campaigns/domains.ts`, `domain-cards.ts`, `gear.ts`, `classes.ts`).
+ * (F4.4), classes and subclasses (F4.5), species (F4.6), following the server's rules and
+ * messages (`apps/server/src/campaigns/domains.ts`, `domain-cards.ts`, `gear.ts`, `classes.ts`,
+ * `species.ts`).
  * Every campaign starts with the ten default domains unless a test seeds its own.
  */
 import {
+  createSpeciesRequestSchema,
+  updateSpeciesRequestSchema,
+  type SpeciesRecord,
   createClassRequestSchema,
   createSubclassRequestSchema,
   DEFAULT_STARTING_EVASION,
@@ -68,6 +72,11 @@ export interface GameplayWorldOptions {
   armor?: Record<string, (Partial<ArmorRecord> & { id: string; name: string })[]>;
   /** A campaign's classes, by campaign id (F4.5). */
   classes?: Record<string, (Partial<StoredClass> & { id: string; name: string })[]>;
+  /** A campaign's species, by campaign id (F4.6). */
+  species?: Record<
+    string,
+    { id: string; name: string; description?: string; features?: FeatureRow[] }[]
+  >;
   /** A campaign's subclasses, by campaign id. */
   subclasses?: Record<
     string,
@@ -172,6 +181,32 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     ...seed,
   });
 
+  const speciesStores = new Map<string, SpeciesRecord[]>();
+  const newSpecies = (seed: {
+    id?: string;
+    name: string;
+    description?: string;
+    features?: FeatureRow[];
+  }): SpeciesRecord => {
+    const features = seed.features ?? [];
+    return {
+      id: seed.id ?? id(),
+      name: seed.name,
+      description: seed.description ?? '',
+      features,
+      featureCount: features.length,
+      createdAt: AT,
+      updatedAt: AT,
+    };
+  };
+  const speciesOf = (campaignId: string): SpeciesRecord[] => {
+    let list = speciesStores.get(campaignId);
+    if (list === undefined) {
+      list = (options.species?.[campaignId] ?? []).map(newSpecies);
+      speciesStores.set(campaignId, list);
+    }
+    return list;
+  };
   const classStores = new Map<string, StoredClass[]>();
   const subclassStores = new Map<string, StoredSubclass[]>();
   const newClass = (seed: Partial<StoredClass> & { name: string }): StoredClass => ({
@@ -421,6 +456,10 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
         return copy;
       }),
     );
+    speciesStores.set(
+      campaignId,
+      speciesOf(from).map((one) => ({ ...one, id: id() })),
+    );
     subclassStores.set(
       campaignId,
       subclassesOf(from).map((sub) => ({
@@ -429,6 +468,64 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
         classId: newClassOf.get(sub.classId) ?? sub.classId,
       })),
     );
+  }
+
+  /** Species (F4.6); null for any other request. */
+  function respondSpecies(
+    campaignId: string,
+    path: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null {
+    const taken = (name: string, except?: string) =>
+      speciesOf(campaignId).some(
+        (one) => one.id !== except && one.name.toLowerCase() === name.toLowerCase(),
+      );
+    if (path === '/species') {
+      if (method === 'GET') {
+        const species = [...speciesOf(campaignId)].sort(byName).map((one) => ({
+          id: one.id,
+          name: one.name,
+          description: one.description,
+          featureCount: one.features.length,
+          updatedAt: AT,
+        }));
+        return Response.json({ species });
+      }
+      if (method === 'POST') {
+        const parsed = createSpeciesRequestSchema.safeParse(rawBody);
+        if (!parsed.success) return ctx.invalid(parsed.error.issues);
+        if (taken(parsed.data.name)) {
+          return ctx.refused(409, 'A species with that name already exists');
+        }
+        const one = newSpecies(parsed.data);
+        speciesOf(campaignId).push(one);
+        return Response.json(one, { status: 201 });
+      }
+      return null;
+    }
+    const match = /^\/species\/([^/]+)$/.exec(path);
+    const one = speciesOf(campaignId).find((entry) => entry.id === match?.[1]);
+    if (one === undefined) return ctx.notFound('Species not found');
+    if (method === 'GET') return Response.json(one);
+    if (method === 'PATCH') {
+      const parsed = updateSpeciesRequestSchema.safeParse(rawBody);
+      if (!parsed.success) return ctx.invalid(parsed.error.issues);
+      if (parsed.data.name !== undefined && taken(parsed.data.name, one.id)) {
+        return ctx.refused(409, 'A species with that name already exists');
+      }
+      Object.assign(one, parsed.data);
+      one.featureCount = one.features.length;
+      return Response.json(one);
+    }
+    if (method === 'DELETE') {
+      speciesStores.set(
+        campaignId,
+        speciesOf(campaignId).filter((entry) => entry.id !== one.id),
+      );
+      return new Response(null, { status: 204 });
+    }
+    return null;
   }
 
   /** Clears the class suggestions of gear about to be deleted (F4.5). */
@@ -672,13 +769,15 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     const cardMatch = /^\/domain-cards\/([^/]+)$/.exec(path);
     const gear = /^\/(weapons|armor)(\/[^/]+)?$/.test(path);
     const classes = /^\/(classes|subclasses)(\/[^/]+)?$/.test(path);
+    const speciesPath = /^\/species(\/[^/]+)?$/.test(path);
     if (
       path !== '/domains' &&
       path !== '/domain-cards' &&
       !domainMatch &&
       !cardMatch &&
       !gear &&
-      !classes
+      !classes &&
+      !speciesPath
     ) {
       return null;
     }
@@ -689,6 +788,7 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     }
     if (gear) return respondGear(campaignId, path, method, rawBody);
     if (classes) return respondClasses(campaignId, path, method, rawBody);
+    if (speciesPath) return respondSpecies(campaignId, path, method, rawBody);
 
     if (path === '/domains') {
       if (method === 'GET') {

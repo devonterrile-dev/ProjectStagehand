@@ -22,6 +22,7 @@ import { RecordPage } from '@/pages/RecordPage';
 import { RecordsPage } from '@/pages/RecordsPage';
 import { ScenesPage } from '@/pages/ScenesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { SpeciesPage } from '@/pages/SpeciesPage';
 import { StatBlockPage } from '@/pages/StatBlockPage';
 import { StatBlocksPage } from '@/pages/StatBlocksPage';
 import { SubclassPage } from '@/pages/SubclassPage';
@@ -165,6 +166,14 @@ export function App() {
           element={
             <RequireAuth>
               <SubclassPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/gameplay/species/:speciesId"
+          element={
+            <RequireAuth>
+              <SpeciesPage />
             </RequireAuth>
           }
         />
