@@ -20,14 +20,13 @@ import { httpError } from '../http/errors';
 
 import { classesUsingDomain } from './classes';
 import { cardsOf, DOMAIN_NOT_FOUND } from './domain-cards';
+import { namesOf } from './names';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 
 type DomainRow = typeof domains.$inferSelect;
 
 const TAKEN = 'A domain with that name already exists';
-/** How many of the cards in the way a refused delete names. */
-const NAMED = 5;
 
 function scoped(scope: CampaignScope, domainId: string) {
   return and(eq(domains.id, domainId), eq(domains.campaignId, scope.campaignId));
@@ -116,15 +115,6 @@ export async function updateDomain(
   );
   if (row === undefined) throw httpError(404, DOMAIN_NOT_FOUND);
   return toDomain(db, scope, row);
-}
-
-/** "Warrior, Fireball, Ward and 3 more". */
-function namesOf(names: readonly string[], total: number): string {
-  const shown = names.slice(0, NAMED);
-  const more = total - shown.length;
-  if (more > 0) return `${shown.join(', ')} and ${String(more)} more`;
-  if (shown.length === 1) return shown[0] ?? '';
-  return `${shown.slice(0, -1).join(', ')} and ${shown.at(-1) ?? ''}`;
 }
 
 /** Deletes a domain no class or card uses; otherwise 409, naming the classes and cards in the way. */

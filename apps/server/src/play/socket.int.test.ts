@@ -1244,6 +1244,102 @@ describe('The live room', () => {
       await end(campaign);
     });
 
+    it('turns Rest on and off, and recalls cards free under Rest or for Stress, logged (F4.7)', async () => {
+      const { campaign, mira, director, first } = await rollTable('Rest and Recall');
+      const domains = (await call('GET', `/api/campaigns/${campaign.id}/domains`, gm)).json<{
+        domains: { id: string; name: string }[];
+      }>().domains;
+      const blade = domains.find((domain) => domain.name === 'Blade')?.id;
+      const card = async (name: string, recallCost: number) => {
+        const made = await call('POST', `/api/campaigns/${campaign.id}/domain-cards`, gm, {
+          domainId: blade,
+          name,
+          recallCost,
+        });
+        return made.json<{ id: string }>().id;
+      };
+      const strike = await card('Get Back Up', 2);
+      const ward = await card('Ward', 1);
+      const cardsUrl = `/api/campaigns/${campaign.id}/characters/${mira}/domain-cards`;
+      for (const cardId of [strike, ward]) {
+        const added = await call('POST', cardsUrl, gm, { cardId, place: 'vault' });
+        expect(added.statusCode, added.body).toBe(201);
+      }
+
+      expect(await act(director.client, PLAY_SOCKET.setRest, { rest: true })).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect(playerView(first.client).rest).toBe(true);
+      });
+      const free = await call('POST', `${cardsUrl}/${strike}/move`, players[0] ?? gm, {
+        to: 'loadout',
+      });
+      expect(free.statusCode, free.body).toBe(200);
+      expect(free.json<{ stressCurrent: number }>().stressCurrent).toBe(0);
+
+      expect(await act(director.client, PLAY_SOCKET.setRest, { rest: false })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => {
+        expect(playerView(first.client).rest).toBe(false);
+      });
+      const paid = await call('POST', `${cardsUrl}/${ward}/move`, players[0] ?? gm, {
+        to: 'loadout',
+      });
+      expect(paid.statusCode, paid.body).toBe(200);
+      expect(paid.json<{ stressCurrent: number }>().stressCurrent).toBe(1);
+      await vi.waitFor(() => {
+        expect(first.client.sheets).toContain(mira);
+      });
+
+      const entries = (await logOf(campaign)).json<{ entries: { text: string }[] }>().entries;
+      expect(entries.map((entry) => entry.text).slice(0, 4)).toEqual([
+        'Mira brought Ward back from the vault for 1 Stress',
+        'Turned Rest off',
+        'Mira brought Get Back Up back from the vault free (Rest)',
+        'Turned Rest on: card swaps are free',
+      ]);
+      expect(await act(first.client, PLAY_SOCKET.setRest, { rest: true })).toEqual({
+        ok: false,
+        message: 'Only the GM can do that',
+      });
+      await end(campaign);
+    });
+
+    it('rolls with the trait bonuses of linked gear (19.25, F4.7)', async () => {
+      const { campaign, mira, director, first } = await rollTable('Heavy Armor');
+      const plate = await call('POST', `/api/campaigns/${campaign.id}/armor`, gm, {
+        name: 'Plate',
+        bonuses: {
+          evasion: -2,
+          armorScore: 0,
+          majorThreshold: 0,
+          severeThreshold: 0,
+          traits: { agility: -1 },
+        },
+      });
+      const armorId = plate.json<{ id: string }>().id;
+      const linked = await call('PATCH', `/api/campaigns/${campaign.id}/characters/${mira}`, gm, {
+        traits: { agility: 2, strength: 0, finesse: 0, instinct: 0, presence: 0, knowledge: 0 },
+        armorId,
+      });
+      expect(linked.statusCode, linked.body).toBe(200);
+
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 10,
+        hidden: false,
+      });
+      await waitForCalls(first.client, 1);
+      const called = playerView(first.client).calls[0];
+      await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: false });
+      await vi.waitFor(() => {
+        expect(gmView(director.client).lastRoll).not.toBeNull();
+      });
+      expect(gmView(director.client).lastRoll).toMatchObject({ modifier: 1 });
+      await end(campaign);
+    });
+
     it('drops the calls nobody rolled when the session ends, and starts the next one clean', async () => {
       const { campaign, mira, director, first } = await rollTable('Next Session');
       await act(director.client, PLAY_SOCKET.callRoll, {

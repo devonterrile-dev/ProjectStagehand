@@ -202,6 +202,24 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/subclasses/:subclassId', gmOnly: true },
+  // A PC's domain cards (F4.7): the GM adds and removes; the PC's player or the GM moves them.
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/domain-cards',
+    gmOnly: true,
+    payload: { cardId: '00000000-0000-4000-8000-000000000000' },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/campaigns/:campaignId/characters/:characterId/domain-cards/:cardId',
+    gmOnly: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/domain-cards/:cardId/move',
+    gmOnly: false,
+    payload: { to: 'vault' },
+  },
   // Species (F4.6): the same rule.
   { method: 'GET', path: '/api/campaigns/:campaignId/species', gmOnly: false },
   {

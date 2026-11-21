@@ -11,6 +11,7 @@ import {
   type Campaign,
   type CharacterSheet,
   type CharacterSheetPatch,
+  type SheetLinks,
   type ClassFeature,
   type Experience,
   type Gold,
@@ -52,7 +53,8 @@ import {
 import { blank, hasName } from './rows';
 import { TextField } from './TextField';
 
-type Key = keyof CharacterSheetPatch;
+/** The stored values the form edits key by key; links are set by `LinkFields` (F4.7). */
+type Key = Exclude<keyof CharacterSheetPatch, keyof SheetLinks>;
 type NumberKey = {
   [K in Key]-?: CharacterSheet[K] extends number ? K : never;
 }[Key];

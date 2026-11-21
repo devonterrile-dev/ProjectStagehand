@@ -61,6 +61,8 @@ export const playSessions = pgTable(
     curtainOpen: boolean('curtain_open').default(false).notNull(),
     /** The GM's Fear (§9). Set from the ruleset at the start; first used by F3.6. */
     fear: integer('fear').notNull(),
+    /** The GM's Rest switch (F4.7): while on, PCs move domain cards between loadout and vault free. */
+    rest: boolean('rest').default(false).notNull(),
   },
   (table) => [
     uniqueIndex('play_sessions_campaign_number_unique').on(table.campaignId, table.number),

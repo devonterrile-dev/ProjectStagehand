@@ -40,6 +40,19 @@ export const WEAPON_RANGES = ['melee', 'very_close', 'close', 'far', 'very_far']
 export const weaponRangeSchema = z.enum(WEAPON_RANGES);
 export type WeaponRange = z.infer<typeof weaponRangeSchema>;
 
+const RANGE_LABELS: Record<WeaponRange, string> = {
+  melee: 'Melee',
+  very_close: 'Very close',
+  close: 'Close',
+  far: 'Far',
+  very_far: 'Very far',
+};
+
+/** "Melee", "Very close", "Close", "Far" or "Very far". */
+export function weaponRangeLabel(range: WeaponRange): string {
+  return RANGE_LABELS[range];
+}
+
 /** How many hands a weapon takes. A secondary weapon is always one-handed. */
 export const BURDENS = ['one_handed', 'two_handed'] as const;
 export const burdenSchema = z.enum(BURDENS);

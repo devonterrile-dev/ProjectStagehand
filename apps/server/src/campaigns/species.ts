@@ -1,7 +1,7 @@
 /**
  * Species (F4.6, governance §8 "Species", D-64). Part of the campaign data-access layer: every
  * query is scoped to `scope.campaignId`. Every member reads them; callers check `assertGm` and
- * `assertWritable` before a change. Sheets using a species will keep it from being deleted (F4.7).
+ * `assertWritable` before a change. A species a sheet uses can't be deleted (F4.7).
  */
 import {
   speciesRecordSchema,
@@ -20,6 +20,7 @@ import { httpError } from '../http/errors';
 
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
+import { refuseWhileUsed, sheetsUsing } from './sheet-links';
 
 const SPECIES_NOT_FOUND = 'Species not found';
 const TAKEN = 'A species with that name already exists';
@@ -109,9 +110,12 @@ export async function deleteSpecies(
   scope: CampaignScope,
   speciesId: string,
 ): Promise<void> {
-  const removed = await db
-    .delete(species)
-    .where(scoped(scope, speciesId))
-    .returning({ id: species.id });
-  if (removed.length === 0) throw httpError(404, SPECIES_NOT_FOUND);
+  await db.transaction(async (tx) => {
+    refuseWhileUsed(await sheetsUsing(tx, scope, { speciesId }));
+    const removed = await tx
+      .delete(species)
+      .where(scoped(scope, speciesId))
+      .returning({ id: species.id });
+    if (removed.length === 0) throw httpError(404, SPECIES_NOT_FOUND);
+  });
 }

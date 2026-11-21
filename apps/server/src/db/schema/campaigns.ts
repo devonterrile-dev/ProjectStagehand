@@ -1,7 +1,8 @@
 /**
  * Campaigns, their members (F1.1) and player characters with their sheets (F1.2, F1.4).
  * Governance §7 and §8.
- * `characters` lives here because it and `campaign_members` reference each other.
+ * `characters` lives here because it and `campaign_members` reference each other. From F4.7
+ * (D-65) a sheet links gameplay records (`gameplay.ts`); each link column replaces its typed part.
  *
  * Only the data-access layer in `src/campaigns/` queries these tables.
  */
@@ -37,6 +38,7 @@ import {
 
 import { assets } from './assets';
 import { users } from './auth';
+import { armor, classes, species, subclasses, weapons } from './gameplay';
 
 export const campaignRole = pgEnum('campaign_role', ['gm', 'player']);
 
@@ -178,6 +180,19 @@ export const characters = pgTable(
     classFeature: jsonb('class_feature').$type<ClassFeature>(),
     combatOptions: jsonb('combat_options').$type<Ability[]>().default([]).notNull(),
 
+    // Links to gameplay records (F4.7, D-65). Null: the part is typed (or unset). Each is a
+    // composite FK with no action, so a record a sheet uses can't be deleted.
+    classId: uuid('class_id'),
+    subclassId: uuid('subclass_id'),
+    /** 0 none, 1 the foundation, 2 + specialization, 3 + mastery. */
+    subclassCards: integer('subclass_cards').default(1).notNull(),
+    species1Id: uuid('species1_id'),
+    /** A mixed ancestry's second species (D-64). */
+    species2Id: uuid('species2_id'),
+    primaryWeaponId: uuid('primary_weapon_id'),
+    secondaryWeaponId: uuid('secondary_weapon_id'),
+    armorId: uuid('armor_id'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -197,9 +212,52 @@ export const characters = pgTable(
     ),
     check('characters_hp_current_max', sql`${table.hpCurrent} <= ${table.hpMax}`),
     check('characters_stress_current_max', sql`${table.stressCurrent} <= ${table.stressMax}`),
+    // Marked armor slots are checked against the shown slots by the data-access layer: with
+    // armor linked (F4.7) they come from the armor record, not `armor_slots_max`.
+    foreignKey({
+      name: 'characters_class_fk',
+      columns: [table.classId, table.campaignId],
+      foreignColumns: [classes.id, classes.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_subclass_fk',
+      columns: [table.subclassId, table.campaignId],
+      foreignColumns: [subclasses.id, subclasses.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_species1_fk',
+      columns: [table.species1Id, table.campaignId],
+      foreignColumns: [species.id, species.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_species2_fk',
+      columns: [table.species2Id, table.campaignId],
+      foreignColumns: [species.id, species.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_primary_weapon_fk',
+      columns: [table.primaryWeaponId, table.campaignId],
+      foreignColumns: [weapons.id, weapons.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_secondary_weapon_fk',
+      columns: [table.secondaryWeaponId, table.campaignId],
+      foreignColumns: [weapons.id, weapons.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_armor_fk',
+      columns: [table.armorId, table.campaignId],
+      foreignColumns: [armor.id, armor.campaignId],
+    }),
+    check('characters_subclass_cards', sql`${table.subclassCards} between 0 and 3`),
     check(
-      'characters_armor_slots_marked_max',
-      sql`${table.armorSlotsMarked} <= ${table.armorSlotsMax}`,
+      'characters_subclass_needs_class',
+      sql`${table.subclassId} is null or ${table.classId} is not null`,
+    ),
+    /** A mixed ancestry: two different species, the first one set. */
+    check(
+      'characters_species_pair',
+      sql`${table.species2Id} is null or (${table.species1Id} is not null and ${table.species1Id} <> ${table.species2Id})`,
     ),
   ],
 );

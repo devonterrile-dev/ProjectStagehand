@@ -3,14 +3,20 @@
  * data-access layer: every query is scoped to `scope.campaignId`.
  *
  * The GM reads and edits every sheet. A player reads only the PC assigned to them, built
- * by `toPlayerCharacterSheet` from an explicit allow-list, and edits nothing (D-23).
+ * by `toPlayerCharacterSheet` from an explicit allow-list, and edits nothing (D-23) but where
+ * their domain cards lie (F4.7, `character-cards.ts`).
+ *
+ * From F4.7 (D-65) a sheet links gameplay records; every read builds it with `buildSheet` from
+ * its stored values and the linked records (`sheet-links.ts`).
  */
 import {
+  buildSheet,
   characterSchema,
   characterSheetPatchSchemaFor,
   characterSheetSchema,
   playerCharacterSheetSchema,
   rulesetFor,
+  SHEET_LINK_KEYS,
   type Character,
   type CharacterSheet,
   type PlayerCharacterSheet,
@@ -26,6 +32,7 @@ import { httpError } from '../http/errors';
 import { assignCharacterIn, type DbOrTx } from './members';
 import { requireInventoryItems } from './record-links';
 import type { CampaignScope } from './scope';
+import { checkLinkPatch, loadSheetRecords, saveSpares } from './sheet-links';
 
 type CharacterRow = typeof characters.$inferSelect;
 
@@ -44,17 +51,21 @@ const holder = and(
 
 /**
  * The GM's view of a sheet. Every trait of the campaign's ruleset is present (a missing one
- * reads as 0), and the stored JSON is re-checked on the way out.
+ * reads as 0), and the stored JSON is re-checked on the way out. The linked records are read and
+ * the sheet built from them (F4.7).
  */
-function toCharacterSheet(
+export async function toCharacterSheet(
+  db: DbOrTx,
   scope: CampaignScope,
   row: CharacterRow,
   assignedToUserId: string | null,
-): CharacterSheet {
+): Promise<CharacterSheet> {
   const ruleset = rulesetFor(scope.campaign.rulesetVersion);
   const traits = Object.fromEntries(
     ruleset.traits.map((trait) => [trait.id, row.traits[trait.id] ?? 0]),
   );
+  const { links, records } = await loadSheetRecords(db, scope, row);
+  const { built, cards } = buildSheet({ ...row, traits }, links, records, ruleset);
   return characterSheetSchema.parse({
     id: row.id,
     name: row.name,
@@ -86,6 +97,9 @@ function toCharacterSheet(
     gold: row.gold,
     classFeature: row.classFeature,
     combatOptions: row.combatOptions,
+    links,
+    built,
+    cards,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   });
@@ -125,9 +139,23 @@ function toPlayerCharacterSheet(sheet: CharacterSheet): PlayerCharacterSheet {
     gold: sheet.gold,
     classFeature: sheet.classFeature,
     combatOptions: sheet.combatOptions,
+    // Gameplay records every member reads anyway (F4.7).
+    links: sheet.links,
+    built: sheet.built,
+    cards: sheet.cards,
     createdAt: sheet.createdAt,
     updatedAt: sheet.updatedAt,
   });
+}
+
+/** A player's view of their own sheet, built from its row. */
+export async function toOwnSheet(
+  db: DbOrTx,
+  scope: CampaignScope,
+  row: CharacterRow,
+  assignedToUserId: string | null,
+): Promise<PlayerCharacterSheet> {
+  return toPlayerCharacterSheet(await toCharacterSheet(db, scope, row, assignedToUserId));
 }
 
 /** Every PC in the campaign, by name, with the player who has it. */
@@ -181,7 +209,7 @@ function startValues(scope: CampaignScope) {
   };
 }
 
-async function findSheet(
+export async function findSheet(
   db: DbOrTx,
   scope: CampaignScope,
   characterId: string,
@@ -205,7 +233,7 @@ export async function getCharacterSheetForGm(
   characterId: string,
 ): Promise<CharacterSheet> {
   const { row, assignedToUserId } = await findSheet(db, scope, characterId);
-  return toCharacterSheet(scope, row, assignedToUserId);
+  return toCharacterSheet(db, scope, row, assignedToUserId);
 }
 
 /**
@@ -219,7 +247,7 @@ export async function getOwnCharacterSheet(
 ): Promise<PlayerCharacterSheet> {
   const { row, assignedToUserId } = await findSheet(db, scope, characterId);
   if (assignedToUserId !== scope.userId) throw httpError(404, NOT_FOUND);
-  return toPlayerCharacterSheet(toCharacterSheet(scope, row, assignedToUserId));
+  return toOwnSheet(db, scope, row, assignedToUserId);
 }
 
 /**
@@ -238,21 +266,44 @@ export async function updateCharacterSheet(
   return db.transaction(async (tx) => {
     const { row: current, assignedToUserId } = await findSheet(tx, scope, characterId, true);
     const ruleset = rulesetFor(scope.campaign.rulesetVersion);
-    const parsed = characterSheetPatchSchemaFor(ruleset, current).safeParse(body);
+    // Marked armor slots go up to the slots shown, which linked armor sets (F4.7).
+    const before = await toCharacterSheet(tx, scope, current, assignedToUserId);
+    const limits = { ...current, armorSlotsMax: before.built.armorSlotsMax };
+    const parsed = characterSheetPatchSchemaFor(ruleset, limits).safeParse(body);
     if (!parsed.success) return { error: parsed.error };
     if (parsed.data.inventory !== undefined) {
       await requireInventoryItems(tx, scope, parsed.data.inventory);
     }
 
-    // The patch keys are exactly the sheet's editable columns, so it can be set as is.
-    const values: PgUpdateSetSource<typeof characters> = { ...parsed.data };
+    const links = await checkLinkPatch(tx, scope, current, parsed.data);
+    const linkKeys: readonly string[] = SHEET_LINK_KEYS;
+    // The other patch keys are exactly the sheet's editable columns, so they are set as is.
+    const stored = Object.fromEntries(
+      Object.entries(parsed.data).filter(([key]) => !linkKeys.includes(key)),
+    );
+    const values: PgUpdateSetSource<typeof characters> = {
+      ...stored,
+      ...links.columns,
+      updatedAt: new Date(),
+    };
     const [row] = await tx
       .update(characters)
       .set(values)
       .where(scoped(scope, characterId))
       .returning();
     if (row === undefined) throw httpError(404, NOT_FOUND);
-    return { sheet: toCharacterSheet(scope, row, assignedToUserId) };
+    if (links.spareWeaponIds !== undefined) {
+      await saveSpares(tx, scope, characterId, links.spareWeaponIds);
+    }
+
+    const sheet = await toCharacterSheet(tx, scope, row, assignedToUserId);
+    if (
+      parsed.data.armorSlotsMarked !== undefined &&
+      row.armorSlotsMarked > sheet.built.armorSlotsMax
+    ) {
+      throw httpError(400, `Can't be above Armor slots (${String(sheet.built.armorSlotsMax)})`);
+    }
+    return { sheet };
   });
 }
 

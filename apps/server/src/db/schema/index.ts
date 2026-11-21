@@ -12,6 +12,7 @@ export * from './ai-imports';
 export * from './assets';
 export * from './auth';
 export * from './campaigns';
+export * from './character-links';
 export * from './gameplay';
 export * from './invites';
 export * from './journal';

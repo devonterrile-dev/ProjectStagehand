@@ -370,7 +370,8 @@ describe('Live sessions API', () => {
         curtainOpen: false,
         backdrop: null,
         objects: [],
-        // Fear where it starts, and no rolls yet (F3.6).
+        // Fear where it starts, Rest off (F4.7), and no rolls yet (F3.6).
+        rest: false,
         fear: 3,
         fearCap: 12,
         lastFearSpend: null,

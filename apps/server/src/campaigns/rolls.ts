@@ -52,6 +52,7 @@ import { freeRollEventSchema } from './free-rolls';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 import { lockRunning, logEvent, running, type SessionRow } from './session-core';
+import { effectiveTraitsOf } from './sheet-links';
 
 /** Rolls one d12, 1 to 12. The live room's is `crypto.randomInt`; tests pass their own. */
 export type RollDie = () => number;
@@ -95,6 +96,18 @@ const hopeAdjustEventSchema = z.object({
 });
 const rollRevealEventSchema = z.object({ rollId: z.uuid() });
 const sceneLoadEventSchema = z.object({ name: z.string() });
+/** The GM turned Rest on or off (F4.7). */
+export const restEventSchema = z.object({ on: z.boolean() });
+/** A PC brought a domain card back from the vault (F4.7). */
+export const cardRecallEventSchema = z.object({
+  characterName: z.string(),
+  cardName: z.string(),
+  /** Stress marked for it: 0 while Rest is on or the GM moved it. */
+  stress: z.int(),
+  rest: z.boolean(),
+  /** The loadout card it took the place of, if the loadout was full. */
+  swappedOut: z.string().nullable(),
+});
 
 function rulesetOf(scope: CampaignScope): Ruleset {
   return rulesetFor(scope.campaign.rulesetVersion);
@@ -231,6 +244,9 @@ export async function makeRoll(
         hope: characters.hope,
         hopeBonus: characters.hopeBonus,
         traits: characters.traits,
+        primaryWeaponId: characters.primaryWeaponId,
+        secondaryWeaponId: characters.secondaryWeaponId,
+        armorId: characters.armorId,
       })
       .from(characters)
       .where(and(eq(characters.id, call.characterId), eq(characters.campaignId, scope.campaignId)))
@@ -238,7 +254,8 @@ export async function makeRoll(
     if (pc === undefined) throw httpError(404, NO_CALL);
 
     const ruleset = rulesetOf(scope);
-    const modifier = pc.traits[call.trait] ?? 0;
+    const traits = await effectiveTraitsOf(tx, scope, pc, ruleset);
+    const modifier = traits[call.trait] ?? 0;
     const dice = { hope: rollDie(), fear: rollDie() };
     const result = resolveActionRoll({
       dice,
@@ -451,6 +468,7 @@ async function latest(db: DbOrTx, session: SessionRow, kind: SessionLogKind) {
 }
 
 interface RollStageView {
+  rest: boolean;
   fear: number;
   fearCap: number;
   lastFearSpend: FearSpend | null;
@@ -523,7 +541,12 @@ export async function rollStageOf(
     }),
   );
 
-  const shared = { fear: session.fear, fearCap: ruleset.fearCap, lastFearSpend };
+  const shared = {
+    rest: session.rest,
+    fear: session.fear,
+    fearCap: ruleset.fearCap,
+    lastFearSpend,
+  };
   return {
     gm: {
       ...shared,
@@ -537,6 +560,24 @@ export async function rollStageOf(
       lastRoll: lastRollFor(true),
     },
   };
+}
+
+/**
+ * Turns the GM's Rest switch on or off (F4.7): while on, PCs move domain cards between loadout
+ * and vault for free. Logged. False when it was already so.
+ */
+export async function setRestLive(
+  db: Database,
+  scope: CampaignScope,
+  rest: boolean,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.rest === rest) return false;
+    await tx.update(playSessions).set({ rest }).where(eq(playSessions.id, session.id));
+    await logEvent(tx, scope, session, 'rest', { actorUserId: scope.userId, data: { on: rest } });
+    return true;
+  });
 }
 
 /** Most lines the GM's log sends at once. */
@@ -645,6 +686,19 @@ function logText(
       return adjust.success
         ? `Set ${adjust.data.characterName}'s Hope from ${String(adjust.data.from)} to ${String(adjust.data.to)}`
         : 'Set Hope';
+    }
+    case 'rest': {
+      const rest = restEventSchema.safeParse(data);
+      if (!rest.success) return 'Changed Rest';
+      return rest.data.on ? 'Turned Rest on: card swaps are free' : 'Turned Rest off';
+    }
+    case 'card_recall': {
+      const recall = cardRecallEventSchema.safeParse(data);
+      if (!recall.success) return 'Brought a card back from the vault';
+      const { characterName, cardName, stress, rest, swappedOut } = recall.data;
+      const paid = rest ? 'free (Rest)' : stress === 0 ? 'free' : `for ${String(stress)} Stress`;
+      const swap = swappedOut === null ? '' : `, putting ${swappedOut} in the vault`;
+      return `${characterName} brought ${cardName} back from the vault ${paid}${swap}`;
     }
   }
 }

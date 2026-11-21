@@ -35,6 +35,7 @@ import { requireDomain } from './domain-cards';
 import { ARMOR_NOT_FOUND, checkTraits, WEAPON_NOT_FOUND } from './gear';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
+import { refuseWhileUsed, sheetsUsing } from './sheet-links';
 
 export const CLASS_NOT_FOUND = 'Class not found';
 const SUBCLASS_NOT_FOUND = 'Subclass not found';
@@ -341,17 +342,32 @@ export async function updateClass(
   );
 }
 
-/** Deletes a class and, through the foreign key, its subclasses. */
+/**
+ * Deletes a class and, through the foreign key, its subclasses. Refused while a sheet uses the
+ * class or one of its subclasses (F4.7).
+ */
 export async function deleteClass(
   db: Database,
   scope: CampaignScope,
   classId: string,
 ): Promise<void> {
-  const removed = await db
-    .delete(classes)
-    .where(classScoped(scope, classId))
-    .returning({ id: classes.id });
-  if (removed.length === 0) throw httpError(404, CLASS_NOT_FOUND);
+  await db.transaction(async (tx) => {
+    const subs = await tx
+      .select({ id: subclasses.id })
+      .from(subclasses)
+      .where(and(eq(subclasses.classId, classId), eq(subclasses.campaignId, scope.campaignId)));
+    refuseWhileUsed([
+      ...new Set([
+        ...(await sheetsUsing(tx, scope, { classId })),
+        ...(await sheetsUsing(tx, scope, { subclassIds: subs.map((sub) => sub.id) })),
+      ]),
+    ]);
+    const removed = await tx
+      .delete(classes)
+      .where(classScoped(scope, classId))
+      .returning({ id: classes.id });
+    if (removed.length === 0) throw httpError(404, CLASS_NOT_FOUND);
+  });
 }
 
 /** The names of the classes using a domain, by name: they keep it from being deleted. */
@@ -492,9 +508,12 @@ export async function deleteSubclass(
   scope: CampaignScope,
   subclassId: string,
 ): Promise<void> {
-  const removed = await db
-    .delete(subclasses)
-    .where(subclassScoped(scope, subclassId))
-    .returning({ id: subclasses.id });
-  if (removed.length === 0) throw httpError(404, SUBCLASS_NOT_FOUND);
+  await db.transaction(async (tx) => {
+    refuseWhileUsed(await sheetsUsing(tx, scope, { subclassIds: [subclassId] }));
+    const removed = await tx
+      .delete(subclasses)
+      .where(subclassScoped(scope, subclassId))
+      .returning({ id: subclasses.id });
+    if (removed.length === 0) throw httpError(404, SUBCLASS_NOT_FOUND);
+  });
 }

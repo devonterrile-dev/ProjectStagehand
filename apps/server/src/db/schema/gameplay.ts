@@ -99,6 +99,8 @@ export const domainCards = pgTable(
   },
   (table) => [
     index('domain_cards_campaign_domain_idx').on(table.campaignId, table.domainId),
+    /** Target of the composite FK from `character_domain_cards` (F4.7). */
+    unique('domain_cards_id_campaign_id_unique').on(table.id, table.campaignId),
     /**
      * No action (checked at the end of the statement), not restrict: deleting a campaign removes
      * its domains and cards in one go, while deleting a domain that still has cards is refused.

@@ -6,12 +6,22 @@
  *
  * The GM sees the whole sheet. A player sees only their own PC, through the explicit
  * allow-list in `playerCharacterSheetSchema`, and can't edit it in Phase 1 (D-23, 19.7).
+ *
+ * From F4.7 (D-65) a sheet also links gameplay records (`links`); each link replaces the typed
+ * part it stands for. `built` and `cards` are worked out from both by `buildSheet`.
  */
 import { z } from 'zod';
 
 import { characterNameSchema } from './characters';
 import { richTextSchema } from './rich-text';
 import { traitIdsOf, type Ruleset } from './ruleset';
+import {
+  builtSheetSchema,
+  sheetCardsSchema,
+  sheetLinksSchema,
+  SUBCLASS_CARDS_MAX,
+  type SheetLinks,
+} from './sheet-build';
 import {
   abilitySchema,
   armorSchema,
@@ -83,6 +93,13 @@ export const characterSheetSchema = z.object({
   /** What the player can pick from in battle (F4.2). */
   combatOptions: z.array(abilitySchema),
 
+  /** The gameplay records it links (F4.7). */
+  links: sheetLinksSchema,
+  /** What the sheet shows, worked out from its values and links. */
+  built: builtSheetSchema,
+  /** Its feature cards: class, subclass, species, gear and domain cards. */
+  cards: sheetCardsSchema,
+
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -120,6 +137,9 @@ const PLAYER_SHEET_KEYS = {
   gold: true,
   classFeature: true,
   combatOptions: true,
+  links: true,
+  built: true,
+  cards: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -138,10 +158,32 @@ export const PLAYER_CHARACTER_SHEET_KEYS = Object.keys(
   PLAYER_SHEET_KEYS,
 ) as readonly (keyof PlayerCharacterSheet)[];
 
-/** The GM-editable part of a sheet. Each key replaces its whole value (D-23). */
+/**
+ * The GM-editable part of a sheet. Each key replaces its whole value (D-23). The link keys
+ * (F4.7) set the sheet's links; the server checks them against the campaign's records.
+ */
 export type CharacterSheetPatch = Partial<
-  Omit<CharacterSheet, 'id' | 'assignedToUserId' | 'createdAt' | 'updatedAt'>
+  Omit<
+    CharacterSheet,
+    'id' | 'assignedToUserId' | 'createdAt' | 'updatedAt' | 'links' | 'built' | 'cards'
+  > &
+    SheetLinks
 >;
+
+/** The keys of a patch that set links rather than stored values. */
+export const SHEET_LINK_KEYS = [
+  'classId',
+  'subclassId',
+  'subclassCards',
+  'speciesIds',
+  'primaryWeaponId',
+  'secondaryWeaponId',
+  'armorId',
+  'spareWeaponIds',
+] as const satisfies readonly (keyof SheetLinks)[];
+
+/** The refusal for the same species twice, or a mixed ancestry with no first species. */
+export const SPECIES_PAIR = 'Pick two different species, the first one first';
 
 /** The stored values the cross-field rules compare against. */
 export type CharacterSheetLimits = Pick<
@@ -199,6 +241,24 @@ function patchShapeFor(ruleset: Ruleset) {
     /** Null removes the class feature. */
     classFeature: classFeatureSchema.nullable(),
     combatOptions: sheetListSchema(abilitySchema),
+
+    // Links (F4.7): null unlinks, and the typed part shows again.
+    classId: z.uuid().nullable(),
+    subclassId: z.uuid().nullable(),
+    subclassCards: z
+      .int('Must be a whole number')
+      .min(0, 'Must be 0 or more')
+      .max(SUBCLASS_CARDS_MAX, `Must be ${String(SUBCLASS_CARDS_MAX)} or less`),
+    speciesIds: z
+      .tuple([z.uuid().nullable(), z.uuid().nullable()])
+      .refine(
+        ([first, second]) => second === null || (first !== null && first !== second),
+        SPECIES_PAIR,
+      ),
+    primaryWeaponId: z.uuid().nullable(),
+    secondaryWeaponId: z.uuid().nullable(),
+    armorId: z.uuid().nullable(),
+    spareWeaponIds: sheetListSchema(z.uuid()),
   };
 }
 
@@ -238,9 +298,9 @@ const LIMIT_PAIRS = [
 
 /**
  * The PATCH schema of `…/characters/:characterId` for a campaign's ruleset. Any subset of
- * the keys; each replaces its whole value, so lists and sections are sent complete. Null is
- * allowed only for `armor` and `classFeature`, where it removes them. Thresholds have no
- * ordering rule (D-23).
+ * the keys; each replaces its whole value, so lists and sections are sent complete. Null
+ * removes `armor` and `classFeature`, and unlinks a link key. Thresholds have no ordering rule
+ * (D-23).
  *
  * Pass the stored sheet as `current` to also check that no current value ends up above its
  * max (HP, Stress, armor slots). The issue goes on the key that was sent.

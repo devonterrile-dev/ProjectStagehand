@@ -226,6 +226,7 @@ export const PLAY_SOCKET = {
   spendFear: 'fear:spend',
   setFear: 'fear:adjust',
   setHope: 'hope:adjust',
+  setRest: 'rest:set',
   freeRoll: 'roll:free',
   sheetChanged: 'sheet:changed',
   logChanged: 'log:changed',

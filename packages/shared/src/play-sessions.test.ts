@@ -35,6 +35,7 @@ const stage = {
   sceneLoad: 1,
   curtainOpen: true,
   backdrop: image,
+  rest: false,
   fear: 3,
   fearCap: 12,
   lastFearSpend: null,

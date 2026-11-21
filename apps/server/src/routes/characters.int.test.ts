@@ -400,7 +400,7 @@ describe('Character sheets API', () => {
     it.each([
       ['HP above HP max', { hpMax: 2, hpCurrent: 3 }],
       ['Stress above Stress max', { stressMax: 2, stressCurrent: 3 }],
-      ['marked slots above the slots', { armorSlotsMax: 1, armorSlotsMarked: 2 }],
+      // Marked armor slots vs the slots is the data layer's check since F4.7: linked armor sets them.
       ['a negative number', { evasion: -1 }],
       ['a negative Hope bonus', { hopeBonus: -1 }],
       ['level 0', { level: 0 }],

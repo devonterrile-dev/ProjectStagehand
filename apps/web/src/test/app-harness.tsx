@@ -17,6 +17,7 @@ import {
   playerCharacterSheetSchema,
   richTextToPlainText,
   rulesetFor,
+  unlinkedSheetParts,
   providerSchema,
   saveProviderKeyRequestSchemas,
   searchTerms,
@@ -140,9 +141,13 @@ export function record(
   };
 }
 
-/** A PC sheet fixture: a blank sheet (as the server creates one), plus overrides. */
+/**
+ * A PC sheet fixture: a blank sheet (as the server creates one), plus overrides. Unless the
+ * overrides give them, its links, built values and cards are those of a sheet linking nothing,
+ * worked out from its typed values (F4.7).
+ */
 export function characterSheet(overrides: Partial<CharacterSheet> = {}): CharacterSheet {
-  return {
+  const stored = {
     id: uuid(),
     name: 'Untitled PC',
     assignedToUserId: null,
@@ -177,6 +182,7 @@ export function characterSheet(overrides: Partial<CharacterSheet> = {}): Charact
     updatedAt: '2026-11-10T10:00:00.000Z',
     ...overrides,
   };
+  return { ...unlinkedSheetParts(stored, rulesetFor(2)), ...stored };
 }
 
 /** A stat block fixture with defaults; `usedBy` is computed by the fake API. */

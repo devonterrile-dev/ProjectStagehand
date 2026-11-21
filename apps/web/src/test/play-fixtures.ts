@@ -54,11 +54,12 @@ export function gmObject(
   };
 }
 
-/** A session with no rolls yet and Fear where it starts (F3.6). */
+/** A session with no rolls yet, Fear where it starts (F3.6) and Rest off (F4.7). */
 export const ROLL_STAGE: Pick<
   PlayerStage,
-  'fear' | 'fearCap' | 'lastFearSpend' | 'calls' | 'lastRoll'
+  'rest' | 'fear' | 'fearCap' | 'lastFearSpend' | 'calls' | 'lastRoll'
 > = {
+  rest: false,
   fear: 3,
   fearCap: 12,
   lastFearSpend: null,

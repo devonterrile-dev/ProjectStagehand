@@ -37,6 +37,7 @@ import {
   rollCallRequestSchema,
   setFearRequestSchema,
   setHopeRequestSchema,
+  setRestRequestSchema,
   speakingRequestSchema,
   spendFearRequestSchema,
   type ActionResult,
@@ -70,6 +71,7 @@ import {
   revealRoll,
   setFearLive,
   setHopeLive,
+  setRestLive,
   spendFearLive,
   type RollDie,
 } from '../campaigns/rolls';
@@ -526,6 +528,15 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       async (scope, request) => {
         await spendFearLive(db, scope, request);
         return { logged: true };
+      },
+    );
+    onGm(
+      PLAY_SOCKET.setRest,
+      setRestRequestSchema,
+      'Say whether Rest is on',
+      async (scope, request) => {
+        const changed = await setRestLive(db, scope, request.rest);
+        return changed ? { logged: true } : { stage: false };
       },
     );
     onGm(PLAY_SOCKET.setFear, setFearRequestSchema, 'Say how much Fear', async (scope, request) => {

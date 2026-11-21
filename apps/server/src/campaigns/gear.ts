@@ -2,7 +2,7 @@
  * Weapons and armor (F4.4, governance §8 "Weapons and armor", D-62). Part of the campaign
  * data-access layer: every query is scoped to `scope.campaignId`. Every member reads them;
  * callers check `assertGm` and `assertWritable` before a change. Deleting gear a class suggests
- * clears the suggestion (F4.5); sheets equipping it will keep it from being deleted (F4.7).
+ * clears the suggestion (F4.5); gear a sheet links can't be deleted (F4.7).
  *
  * Trait ids (a weapon's trait, and the keys of a bonus to traits) are checked here against the
  * campaign's ruleset, since the request schemas don't know it.
@@ -30,6 +30,7 @@ import { httpError } from '../http/errors';
 import { clearSuggestionsOf } from './classes';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
+import { refuseWhileUsed, sheetsUsing } from './sheet-links';
 
 export const WEAPON_NOT_FOUND = 'Weapon not found';
 export const ARMOR_NOT_FOUND = 'Armor not found';
@@ -49,7 +50,7 @@ function checkBonuses(scope: CampaignScope, bonuses: GearBonuses | undefined): v
 type WeaponRow = typeof weapons.$inferSelect;
 type ArmorRow = typeof armor.$inferSelect;
 
-function toWeapon(row: WeaponRow): WeaponRecord {
+export function toWeapon(row: WeaponRow): WeaponRecord {
   return weaponRecordSchema.parse({
     id: row.id,
     tier: row.tier,
@@ -69,7 +70,7 @@ function toWeapon(row: WeaponRow): WeaponRecord {
   });
 }
 
-function toArmor(row: ArmorRow): ArmorRecord {
+export function toArmor(row: ArmorRow): ArmorRecord {
   return armorRecordSchema.parse({
     id: row.id,
     tier: row.tier,
@@ -182,6 +183,7 @@ export async function deleteWeapon(
   weaponId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    refuseWhileUsed(await sheetsUsing(tx, scope, { weaponId }));
     await clearSuggestionsOf(tx, scope, { weaponId });
     const removed = await tx
       .delete(weapons)
@@ -246,6 +248,7 @@ export async function deleteArmor(
   armorId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    refuseWhileUsed(await sheetsUsing(tx, scope, { armorId }));
     await clearSuggestionsOf(tx, scope, { armorId });
     const removed = await tx
       .delete(armor)

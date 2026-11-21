@@ -20,6 +20,7 @@ import { httpError } from '../http/errors';
 
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
+import { refuseWhileUsed, sheetsUsing } from './sheet-links';
 
 const NOT_FOUND = 'Domain card not found';
 export const DOMAIN_NOT_FOUND = 'Domain not found';
@@ -42,11 +43,11 @@ function scoped(scope: CampaignScope, cardId: string) {
 }
 
 /** A card with its domain's name, as every read returns it. */
-const withDomain = {
+export const withDomain = {
   card: domainCards,
   domainName: domains.name,
 };
-const domainJoin = and(
+export const domainJoin = and(
   eq(domains.id, domainCards.domainId),
   eq(domains.campaignId, domainCards.campaignId),
 );
@@ -66,7 +67,7 @@ function toSummary(row: CardRow, domainName: string): DomainCardSummary {
   });
 }
 
-function toCard(row: CardRow, domainName: string): DomainCard {
+export function toCard(row: CardRow, domainName: string): DomainCard {
   return domainCardSchema.parse({
     ...toSummary(row, domainName),
     feature: row.feature,
@@ -158,9 +159,13 @@ export async function deleteDomainCard(
   scope: CampaignScope,
   cardId: string,
 ): Promise<void> {
-  const removed = await db
-    .delete(domainCards)
-    .where(scoped(scope, cardId))
-    .returning({ id: domainCards.id });
-  if (removed.length === 0) throw httpError(404, NOT_FOUND);
+  await db.transaction(async (tx) => {
+    // A card a PC holds stays until it is taken off their sheet (F4.7).
+    refuseWhileUsed(await sheetsUsing(tx, scope, { cardId }));
+    const removed = await tx
+      .delete(domainCards)
+      .where(scoped(scope, cardId))
+      .returning({ id: domainCards.id });
+    if (removed.length === 0) throw httpError(404, NOT_FOUND);
+  });
 }

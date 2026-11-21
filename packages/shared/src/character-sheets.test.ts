@@ -10,6 +10,7 @@ import {
 } from './character-sheets';
 import { emptyRichText } from './rich-text';
 import { rulesetFor } from './ruleset';
+import { unlinkedSheetParts } from './sheet-build';
 
 const ITEM_ID = '5d1a0c7e-2b3f-4e8a-9c61-0f4b2d7e8a19';
 
@@ -33,7 +34,7 @@ const WEAPON = {
   feature: '',
 };
 
-const SHEET: CharacterSheet = {
+const STORED = {
   id: '0b7e2f1c-3c1d-4b8a-9a50-6f2a0e1d9c11',
   name: 'Vex',
   assignedToUserId: null,
@@ -66,7 +67,8 @@ const SHEET: CharacterSheet = {
   combatOptions: [{ name: 'Volley', kind: 'action', cost: '1 Hope', description: '' }],
   createdAt: '2026-11-10T12:00:00.000Z',
   updatedAt: '2026-11-10T12:00:00.000Z',
-};
+} satisfies Omit<CharacterSheet, 'links' | 'built' | 'cards'>;
+const SHEET: CharacterSheet = { ...STORED, ...unlinkedSheetParts(STORED, v2) };
 
 describe('characterSheetSchema', () => {
   it('parses a full sheet', () => {

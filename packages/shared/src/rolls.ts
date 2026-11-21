@@ -82,6 +82,8 @@ export type PartyMember = z.infer<typeof partyMemberSchema>;
 
 /** What both views of the stage carry about rolls and Fear. */
 export const rollStage = {
+  /** The GM's Rest switch (F4.7): while on, PCs move domain cards between loadout and vault free. */
+  rest: z.boolean(),
   fear: z.int().nonnegative(),
   fearCap: z.int().positive(),
   lastFearSpend: fearSpendSchema.nullable(),
@@ -141,6 +143,10 @@ export const setHopeRequestSchema = z.strictObject({
 });
 export type SetHopeRequest = z.infer<typeof setHopeRequestSchema>;
 
+/** GM: turns Rest on or off (F4.7). */
+export const setRestRequestSchema = z.strictObject({ rest: z.boolean() });
+export type SetRestRequest = z.infer<typeof setRestRequestSchema>;
+
 /** Server to browser: a PC's sheet changed (a roll, a correction, the GM's edit). */
 export const sheetChangedSchema = z.object({ characterId: z.uuid() });
 export type SheetChanged = z.infer<typeof sheetChangedSchema>;
@@ -156,6 +162,8 @@ export const SESSION_LOG_KINDS = [
   'fear_adjust',
   'hope_adjust',
   'free_roll',
+  'rest',
+  'card_recall',
 ] as const;
 export const sessionLogKindSchema = z.enum(SESSION_LOG_KINDS);
 export type SessionLogKind = z.infer<typeof sessionLogKindSchema>;
