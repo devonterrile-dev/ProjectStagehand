@@ -118,7 +118,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 Players get real characters: built from classes, species, gear and domain cards the GM enters, through a step-by-step guide, and levelled up the same way. Gameplay records are a section of their own, apart from the campaign's records (section 8, D-58). Rules for every step are in section 9; open questions 19.14 to 19.27 hold the working assumptions.
 
 - [x] F4.1 Ruleset v2: the Hope bonus drops from +3 to +2, plus each PC's own Hope bonus from level-ups; trait range, tiers, level cap and the starting values of a new character as config. Existing campaigns move to v2 (section 9)
-- [ ] F4.2 Dice tray: a d4, d6, d8, d10, d% (percentile), d12 and d20 at the top right of the sheet page and in the GM's desk; pick one, **Roll N** (1 to 20); the dice roll one after another with a running sum, then every roll and the total. Rolled on the server (section 9)
+- [x] F4.2 Dice tray: a d4, d6, d8, d10, d% (percentile), d12 and d20 at the top right of the sheet page and in the GM's desk; pick one, **Roll N** (1 to 20); the dice roll one after another with a running sum, then every roll and the total. Rolled on the server (section 9)
 - [ ] F4.3 Gameplay section: a new part of the campaign, apart from Records, for gameplay records; stat blocks move into it. Domains (the ten defaults seeded) and domain cards (section 8)
 - [ ] F4.4 Weapons and armor, by tier
 - [ ] F4.5 Classes and subclasses: a class's two domains, starting evasion and HP, Hope feature and suggestions; a subclass's spellcast trait and its foundation, specialization and mastery features
