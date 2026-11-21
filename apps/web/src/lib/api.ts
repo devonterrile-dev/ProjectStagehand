@@ -14,6 +14,8 @@ import {
   characterListResponseSchema,
   characterSchema,
   characterSheetSchema,
+  type AddHeldCardRequest,
+  type MoveHeldCardRequest,
   inviteListResponseSchema,
   invitePreviewSchema,
   inviteSchema,
@@ -485,6 +487,54 @@ export async function patchCharacterSheet(
 ): Promise<CharacterSheet> {
   const response = await send(characterPath(campaignId, characterId), 'PATCH', patch, init);
   return characterSheetSchema.parse(await response.json());
+}
+
+const heldCardsPath = (campaignId: string, characterId: string, rest = '') =>
+  `${characterPath(campaignId, characterId)}/domain-cards${rest}`;
+
+/** Gives a PC a domain card (F4.7): into the loadout, or the vault when it is full. GM only. */
+export async function addHeldCard(
+  campaignId: string,
+  characterId: string,
+  input: AddHeldCardRequest,
+): Promise<CharacterSheet> {
+  const response = await send(heldCardsPath(campaignId, characterId), 'POST', input);
+  return characterSheetSchema.parse(await response.json());
+}
+
+/** Takes a domain card off a PC. GM only. */
+export async function removeHeldCard(
+  campaignId: string,
+  characterId: string,
+  cardId: string,
+): Promise<CharacterSheet> {
+  const response = await send(
+    heldCardsPath(campaignId, characterId, `/${encodeURIComponent(cardId)}`),
+    'DELETE',
+  );
+  return characterSheetSchema.parse(await response.json());
+}
+
+/**
+ * Moves a held card between loadout and vault: the GM for free, the PC's player by the rules
+ * (§9). Answers with the caller's view of the sheet.
+ */
+export async function moveHeldCard<V extends 'gm' | 'player'>(
+  campaignId: string,
+  characterId: string,
+  cardId: string,
+  input: MoveHeldCardRequest,
+  view: V,
+): Promise<V extends 'gm' ? CharacterSheet : PlayerCharacterSheet> {
+  const response = await send(
+    heldCardsPath(campaignId, characterId, `/${encodeURIComponent(cardId)}/move`),
+    'POST',
+    input,
+  );
+  const body: unknown = await response.json();
+  return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
+    body,
+  ) as V extends 'gm' ? CharacterSheet : PlayerCharacterSheet;
 }
 
 /** Deletes a PC for good; its player stays without one. GM only. */

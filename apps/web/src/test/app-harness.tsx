@@ -6,7 +6,14 @@
 import {
   applyFieldsPatch,
   emptyLinksFor,
+  addHeldCardRequestSchema,
+  buildSheet,
   characterSheetPatchSchemaFor,
+  LOADOUT_FULL,
+  loadoutMaxOf,
+  moveHeldCardRequestSchema,
+  notEnoughStress,
+  SHEET_LINK_KEYS,
   createRecordRequestSchema,
   createStatBlockRequestSchema,
   emptyRichText,
@@ -652,6 +659,86 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     return null;
   };
 
+  /** A sheet with its built values and cards worked out from its links (F4.7). */
+  const rebuilt = (found: Campaign, pc: CharacterSheet): CharacterSheet => {
+    const ruleset = rulesetFor(found.rulesetVersion);
+    const records = gameplay.sheetRecords(found.id, pc.id, pc.links);
+    return { ...pc, ...buildSheet(pc, pc.links, records, ruleset) };
+  };
+
+  /** A PC's domain cards (F4.7): the GM adds and removes; the GM or the PC's player moves. */
+  const respondHeldCards = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const match = /^\/characters\/([^/]+)\/domain-cards(?:\/([^/]+)(\/move)?)?$/.exec(rest);
+    if (match === null) return null;
+    const [, characterId = '', cardId, moving] = match;
+    const sheet = d.characters.find((c) => c.id === characterId);
+    const isGm = found.role === 'gm';
+    if (sheet === undefined || (!isGm && holderOf(d, sheet.id) !== me?.id)) {
+      return notFound('Character not found');
+    }
+    if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+    if (moving === undefined && !isGm) return refused(403, 'Only the GM can do that');
+    const held = gameplay.heldOf(sheet.id);
+    const max = loadoutMaxOf(rulesetFor(found.rulesetVersion));
+    const inLoadout = () => held.filter((entry) => entry.place === 'loadout').length;
+    const answer = (status = 200) => {
+      const built = { ...rebuilt(found, sheet), assignedToUserId: holderOf(d, sheet.id) };
+      return Response.json(isGm ? built : playerCharacterSheetSchema.parse(built), { status });
+    };
+
+    if (cardId === undefined) {
+      if (method !== 'POST') return null;
+      const parsed = addHeldCardRequestSchema.safeParse(rawBody);
+      if (!parsed.success) return invalid(parsed.error.issues);
+      if (gameplay.cardById(found.id, parsed.data.cardId) === undefined) {
+        return notFound('Domain card not found');
+      }
+      if (held.some((entry) => entry.cardId === parsed.data.cardId)) {
+        return refused(409, 'That card is already on this sheet');
+      }
+      const full = inLoadout() >= max;
+      const place = parsed.data.place ?? (full ? 'vault' : 'loadout');
+      if (place === 'loadout' && full) return refused(409, LOADOUT_FULL);
+      held.push({ cardId: parsed.data.cardId, place, takenAtLevel: sheet.level });
+      return answer(201);
+    }
+    const entry = held.find((one) => one.cardId === cardId);
+    if (entry === undefined) return notFound("That card isn't on this sheet");
+    if (moving === undefined) {
+      if (method !== 'DELETE') return null;
+      held.splice(held.indexOf(entry), 1);
+      return answer();
+    }
+    const parsed = moveHeldCardRequestSchema.safeParse(rawBody);
+    if (!parsed.success) return invalid(parsed.error.issues);
+    if (entry.place === parsed.data.to) return answer();
+    if (parsed.data.to === 'vault') {
+      entry.place = 'vault';
+      return answer();
+    }
+    if (inLoadout() >= max) {
+      const out = held.find((one) => one.cardId === parsed.data.swapOut);
+      if (parsed.data.swapOut === undefined) return refused(409, LOADOUT_FULL);
+      if (out?.place !== 'loadout') {
+        return refused(400, 'Pick a card from the loadout to put in the vault');
+      }
+      out.place = 'vault';
+    }
+    // No session runs in the fake API, so Rest is never on: a player's recall costs Stress.
+    const cost = isGm ? 0 : (gameplay.cardById(found.id, entry.cardId)?.recallCost ?? 0);
+    const left = sheet.stressMax - sheet.stressCurrent;
+    if (cost > left) return refused(409, notEnoughStress(cost, left));
+    sheet.stressCurrent += cost;
+    entry.place = 'loadout';
+    return answer();
+  };
+
   /** One PC's sheet: the GM's full sheet, or a player's own through the allow-list. */
   const respondCharacter = (
     found: Campaign,
@@ -660,11 +747,13 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     method: string,
     rawBody: unknown,
   ): Response | null => {
+    const cards = respondHeldCards(found, d, rest, method, rawBody);
+    if (cards !== null) return cards;
     const sheetMatch = /^\/characters\/([^/]+)$/.exec(rest);
     if (sheetMatch === null) return null;
     const sheet = d.characters.find((c) => c.id === sheetMatch[1]);
     const full = (pc: CharacterSheet): CharacterSheet => ({
-      ...pc,
+      ...rebuilt(found, pc),
       assignedToUserId: holderOf(d, pc.id),
     });
 
@@ -688,7 +777,24 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         const item = d.records.find((r) => r.id === row.recordId);
         if (row.recordId !== undefined && item?.type !== 'item') return notFound('Item not found');
       }
-      Object.assign(sheet, parsed.data, { updatedAt: '2026-11-10T12:00:00.000Z' });
+      const linkKeys: readonly string[] = SHEET_LINK_KEYS;
+      const stored = Object.fromEntries(
+        Object.entries(parsed.data).filter(([key]) => !linkKeys.includes(key)),
+      );
+      const links = { ...sheet.links };
+      const patch = parsed.data;
+      if (patch.classId !== undefined) {
+        links.classId = patch.classId;
+        if (patch.subclassId === undefined) links.subclassId = null;
+      }
+      if (patch.subclassId !== undefined) links.subclassId = patch.subclassId;
+      if (patch.subclassCards !== undefined) links.subclassCards = patch.subclassCards;
+      if (patch.speciesIds !== undefined) links.speciesIds = patch.speciesIds;
+      if (patch.primaryWeaponId !== undefined) links.primaryWeaponId = patch.primaryWeaponId;
+      if (patch.secondaryWeaponId !== undefined) links.secondaryWeaponId = patch.secondaryWeaponId;
+      if (patch.armorId !== undefined) links.armorId = patch.armorId;
+      if (patch.spareWeaponIds !== undefined) links.spareWeaponIds = patch.spareWeaponIds;
+      Object.assign(sheet, stored, { links, updatedAt: '2026-11-10T12:00:00.000Z' });
       for (const m of d.members) {
         if (m.character?.id === sheet.id) m.character = { id: sheet.id, name: sheet.name };
       }

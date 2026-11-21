@@ -69,6 +69,7 @@ describe('The GM’s sheet editor', () => {
     expect(screen.getByText('Played by Jun')).toBeDefined();
     expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
       'Identity',
+      'Class, subclass and species',
       'Traits',
       'Defense',
       'Health',
@@ -78,6 +79,8 @@ describe('The GM’s sheet editor', () => {
       'Armor',
       'Inventory',
       'Class feature',
+      'Domain cards',
+      'Feature cards',
       'Combat options',
       'GM notes',
     ]);
@@ -405,6 +408,34 @@ describe('A player’s own sheet', () => {
     expect(screen.queryByText('GM notes')).toBeNull();
     // Empty groups are left out.
     expect(screen.queryByRole('heading', { name: 'Armor' })).toBeNull();
+    // Health, Defense and Weapons on the left; traits, Hope and Experiences on the right (F4.7).
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+      'Health',
+      'Defense',
+      'Traits',
+      'Hope and proficiency',
+      'Experiences',
+    ]);
+  });
+
+  it('puts the description last', async () => {
+    const coast = campaign({ name: 'Shattered Coast', role: 'player' });
+    const vex = characterSheet({
+      name: 'Vex',
+      assignedToUserId: MIRA.id,
+      publicDescription: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A quiet sailor.' }] }],
+      },
+      classFeature: { name: 'Ranger’s Focus', description: 'Mark a target.' },
+      inventory: [{ name: 'Rope', detail: '' }],
+    });
+    mockApi(MIRA, [coast], { campaignData: { [coast.id]: { characters: [vex] } } });
+    renderAt(sheetUrl(coast, vex));
+
+    expect(await screen.findByText('A quiet sailor.')).toBeDefined();
+    const titles = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(titles.slice(-3)).toEqual(['Inventory', 'Class features', 'Description']);
   });
 
   it('shows an inventory row without its Item record', async () => {

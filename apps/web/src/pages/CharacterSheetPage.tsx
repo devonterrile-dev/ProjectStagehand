@@ -1,10 +1,17 @@
-import { rulesetFor, type Campaign } from '@stagehand/shared';
+import { loadoutMaxOf, rulesetFor, type Campaign } from '@stagehand/shared';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { CharacterSheetForm } from '@/components/sheets/CharacterSheetForm';
 import { CharacterSheetView } from '@/components/sheets/CharacterSheetView';
+import { DomainPiles, FeatureSideCards } from '@/components/sheets/SideCards';
 import { VisualCard } from '@/components/visuals/VisualCard';
-import { useCampaign, useCharacterSheet, useMembers, useOwnCharacterSheet } from '@/lib/queries';
+import {
+  useCampaign,
+  useCharacterSheet,
+  useMembers,
+  useMoveHeldCard,
+  useOwnCharacterSheet,
+} from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
@@ -24,7 +31,9 @@ export function CharacterSheetPage() {
   if (campaign === null) return <CampaignNotFound />;
 
   return campaign.role === 'gm' ? (
-    <GmSheet campaign={campaign} characterId={characterId} />
+    <div className="mx-auto max-w-3xl">
+      <GmSheet campaign={campaign} characterId={characterId} />
+    </div>
   ) : (
     <PlayerSheet campaign={campaign} characterId={characterId} />
   );
@@ -101,6 +110,7 @@ function GmSheet({ campaign, characterId }: { campaign: Campaign; characterId: s
 
 function PlayerSheet({ campaign, characterId }: { campaign: Campaign; characterId: string }) {
   const sheetQuery = useOwnCharacterSheet(campaign.id, characterId, true);
+  const move = useMoveHeldCard(campaign.id, characterId, 'player');
 
   if (sheetQuery.isPending) return <p className="text-muted-foreground">Loading sheet…</p>;
   if (sheetQuery.isError) {
@@ -109,13 +119,48 @@ function PlayerSheet({ campaign, characterId }: { campaign: Campaign; characterI
   const sheet = sheetQuery.data;
   if (sheet === null) return <CharacterNotFound campaign={campaign} />;
 
+  const ruleset = rulesetFor(campaign.rulesetVersion);
+  const held = sheet.cards.loadout.length + sheet.cards.vault.length;
+
+  // On a wide screen the domain card piles lie left of the sheet and the subclass and ancestry
+  // cards right of it (F4.7); on a narrow one they follow it.
   return (
     <div className="space-y-4">
-      <BackLink campaign={campaign} />
-      <p className="text-sm text-muted-foreground">
-        Your GM keeps this sheet up to date. During play you&apos;ll spend Hope from here.
-      </p>
-      <CharacterSheetView sheet={sheet} ruleset={rulesetFor(campaign.rulesetVersion)} />
+      <div className="mx-auto max-w-3xl space-y-4">
+        <BackLink campaign={campaign} />
+        <p className="text-sm text-muted-foreground">
+          Your GM keeps this sheet up to date.
+          {held > 0 &&
+            ' You move your domain cards between the loadout and the vault here or at the table.'}
+        </p>
+      </div>
+      <div className="grid items-start gap-6 xl:justify-center xl:grid-cols-[18.5rem_minmax(0,48rem)_18.5rem]">
+        <div className="mx-auto w-full max-w-3xl xl:order-2">
+          <CharacterSheetView sheet={sheet} ruleset={ruleset} />
+        </div>
+        <aside aria-label="Subclass and ancestry" className="mx-auto xl:order-3">
+          <FeatureSideCards cards={sheet.cards} ruleset={ruleset} />
+        </aside>
+        <aside aria-label="Domain cards" className="mx-auto xl:order-1">
+          {held > 0 && (
+            <DomainPiles
+              cards={sheet.cards}
+              loadoutMax={loadoutMaxOf(ruleset)}
+              actions={
+                campaign.archivedAt === null
+                  ? {
+                      onMove: (cardId, to, swapOut) =>
+                        move.mutateAsync({
+                          cardId,
+                          input: { to, ...(swapOut === undefined ? {} : { swapOut }) },
+                        }),
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

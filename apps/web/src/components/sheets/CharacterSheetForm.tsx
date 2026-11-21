@@ -3,6 +3,7 @@ import {
   characterSheetPatchSchemaFor,
   emptyRichText,
   isEmptyRichText,
+  loadoutMaxOf,
   rulesetFor,
   SHEET_LIST_MAX,
   SHORT_TEXT_MAX,
@@ -35,7 +36,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
-import { useDeleteCharacter, usePatchCharacter, useRecords } from '@/lib/queries';
+import {
+  useAddHeldCard,
+  useDeleteCharacter,
+  useDomainCards,
+  useMoveHeldCard,
+  usePatchCharacter,
+  useRecords,
+  useRemoveHeldCard,
+} from '@/lib/queries';
 import { useAutosave, type SendPatch } from '@/lib/useAutosave';
 
 import { formatModifier } from './format';
@@ -51,6 +60,8 @@ import {
   WeaponFields,
 } from './parts';
 import { blank, hasName } from './rows';
+import { FeatureCards, HeldCards } from './SheetCards';
+import { ClassLinkFields, GearLinkSelect, SpareWeaponLinks } from './SheetLinkFields';
 import { TextField } from './TextField';
 
 /** The stored values the form edits key by key; links are set by `LinkFields` (F4.7). */
@@ -110,6 +121,8 @@ export function CharacterSheetForm({
   const latest = useRef<Partial<Record<Key, unknown>>>({});
   const [errors, setErrors] = useState<Partial<Record<Key, string | undefined>>>({});
   const [deleting, setDeleting] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const built = sheet.built;
 
   const [name, setName] = useState(sheet.name);
   const [traits, setTraits] = useState(sheet.traits);
@@ -159,6 +172,18 @@ export function CharacterSheetForm({
       return;
     }
     commit(key, value);
+  }
+
+  /** Saves link keys (F4.7) at once; the server checks them against the campaign's records. */
+  function link(patch: Partial<SheetLinks>) {
+    const parsed = characterSheetPatchSchemaFor(ruleset).safeParse(patch);
+    if (!parsed.success) {
+      setLinkError(parsed.error.issues[0]?.message ?? 'Invalid link');
+      return;
+    }
+    setLinkError(null);
+    autosave.save(parsed.data);
+    autosave.flush();
   }
 
   /** Weapons save together; a weapon in hand without a name waits until it has one. */
@@ -244,18 +269,22 @@ export function CharacterSheetForm({
       <Group title="Identity">
         <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
           {number('level', 'Level', { min: 1, max: ruleset.levels?.max })}
-          <TextField
-            id="sheet-className"
-            label="Class"
-            initial={sheet.className}
-            maxLength={SHORT_TEXT_MAX}
-            disabled={readOnly}
-            error={errors.className ?? null}
-            onCommit={(value) => {
-              commit('className', value);
-            }}
-            onBlur={autosave.flush}
-          />
+          {built.linked.class ? (
+            <Worked label="Class" value={built.className} from="the linked class" />
+          ) : (
+            <TextField
+              id="sheet-className"
+              label="Class"
+              initial={sheet.className}
+              maxLength={SHORT_TEXT_MAX}
+              disabled={readOnly}
+              error={errors.className ?? null}
+              onCommit={(value) => {
+                commit('className', value);
+              }}
+              onBlur={autosave.flush}
+            />
+          )}
         </div>
         <div className="space-y-2">
           <Label>Public description</Label>
@@ -271,6 +300,14 @@ export function CharacterSheetForm({
           />
           <FieldError message={errors.publicDescription ?? null} />
         </div>
+      </Group>
+
+      <Group
+        title="Class, subclass and species"
+        description="Linked from the gameplay records. A linked class replaces the class name and the class feature below."
+      >
+        <ClassLinkFields campaign={campaign} sheet={sheet} readOnly={readOnly} onLink={link} />
+        <FieldError message={linkError} />
       </Group>
 
       {visual}
@@ -305,18 +342,39 @@ export function CharacterSheetForm({
       <Group title="Defense">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {number('evasion', 'Evasion')}
-          {number('armorScore', 'Armor score')}
+          {built.linked.armor ? (
+            <Worked label="Armor score" value={String(built.armorScore)} from="the armor" />
+          ) : (
+            number('armorScore', 'Armor score')
+          )}
           {number('armorSlotsMarked', 'Armor slots marked')}
-          {number('armorSlotsMax', 'Armor slots')}
+          {built.linked.armor ? (
+            <Worked label="Armor slots" value={String(built.armorSlotsMax)} from="the armor" />
+          ) : (
+            number('armorSlotsMax', 'Armor slots')
+          )}
         </div>
+        {built.evasion !== sheet.evasion && (
+          <p className="text-sm text-muted-foreground">
+            Evasion on the sheet: {built.evasion}, with equipped gear.
+          </p>
+        )}
       </Group>
 
       <Group title="Health">
-        <div className="grid grid-cols-3 gap-4">
-          {number('minorThreshold', 'Minor threshold')}
-          {number('majorThreshold', 'Major threshold')}
-          {number('severeThreshold', 'Severe threshold')}
-        </div>
+        {built.linked.armor ? (
+          <Worked
+            label="Thresholds (major / severe)"
+            value={`${String(built.thresholds.major)} / ${String(built.thresholds.severe)}`}
+            from="the armor, plus the level and gear"
+          />
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            {number('minorThreshold', 'Minor threshold')}
+            {number('majorThreshold', 'Major threshold')}
+            {number('severeThreshold', 'Severe threshold')}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {number('hpCurrent', 'Current HP')}
           {number('hpMax', 'HP max')}
@@ -365,10 +423,28 @@ export function CharacterSheetForm({
         {(['primary', 'secondary'] as const).map((slot) => {
           const label = slot === 'primary' ? 'Primary weapon' : 'Secondary weapon';
           const weapon = weapons[slot];
+          const linked = built.weapons[slot];
           return (
             <div key={slot} className="space-y-2">
               <h3 className="text-sm font-medium">{label}</h3>
-              {weapon === null ? (
+              <GearLinkSelect
+                campaignId={campaign.id}
+                slot={slot}
+                value={
+                  slot === 'primary' ? sheet.links.primaryWeaponId : sheet.links.secondaryWeaponId
+                }
+                disabled={readOnly}
+                onChange={(next) => {
+                  link(
+                    slot === 'primary' ? { primaryWeaponId: next } : { secondaryWeaponId: next },
+                  );
+                }}
+              />
+              {linked !== null && linked.weaponId !== null ? (
+                <p className="text-sm">
+                  {linked.name}: {linked.damage} {linked.damageType}, {linked.range}
+                </p>
+              ) : weapon === null ? (
                 <AddButton
                   label={`Add ${label.toLowerCase()}`}
                   disabled={readOnly}
@@ -425,12 +501,34 @@ export function CharacterSheetForm({
               changeWeapons({ ...weapons, inventory: rows }, now);
             }}
           />
+          <SpareWeaponLinks
+            campaignId={campaign.id}
+            initial={sheet.links.spareWeaponIds}
+            disabled={readOnly}
+            onChange={(ids) => {
+              link({ spareWeaponIds: ids });
+            }}
+          />
         </div>
         <FieldError message={errors.weapons ?? null} />
       </Group>
 
       <Group title="Armor">
-        {armor === null ? (
+        <GearLinkSelect
+          campaignId={campaign.id}
+          slot="armor"
+          value={sheet.links.armorId}
+          disabled={readOnly}
+          onChange={(next) => {
+            link({ armorId: next });
+          }}
+        />
+        {built.linked.armor ? (
+          <p className="text-sm">
+            {built.armorName}: thresholds {built.thresholds.major} / {built.thresholds.severe},
+            score {built.armorScore}
+          </p>
+        ) : armor === null ? (
           <AddButton
             label="Add armor"
             disabled={readOnly}
@@ -516,7 +614,11 @@ export function CharacterSheetForm({
       </Group>
 
       <Group title="Class feature">
-        {classFeature === null ? (
+        {built.linked.class ? (
+          <p className="text-sm text-muted-foreground">
+            Replaced by {built.className}&apos;s Hope feature and class features (in Feature cards).
+          </p>
+        ) : classFeature === null ? (
           <AddButton
             label="Add class feature"
             disabled={readOnly}
@@ -547,6 +649,24 @@ export function CharacterSheetForm({
           </SectionBox>
         )}
         <FieldError message={errors.classFeature ?? null} />
+      </Group>
+
+      <Group title="Domain cards" description="At most five in the loadout; the rest in the vault.">
+        <DomainCardsEditor campaign={campaign} sheet={sheet} readOnly={readOnly} />
+      </Group>
+
+      <Group title="Feature cards" description="Worked out from the linked records.">
+        <FeatureCards cards={sheet.cards} ruleset={ruleset} />
+        {built.warnings.map((warning) => (
+          <p key={warning} role="status" className="text-sm text-amber-700 dark:text-amber-400">
+            {warning}.
+          </p>
+        ))}
+        {sheet.cards.class === null &&
+          sheet.cards.subclass === null &&
+          sheet.cards.species.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nothing linked yet.</p>
+          )}
       </Group>
 
       <Group title="Combat options">
@@ -609,6 +729,105 @@ export function CharacterSheetForm({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** A value worked out from linked records, shown in place of the field it replaces. */
+function Worked({ label, value, from }: { label: string; value: string; from: string }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium">{label}</p>
+      <p className="text-sm">
+        {value} <span className="text-muted-foreground">(from {from})</span>
+      </p>
+    </div>
+  );
+}
+
+/** The GM's domain cards for a PC: add any card of the campaign, move and remove for free. */
+function DomainCardsEditor({
+  campaign,
+  sheet,
+  readOnly,
+}: {
+  campaign: Campaign;
+  sheet: CharacterSheet;
+  readOnly: boolean;
+}) {
+  const ruleset = rulesetFor(campaign.rulesetVersion);
+  const all = useDomainCards(campaign.id).data ?? [];
+  const add = useAddHeldCard(campaign.id, sheet.id);
+  const move = useMoveHeldCard(campaign.id, sheet.id, 'gm');
+  const remove = useRemoveHeldCard(campaign.id, sheet.id);
+  const [adding, setAdding] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const held = new Set([...sheet.cards.loadout, ...sheet.cards.vault].map((card) => card.id));
+  const domains = [...new Set(all.map((card) => card.domainName))];
+
+  return (
+    <div className="space-y-4">
+      {!readOnly && (
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="sheet-add-card">Add a domain card</Label>
+            <NativeSelect
+              id="sheet-add-card"
+              value={adding}
+              onChange={(event) => {
+                setAdding(event.target.value);
+              }}
+            >
+              <option value="">Pick a card</option>
+              {domains.map((domain) => (
+                <optgroup key={domain} label={domain}>
+                  {all
+                    .filter((card) => card.domainName === domain && !held.has(card.id))
+                    .map((card) => (
+                      <option key={card.id} value={card.id}>
+                        {card.name} (level {card.level})
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </NativeSelect>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={adding === '' || add.isPending}
+            onClick={() => {
+              setError(null);
+              add.mutateAsync({ cardId: adding }).then(
+                () => {
+                  setAdding('');
+                },
+                (caught: unknown) => {
+                  setError(caught instanceof Error ? caught.message : 'Could not add that card');
+                },
+              );
+            }}
+          >
+            Add card
+          </Button>
+        </div>
+      )}
+      <FieldError message={error} />
+      <HeldCards
+        cards={sheet.cards}
+        loadoutMax={loadoutMaxOf(ruleset)}
+        actions={
+          readOnly
+            ? undefined
+            : {
+                who: 'gm',
+                onMove: (cardId, to, swapOut) =>
+                  move.mutateAsync({ cardId, input: { to, ...(swapOut ? { swapOut } : {}) } }),
+                onRemove: (cardId) => remove.mutateAsync(cardId),
+              }
+        }
+      />
     </div>
   );
 }

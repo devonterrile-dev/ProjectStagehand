@@ -8,6 +8,8 @@ import { useMe } from '@/lib/queries';
 
 /** Pages laid out wider than the rest: a record page has a side column (F1.5b). */
 const WIDE_PAGE = '/campaigns/:campaignId/records/:recordId';
+/** A sheet page (F4.7): a player's sheet has its cards to either side on a wide screen. */
+const SHEET_PAGE = '/campaigns/:campaignId/characters/:characterId';
 
 /** Pages that are all stage: they fill the window, with no header (F3.1). */
 const STAGE_PAGE = '/stage-test';
@@ -24,7 +26,9 @@ export function StageShell({ children }: { children: ReactNode }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: me } = useMe();
-  const width = useMatch(WIDE_PAGE) === null ? 'max-w-3xl' : 'max-w-6xl';
+  const wide = useMatch(WIDE_PAGE) !== null;
+  const sheetPage = useMatch(SHEET_PAGE) !== null;
+  const width = sheetPage ? 'max-w-[88rem]' : wide ? 'max-w-6xl' : 'max-w-3xl';
   const stageTest = useMatch(STAGE_PAGE) !== null;
   const activityTest = useMatch(ACTIVITY_PAGE) !== null;
   const sceneBuilder = useMatch(SCENE_PAGE) !== null;

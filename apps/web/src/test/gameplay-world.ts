@@ -6,6 +6,9 @@
  * Every campaign starts with the ten default domains unless a test seeds its own.
  */
 import {
+  type CardPlace,
+  type SheetLinks,
+  type SheetRecords,
   createSpeciesRequestSchema,
   updateSpeciesRequestSchema,
   type SpeciesRecord,
@@ -72,6 +75,8 @@ export interface GameplayWorldOptions {
   armor?: Record<string, (Partial<ArmorRecord> & { id: string; name: string })[]>;
   /** A campaign's classes, by campaign id (F4.5). */
   classes?: Record<string, (Partial<StoredClass> & { id: string; name: string })[]>;
+  /** A PC's domain cards, by character id (F4.7). */
+  heldCards?: Record<string, { cardId: string; place: CardPlace; takenAtLevel?: number }[]>;
   /** A campaign's species, by campaign id (F4.6). */
   species?: Record<
     string,
@@ -895,5 +900,83 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     return null;
   }
 
-  return { respond, created };
+  /** A PC's held cards (F4.7), seeded from the options on first use. */
+  const heldStores = new Map<
+    string,
+    { cardId: string; place: CardPlace; takenAtLevel: number }[]
+  >();
+  const heldOf = (characterId: string) => {
+    let list = heldStores.get(characterId);
+    if (list === undefined) {
+      list = (options.heldCards?.[characterId] ?? []).map((entry) => ({
+        takenAtLevel: 1,
+        ...entry,
+      }));
+      heldStores.set(characterId, list);
+    }
+    return list;
+  };
+
+  /** The records a sheet links, as the server reads them for `buildSheet` (F4.7). */
+  function sheetRecords(campaignId: string, characterId: string, links: SheetLinks): SheetRecords {
+    const weapon = (weaponId: string | null) =>
+      weaponsOf(campaignId).find((entry) => entry.id === weaponId) ?? null;
+    const cls = classesOf(campaignId).find((entry) => entry.id === links.classId);
+    const sub = subclassesOf(campaignId).find((entry) => entry.id === links.subclassId);
+    const kind = (speciesId: string | null) => {
+      const one = speciesOf(campaignId).find((entry) => entry.id === speciesId);
+      return one === undefined ? null : { id: one.id, name: one.name, features: one.features };
+    };
+    return {
+      class:
+        cls === undefined
+          ? null
+          : {
+              id: cls.id,
+              name: cls.name,
+              domainIds: cls.domainIds,
+              hopeFeature: cls.hopeFeature,
+              classFeatures: cls.classFeatures,
+            },
+      subclass:
+        sub === undefined
+          ? null
+          : {
+              id: sub.id,
+              name: sub.name,
+              className:
+                classesOf(campaignId).find((entry) => entry.id === sub.classId)?.name ?? '',
+              spellcastTrait: sub.spellcastTrait,
+              foundation: sub.foundation,
+              specialization: sub.specialization,
+              mastery: sub.mastery,
+            },
+      species: [kind(links.speciesIds[0]), kind(links.speciesIds[1])],
+      primary: weapon(links.primaryWeaponId),
+      secondary: weapon(links.secondaryWeaponId),
+      armor: armorOf(campaignId).find((entry) => entry.id === links.armorId) ?? null,
+      spares: links.spareWeaponIds.flatMap((weaponId) => {
+        const found = weapon(weaponId);
+        return found === null ? [] : [found];
+      }),
+      cards: heldOf(characterId).flatMap((entry) => {
+        const card = cardsOf(campaignId).find((stored) => stored.id === entry.cardId);
+        return card === undefined
+          ? []
+          : [
+              {
+                card: full(campaignId, card),
+                place: entry.place,
+                takenAtLevel: entry.takenAtLevel,
+              },
+            ];
+      }),
+    };
+  }
+
+  /** A card of the campaign's, for the PC card routes; undefined when there is none. */
+  const cardById = (campaignId: string, cardId: string) =>
+    cardsOf(campaignId).find((card) => card.id === cardId);
+
+  return { respond, created, sheetRecords, heldOf, cardById };
 }

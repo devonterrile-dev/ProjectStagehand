@@ -1,4 +1,6 @@
 import type {
+  AddHeldCardRequest,
+  MoveHeldCardRequest,
   AssetSummary,
   Campaign,
   CampaignRecord,
@@ -141,12 +143,15 @@ import {
   fetchDomains,
   patchDomain,
   patchDomainCard,
+  addHeldCard,
   createArmor,
   createClass,
   createSpecies,
   createSubclass,
   createWeapon,
   deleteArmor,
+  moveHeldCard,
+  removeHeldCard,
   deleteClass,
   deleteSpecies,
   deleteSubclass,
@@ -543,6 +548,40 @@ export function useOwnCharacterSheet(campaignId: string, characterId: string, en
     queryKey: characterKey(campaignId, characterId, 'player'),
     queryFn: () => fetchOwnCharacterSheet(campaignId, characterId),
     enabled,
+  });
+}
+
+/** Gives a PC a domain card (F4.7, GM); the response becomes the cached sheet. */
+export function useAddHeldCard(campaignId: string, characterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddHeldCardRequest) => addHeldCard(campaignId, characterId, input),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
+    },
+  });
+}
+
+/** Takes a domain card off a PC (GM). */
+export function useRemoveHeldCard(campaignId: string, characterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cardId: string) => removeHeldCard(campaignId, characterId, cardId),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
+    },
+  });
+}
+
+/** Moves a held card between loadout and vault, as the GM or the PC's player. */
+export function useMoveHeldCard(campaignId: string, characterId: string, view: SheetView) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cardId, input }: { cardId: string; input: MoveHeldCardRequest }) =>
+      moveHeldCard(campaignId, characterId, cardId, input, view),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, view), sheet);
+    },
   });
 }
 
