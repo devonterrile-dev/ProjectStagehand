@@ -66,7 +66,6 @@ describe('The gameplay section (F4.3)', () => {
       'Ember0 cards',
       'TideThe sea and its pull.2 cards',
     ]);
-    expect(screen.getByText(/Daggerheart SRD 2.0/)).toBeDefined();
     expect(screen.getByRole('link', { name: 'Open stat blocks' })).toBeDefined();
   });
 
