@@ -123,7 +123,7 @@ Players get real characters: built from classes, species, gear and domain cards 
 - [x] F4.4 Weapons and armor, by tier
 - [x] F4.5 Classes and subclasses: a class's two domains, starting evasion and HP, Hope feature and suggestions; a subclass's spellcast trait and its foundation, specialization and mastery features
 - [x] F4.6 Species: name, description, picture and features
-- [ ] F4.7 The sheet built from gameplay records: class, subclass, species, weapons, armor and domain cards linked on the sheet; feature cards beside the sheet page at the table; thresholds worked out from the armor and level; the domain card loadout and vault, recall for Stress, and the GM's Rest switch
+- [x] F4.7 The sheet built from gameplay records: class, subclass, species, weapons, armor and domain cards linked on the sheet; feature cards beside the sheet page at the table; thresholds worked out from the armor and level; the domain card loadout and vault, recall for Stress, and the GM's Rest switch
 - [ ] F4.8 Character creation guide: class and subclass, species, traits, starting equipment, two level-1 domain cards; the campaign's starting gear setting (set, none or default)
 - [ ] F4.9 Level up: the GM grants a level; the player's level-up guide with the tier options and their counts, trait marks, a new domain card (or a swap), and the tier change (proficiency +1, marks cleared)
 - [ ] F4.10 Multiclassing: a second class's domain and subclass through the two-mark multiclass option
