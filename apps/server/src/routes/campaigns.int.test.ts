@@ -140,6 +140,37 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: { name: 'Hijacked' },
   },
   { method: 'DELETE', path: '/api/campaigns/:campaignId/domain-cards/:cardId', gmOnly: true },
+  // Weapons and armor (F4.4): the same rule.
+  { method: 'GET', path: '/api/campaigns/:campaignId/weapons', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/weapons',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/weapons/:weaponId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/weapons/:weaponId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/weapons/:weaponId', gmOnly: true },
+  { method: 'GET', path: '/api/campaigns/:campaignId/armor', gmOnly: false },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/armor',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'GET', path: '/api/campaigns/:campaignId/armor/:armorId', gmOnly: false },
+  {
+    method: 'PATCH',
+    path: '/api/campaigns/:campaignId/armor/:armorId',
+    gmOnly: true,
+    payload: { name: 'Hijacked' },
+  },
+  { method: 'DELETE', path: '/api/campaigns/:campaignId/armor/:armorId', gmOnly: true },
   { method: 'GET', path: '/api/campaigns/:campaignId/imports', gmOnly: true },
   {
     method: 'POST',

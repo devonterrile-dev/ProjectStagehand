@@ -32,6 +32,7 @@ import type { RollAny } from './campaigns/free-rolls';
 import type { RollDie } from './campaigns/rolls';
 import { registerCharacterRoutes } from './routes/characters';
 import { registerGameplayRoutes } from './routes/gameplay';
+import { registerGearRoutes } from './routes/gear';
 import { registerInviteRoutes } from './routes/invites';
 import { registerJournalRoutes } from './routes/journal';
 import { registerMeRoutes } from './routes/me';
@@ -215,6 +216,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerJournalRoutes(app, { auth: options.auth, db: handle.db, live });
     registerStatBlockRoutes(app, { auth: options.auth, db: handle.db });
     registerGameplayRoutes(app, { auth: options.auth, db: handle.db });
+    registerGearRoutes(app, { auth: options.auth, db: handle.db });
     registerImportRoutes(app, {
       auth: options.auth,
       db: handle.db,

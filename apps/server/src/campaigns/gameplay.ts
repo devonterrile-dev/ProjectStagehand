@@ -4,12 +4,13 @@
  * another campaign's records instead (19.14). A copy is made once: afterwards the two campaigns'
  * records change apart.
  *
- * Each gameplay type added later (classes, gear, species: F4.4 to F4.6) is copied here too.
+ * Each gameplay type is copied here: domains and cards (F4.3), weapons and armor (F4.4); classes
+ * and species join them in F4.5 and F4.6.
  */
 import { DEFAULT_DOMAINS } from '@stagehand/shared';
 import { asc, eq } from 'drizzle-orm';
 
-import { domainCards, domains, statBlocks } from '../db/schema';
+import { armor, domainCards, domains, statBlocks, weapons } from '../db/schema';
 
 import type { DbOrTx } from './members';
 
@@ -26,7 +27,7 @@ export async function seedDefaultDomains(tx: DbOrTx, campaignId: string): Promis
 
 /**
  * Copies every gameplay record of `fromId` into `toId`: domains, their cards (pointed at the new
- * domains) and stat blocks. Stat blocks come without the NPCs that link them: campaign records
+ * domains), stat blocks, weapons and armor. Stat blocks come without the NPCs that link them: campaign records
  * aren't copied. The caller checks the user may read `fromId` as its GM.
  */
 export async function copyGameplayRecords(tx: DbOrTx, fromId: string, toId: string): Promise<void> {
@@ -92,6 +93,44 @@ export async function copyGameplayRecords(tx: DbOrTx, fromId: string, toId: stri
         severeThreshold: block.severeThreshold,
         hpMax: block.hpMax,
         stressMax: block.stressMax,
+      })),
+    );
+  }
+
+  const fromWeapons = await tx.select().from(weapons).where(eq(weapons.campaignId, fromId));
+  if (fromWeapons.length > 0) {
+    await tx.insert(weapons).values(
+      fromWeapons.map((weapon) => ({
+        campaignId: toId,
+        tier: weapon.tier,
+        name: weapon.name,
+        slot: weapon.slot,
+        kind: weapon.kind,
+        trait: weapon.trait,
+        range: weapon.range,
+        damageDie: weapon.damageDie,
+        damageBonus: weapon.damageBonus,
+        burden: weapon.burden,
+        featureName: weapon.featureName,
+        featureText: weapon.featureText,
+        bonuses: weapon.bonuses,
+      })),
+    );
+  }
+
+  const fromArmor = await tx.select().from(armor).where(eq(armor.campaignId, fromId));
+  if (fromArmor.length > 0) {
+    await tx.insert(armor).values(
+      fromArmor.map((piece) => ({
+        campaignId: toId,
+        tier: piece.tier,
+        name: piece.name,
+        baseMajorThreshold: piece.baseMajorThreshold,
+        baseSevereThreshold: piece.baseSevereThreshold,
+        baseScore: piece.baseScore,
+        featureName: piece.featureName,
+        featureText: piece.featureText,
+        bonuses: piece.bonuses,
       })),
     );
   }
