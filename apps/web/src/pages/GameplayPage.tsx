@@ -2,9 +2,7 @@ import { DOMAIN_NAME_MAX, domainNameSchema, type Campaign } from '@stagehand/sha
 import { PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
-import { SRD_ATTRIBUTION } from '@/components/gameplay/attribution';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCampaign, useCreateDomain, useDomains } from '@/lib/queries';
@@ -101,7 +99,7 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
               ))}
             </ul>
           )}
-          <p className="text-xs text-muted-foreground">{SRD_ATTRIBUTION}</p>
+          <p className="text-xs text-muted-foreground"></p>
         </CardContent>
       </Card>
 
