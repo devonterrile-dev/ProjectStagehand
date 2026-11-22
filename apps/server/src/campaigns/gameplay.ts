@@ -5,7 +5,7 @@
  * records change apart.
  *
  * Each gameplay type is copied here: domains and cards (F4.3), weapons and armor (F4.4), classes
- * and subclasses (F4.5), and species (F4.6).
+ * and subclasses (F4.5), species (F4.6), and the starting gear (F4.8).
  */
 import { randomUUID } from 'node:crypto';
 
@@ -18,6 +18,7 @@ import {
   domainCards,
   domains,
   species,
+  startingKits,
   statBlocks,
   subclasses,
   weapons,
@@ -39,7 +40,7 @@ export async function seedDefaultDomains(tx: DbOrTx, campaignId: string): Promis
 /**
  * Copies every gameplay record of `fromId` into `toId`: domains, their cards (pointed at the new
  * domains), stat blocks, weapons, armor, classes (pointed at the new domains and gear), their
- * subclasses, and species. Stat blocks come without the NPCs that link them: campaign records aren't copied.
+ * subclasses, species, and the starting gear setting and kit (F4.8). Stat blocks come without the NPCs that link them: campaign records aren't copied.
  * The caller checks the user may read `fromId` as its GM.
  *
  * Gear and class names needn't be unique, so their copies get ids made here, kept in a map from
@@ -225,5 +226,19 @@ export async function copyGameplayRecords(tx: DbOrTx, fromId: string, toId: stri
         features: one.features,
       })),
     );
+  }
+
+  // The starting gear setting and kit (F4.8), pointed at the copied gear.
+  const [kit] = await tx.select().from(startingKits).where(eq(startingKits.campaignId, fromId));
+  if (kit !== undefined) {
+    await tx.insert(startingKits).values({
+      campaignId: toId,
+      mode: kit.mode,
+      primaryWeaponId: mapped(newWeaponOf, kit.primaryWeaponId),
+      secondaryWeaponId: mapped(newWeaponOf, kit.secondaryWeaponId),
+      armorId: mapped(newArmorOf, kit.armorId),
+      items: kit.items,
+      gold: kit.gold,
+    });
   }
 }

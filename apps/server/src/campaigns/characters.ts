@@ -100,6 +100,8 @@ export async function toCharacterSheet(
     links,
     built,
     cards,
+    needsGuide: row.needsGuide,
+    builtAt: row.builtAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   });
@@ -143,6 +145,9 @@ function toPlayerCharacterSheet(sheet: CharacterSheet): PlayerCharacterSheet {
     links: sheet.links,
     built: sheet.built,
     cards: sheet.cards,
+    // Whether the creation guide is waiting, and when it last finished (F4.8).
+    needsGuide: sheet.needsGuide,
+    builtAt: sheet.builtAt,
     createdAt: sheet.createdAt,
     updatedAt: sheet.updatedAt,
   });
@@ -189,7 +194,8 @@ export async function createCharacter(
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(characters)
-      .values({ campaignId: scope.campaignId, name, ...startValues(scope) })
+      // A new PC waits for the creation guide (F4.8, D-66).
+      .values({ campaignId: scope.campaignId, name, needsGuide: true, ...startValues(scope) })
       .returning({ id: characters.id, name: characters.name });
     if (row === undefined) throw new Error('character insert returned no row');
 

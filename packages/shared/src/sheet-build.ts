@@ -6,7 +6,9 @@
  *
  * - Traits and evasion: the stored values plus the bonuses of equipped gear (19.25).
  * - Armor: with armor linked, its score is the armor slots and its thresholds are base + level,
- *   with no minor threshold (19.16); otherwise the typed values. Gear bonuses apply on top.
+ *   with no minor threshold (19.16); a sheet the creation guide built with no armor is unarmored
+ *   (thresholds level and twice the level, F4.8); otherwise the typed values. Gear bonuses apply
+ *   on top.
  * - Weapons: a linked weapon's record values, its damage dice the PC's proficiency.
  * - Feature cards: the class (Hope feature and class features), the subclass cards held, the
  *   species (one, or the first feature of one and the second of another, D-64), the gear, and
@@ -206,6 +208,11 @@ export interface StoredSheet {
   proficiency: number;
   weapons: { primary: Weapon | null; secondary: Weapon | null; inventory: Weapon[] };
   armor: { name: string } | null;
+  /**
+   * When the creation guide finished it (F4.8); null or missing for a sheet typed by hand. A
+   * built sheet with no armor at all is unarmored: its thresholds follow its level.
+   */
+  builtAt?: string | Date | null;
 }
 
 /** What equipped gear adds, summed over the primary, secondary and armor. */
@@ -287,19 +294,29 @@ export function buildSheet(
 ): { built: BuiltSheet; cards: SheetCards } {
   const { primary, secondary, armor } = records;
   const bonuses = equippedBonuses([primary, secondary, armor]);
-  const armorScore = (armor === null ? stored.armorScore : armor.baseScore) + bonuses.armorScore;
+  // A sheet the guide built with no armor, linked or typed, is unarmored (F4.8, D-66): no armor
+  // score of its own, and its thresholds are its level and twice its level.
+  const unarmored = armor === null && stored.armor === null && stored.builtAt != null;
+  const baseScore = armor !== null ? armor.baseScore : unarmored ? 0 : stored.armorScore;
+  const armorScore = baseScore + bonuses.armorScore;
   const thresholds =
-    armor === null
+    armor !== null
       ? {
-          minor: stored.minorThreshold,
-          major: stored.majorThreshold + bonuses.majorThreshold,
-          severe: stored.severeThreshold + bonuses.severeThreshold,
-        }
-      : {
           minor: null,
           major: armor.baseMajorThreshold + stored.level + bonuses.majorThreshold,
           severe: armor.baseSevereThreshold + stored.level + bonuses.severeThreshold,
-        };
+        }
+      : unarmored
+        ? {
+            minor: null,
+            major: stored.level + bonuses.majorThreshold,
+            severe: 2 * stored.level + bonuses.severeThreshold,
+          }
+        : {
+            minor: stored.minorThreshold,
+            major: stored.majorThreshold + bonuses.majorThreshold,
+            severe: stored.severeThreshold + bonuses.severeThreshold,
+          };
 
   const warnings: string[] = [];
   const tier = tierOf(stored.level, ruleset);
@@ -318,7 +335,7 @@ export function buildSheet(
     traits: effectiveTraits(stored.traits, bonuses, ruleset),
     evasion: stored.evasion + bonuses.evasion,
     armorScore,
-    armorSlotsMax: armor === null ? stored.armorSlotsMax : armorScore,
+    armorSlotsMax: armor !== null ? armorScore : unarmored ? 0 : stored.armorSlotsMax,
     thresholds,
     armorName: armor?.name ?? stored.armor?.name ?? null,
     weapons: {

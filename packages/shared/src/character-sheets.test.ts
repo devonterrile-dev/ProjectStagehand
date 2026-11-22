@@ -65,6 +65,8 @@ const STORED = {
   gold: { handfuls: 1, bags: 0, chests: 0 },
   classFeature: null,
   combatOptions: [{ name: 'Volley', kind: 'action', cost: '1 Hope', description: '' }],
+  needsGuide: false,
+  builtAt: null,
   createdAt: '2026-11-10T12:00:00.000Z',
   updatedAt: '2026-11-10T12:00:00.000Z',
 } satisfies Omit<CharacterSheet, 'links' | 'built' | 'cards'>;

@@ -190,6 +190,13 @@
       "when": 1795295634232,
       "tag": "0026_linked_sheets",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795305764896,
+      "tag": "0027_creation_guide",
+      "breakpoints": true
     }
   ]
 }

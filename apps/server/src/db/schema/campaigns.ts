@@ -20,6 +20,7 @@ import {
 } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -57,6 +58,7 @@ export const campaigns = pgTable(
     rulesetVersion: integer('ruleset_version').default(DEFAULT_RULESET_VERSION).notNull(),
     /** Null = active. Set = archived, which makes the campaign read-only (D-20). */
     archivedAt: timestamp('archived_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -192,6 +194,11 @@ export const characters = pgTable(
     primaryWeaponId: uuid('primary_weapon_id'),
     secondaryWeaponId: uuid('secondary_weapon_id'),
     armorId: uuid('armor_id'),
+
+    /** Waiting for the creation guide (F4.8, D-66): new PCs start true; older ones false. */
+    needsGuide: boolean('needs_guide').default(false).notNull(),
+    /** When the creation guide last finished it; null for a sheet typed by hand. */
+    builtAt: timestamp('built_at', { withTimezone: true }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })

@@ -21,4 +21,5 @@ export * from './provider-credentials';
 export * from './record-links';
 export * from './records';
 export * from './scenes';
+export * from './starting-gear';
 export * from './stat-blocks';

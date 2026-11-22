@@ -6,6 +6,18 @@
  * Every campaign starts with the ten default domains unless a test seeds its own.
  */
 import {
+  BUILD_MESSAGES,
+  creationCardProblem,
+  defaultGearProblem,
+  EMPTY_KIT,
+  startingGearSchema,
+  startingItems,
+  traitsProblem,
+  type BuildCharacterRequest,
+  type KitItem,
+  type Gold,
+  type Ruleset,
+  type StartingGear,
   type CardPlace,
   type SheetLinks,
   type SheetRecords,
@@ -82,6 +94,8 @@ export interface GameplayWorldOptions {
     string,
     { id: string; name: string; description?: string; features?: FeatureRow[] }[]
   >;
+  /** A campaign's starting gear, by campaign id (F4.8); Default with an empty kit otherwise. */
+  startingGear?: Record<string, StartingGear>;
   /** A campaign's subclasses, by campaign id. */
   subclasses?: Record<
     string,
@@ -775,6 +789,7 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     const gear = /^\/(weapons|armor)(\/[^/]+)?$/.test(path);
     const classes = /^\/(classes|subclasses)(\/[^/]+)?$/.test(path);
     const speciesPath = /^\/species(\/[^/]+)?$/.test(path);
+    if (path === '/starting-gear') return respondStartingGear(found, method, rawBody);
     if (
       path !== '/domains' &&
       path !== '/domain-cards' &&
@@ -978,5 +993,101 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
   const cardById = (campaignId: string, cardId: string) =>
     cardsOf(campaignId).find((card) => card.id === cardId);
 
-  return { respond, created, sheetRecords, heldOf, cardById };
+  /** The campaign's starting gear (F4.8), seeded from the options on first use. */
+  const gearStores = new Map<string, StartingGear>();
+  const startingGearOf = (campaignId: string): StartingGear => {
+    let gear = gearStores.get(campaignId);
+    if (gear === undefined) {
+      gear = options.startingGear?.[campaignId] ?? { mode: 'default', kit: { ...EMPTY_KIT } };
+      gearStores.set(campaignId, gear);
+    }
+    return gear;
+  };
+
+  /** `GET` (any member) and `PUT` (the GM) `…/starting-gear`. */
+  function respondStartingGear(found: Campaign, method: string, rawBody: unknown): Response | null {
+    if (method === 'GET') return Response.json(startingGearOf(found.id));
+    if (method !== 'PUT') return null;
+    if (found.role !== 'gm') return ctx.refused(403, 'Only the GM can do that');
+    if (found.archivedAt !== null) return ctx.refused(409, 'Campaign is archived');
+    const parsed = startingGearSchema.safeParse(rawBody);
+    if (!parsed.success) return ctx.invalid(parsed.error.issues);
+    gearStores.set(found.id, parsed.data);
+    return Response.json(parsed.data);
+  }
+
+  /**
+   * The creation guide's checks and what Finish gives (F4.8), as `campaigns/character-build.ts`
+   * works them out; the harness applies them to the sheet.
+   */
+  function checkBuild(
+    campaignId: string,
+    request: BuildCharacterRequest,
+    ruleset: Ruleset,
+  ):
+    | { error: Response }
+    | {
+        cls: StoredClass;
+        equipped: {
+          primaryWeaponId: string | null;
+          secondaryWeaponId: string | null;
+          armorId: string | null;
+        };
+        items: KitItem[];
+        gold: Gold;
+        cardIds: string[];
+      } {
+    const fail = (status: number, message: string) => ({
+      error: status === 404 ? ctx.notFound(message) : ctx.refused(status, message),
+    });
+    const cls = classesOf(campaignId).find((one) => one.id === request.classId);
+    if (cls === undefined) return fail(404, 'Class not found');
+    const sub = subclassesOf(campaignId).find((one) => one.id === request.subclassId);
+    if (sub === undefined) return fail(404, 'Subclass not found');
+    if (sub.classId !== cls.id) return fail(400, BUILD_MESSAGES.subclassOfClass);
+    const traits = traitsProblem(request.traits, ruleset);
+    if (traits !== null) return fail(400, traits);
+    const gear = startingGearOf(campaignId);
+    let equipped = {
+      primaryWeaponId: null as string | null,
+      secondaryWeaponId: null as string | null,
+      armorId: null as string | null,
+    };
+    if (gear.mode === 'default') {
+      if (request.gear === null) return fail(400, BUILD_MESSAGES.gearNeeded);
+      const weapon = (weaponId: string | null) =>
+        weaponsOf(campaignId).find((one) => one.id === weaponId) ?? null;
+      const problem = defaultGearProblem({
+        primary: weapon(request.gear.primaryWeaponId),
+        secondary: weapon(request.gear.secondaryWeaponId),
+        armor: armorOf(campaignId).find((one) => one.id === request.gear?.armorId) ?? null,
+      });
+      if (problem !== null) return fail(400, problem);
+      equipped = {
+        primaryWeaponId: request.gear.primaryWeaponId,
+        secondaryWeaponId: request.gear.secondaryWeaponId,
+        armorId: request.gear.armorId,
+      };
+    } else {
+      if (request.gear !== null) return fail(400, BUILD_MESSAGES.noGearToPick);
+      if (gear.mode === 'set') {
+        equipped = {
+          primaryWeaponId: gear.kit.primaryWeaponId,
+          secondaryWeaponId: gear.kit.secondaryWeaponId,
+          armorId: gear.kit.armorId,
+        };
+      }
+    }
+    const cards = request.cardIds.flatMap((cardId) => {
+      const card = cardById(campaignId, cardId);
+      return card === undefined ? [] : [card];
+    });
+    if (cards.length !== request.cardIds.length) return fail(404, 'Domain card not found');
+    const cardProblem = creationCardProblem(cards, cls.domainIds, ruleset);
+    if (cardProblem !== null) return fail(400, cardProblem);
+    const { items, gold } = startingItems(gear.mode, gear.kit, request.gear?.potion ?? null);
+    return { cls, equipped, items, gold, cardIds: request.cardIds };
+  }
+
+  return { respond, created, sheetRecords, heldOf, cardById, checkBuild };
 }

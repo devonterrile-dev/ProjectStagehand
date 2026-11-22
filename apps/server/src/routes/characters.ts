@@ -1,12 +1,15 @@
 import {
   addHeldCardRequestSchema,
+  buildCharacterRequestSchema,
   createCharacterRequestSchema,
   moveHeldCardRequestSchema,
+  setNeedsGuideRequestSchema,
   type CharacterListResponse,
 } from '@stagehand/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import type { Auth } from '../auth/auth';
+import { buildCharacter, setNeedsGuide } from '../campaigns/character-build';
 import { addHeldCard, moveHeldCard, removeHeldCard } from '../campaigns/character-cards';
 import {
   createCharacter,
@@ -29,6 +32,8 @@ import { sendValidationError } from '../http/errors';
  * the PC's player reads their sheet page again.
  * A PC's domain cards (F4.7): the GM adds and removes them; the PC's player or the GM moves them
  * between loadout and vault, and gets their view of the sheet back.
+ * The creation guide (F4.8): the PC's own player, or the GM for them, builds a PC waiting for
+ * it; the GM sends a PC through it, or takes it back.
  * Every route here is campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerCharacterRoutes(
@@ -145,6 +150,39 @@ export function registerCharacterRoutes(
       if (!parsed.success) return sendValidationError(reply, parsed.error);
       const change = await moveHeldCard(deps.db, scope, id, card, parsed.data);
       return afterCards(request, id, change.logged);
+    },
+  );
+
+  // The creation guide's Finish (F4.8): the PC's own player, or the GM.
+  app.post(
+    '/api/campaigns/:campaignId/characters/:characterId/build',
+    { preHandler },
+    async (request, reply) => {
+      const scope = campaignOf(request);
+      assertWritable(scope);
+      const id = characterId(request);
+      const parsed = buildCharacterRequestSchema.safeParse(request.body);
+      if (!parsed.success) return sendValidationError(reply, parsed.error);
+      await buildCharacter(deps.db, scope, id, parsed.data);
+      deps.live.stageChanged(scope);
+      return afterCards(request, id, false);
+    },
+  );
+
+  // The GM sends a PC through the creation guide, or takes it back (F4.8).
+  app.post(
+    '/api/campaigns/:campaignId/characters/:characterId/guide',
+    { preHandler },
+    async (request, reply) => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      assertWritable(scope);
+      const id = characterId(request);
+      const parsed = setNeedsGuideRequestSchema.safeParse(request.body);
+      if (!parsed.success) return sendValidationError(reply, parsed.error);
+      await setNeedsGuide(deps.db, scope, id, parsed.data.needsGuide);
+      deps.live.sheetChanged(scope.campaignId, id);
+      return getCharacterSheetForGm(deps.db, scope, id);
     },
   );
 

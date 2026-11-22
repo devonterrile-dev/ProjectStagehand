@@ -100,6 +100,11 @@ export const characterSheetSchema = z.object({
   /** Its feature cards: class, subclass, species, gear and domain cards. */
   cards: sheetCardsSchema,
 
+  /** Waiting for its player (or the GM) to build it with the creation guide (F4.8). */
+  needsGuide: z.boolean(),
+  /** When the creation guide last finished it; null for a sheet typed by hand. */
+  builtAt: timestamp.nullable(),
+
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -140,6 +145,8 @@ const PLAYER_SHEET_KEYS = {
   links: true,
   built: true,
   cards: true,
+  needsGuide: true,
+  builtAt: true,
   createdAt: true,
   updatedAt: true,
 } as const;

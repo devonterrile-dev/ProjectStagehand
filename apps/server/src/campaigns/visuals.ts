@@ -44,7 +44,7 @@ import {
 } from 'drizzle-orm';
 
 import type { Database } from '../db/client';
-import { assets, characters, records } from '../db/schema';
+import { assets, characters, classes, records, species } from '../db/schema';
 import { httpError } from '../http/errors';
 import { PROCESSED_MEDIA_TYPE } from '../visuals/process';
 import type { VisualSource } from '../visuals/prompt';
@@ -130,12 +130,23 @@ export async function loadVisualSource(
         and(eq(characters.id, owner.characterId), eq(characters.campaignId, scope.campaignId)),
       );
     if (row === undefined) throw httpError(404, CHARACTER_NOT_FOUND);
+    // The linked class and species, when the sheet has them (F4.7, F4.8).
+    const nameOf = async (table: typeof classes | typeof species, id: string | null) => {
+      if (id === null) return null;
+      const [linked] = await db
+        .select({ name: table.name })
+        .from(table)
+        .where(and(eq(table.id, id), eq(table.campaignId, scope.campaignId)));
+      return linked?.name ?? null;
+    };
+    const kinds = [await nameOf(species, row.species1Id), await nameOf(species, row.species2Id)];
     return {
       source: {
         subject: 'pc',
         name: row.name,
         publicDescription: row.publicDescription,
-        className: row.className,
+        className: (await nameOf(classes, row.classId)) ?? row.className,
+        species: kinds.filter((kind) => kind !== null).join(' and '),
       },
       visualAssetId: row.visualAssetId,
     };

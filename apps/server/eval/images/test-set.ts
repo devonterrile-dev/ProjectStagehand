@@ -27,6 +27,7 @@ export const TEST_SET: readonly TestSubject[] = [
     name: 'Wren Ashdown',
     lines: [
       ['Class or role', 'Ranger'],
+      ['Species', 'Human'],
       [
         'Description',
         'A young ranger with a patched green hooded cloak, a short bow over one shoulder, freckles and a wide, confident grin.',

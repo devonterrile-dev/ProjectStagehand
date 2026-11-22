@@ -44,9 +44,11 @@ describe('subjectLinesFor', () => {
         name: 'Wren',
         publicDescription: doc('Freckles'),
         className: 'Ranger',
+        species: 'Faerie and Orc',
       }),
     ).toEqual([
       ['Class or role', 'Ranger'],
+      ['Species', 'Faerie and Orc'],
       ['Description', 'Freckles'],
     ]);
   });

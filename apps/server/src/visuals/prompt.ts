@@ -28,7 +28,15 @@ export type VisualSource =
       /** A Spot's Area, for its `Area` line. */
       area?: { name: string; publicDescription: RichText } | null;
     }
-  | { subject: 'pc'; name: string; publicDescription: RichText; className: string };
+  | {
+      subject: 'pc';
+      name: string;
+      publicDescription: RichText;
+      /** The linked class's name, else the typed one (F4.7). */
+      className: string;
+      /** "Faerie", or "Faerie and Orc" for a mixed ancestry; empty when none is linked (F4.8). */
+      species?: string;
+    };
 
 function plain(doc: RichText): string {
   return richTextToPlainText(doc);
@@ -53,6 +61,7 @@ export function subjectLinesFor(source: VisualSource): SubjectLine[] {
     case 'pc':
       return [
         ['Class or role', source.className],
+        ['Species', source.species ?? ''],
         ['Description', description],
       ];
     case 'npc':

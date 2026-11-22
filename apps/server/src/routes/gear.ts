@@ -1,9 +1,11 @@
 import {
   createArmorRequestSchema,
   createWeaponRequestSchema,
+  startingGearSchema,
   updateArmorRequestSchema,
   updateWeaponRequestSchema,
   type ArmorListResponse,
+  type StartingGear,
   type WeaponListResponse,
 } from '@stagehand/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -23,13 +25,15 @@ import {
 } from '../campaigns/gear';
 import { campaignOf, memberOnly, uuidParam } from '../campaigns/guard';
 import { assertGm, assertWritable } from '../campaigns/scope';
+import { getStartingGear, putStartingGear } from '../campaigns/starting-gear';
 import type { Database } from '../db/client';
 import { sendValidationError } from '../http/errors';
 
 /**
  * Weapons and armor (F4.4, governance §8, D-62). Every member reads them; only the GM creates,
- * changes or deletes them, and not while the campaign is archived. Every route here is
- * campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
+ * changes or deletes them, and not while the campaign is archived. The campaign's starting gear
+ * (F4.8, D-66) too: every member reads it, for the creation guide; the GM sets it. Every route
+ * here is campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerGearRoutes(app: FastifyInstance, deps: { auth: Auth; db: Database }): void {
   const preHandler = memberOnly(deps.auth, deps.db);
@@ -125,4 +129,19 @@ export function registerGearRoutes(app: FastifyInstance, deps: { auth: Auth; db:
       return reply.code(204).send();
     },
   );
+
+  app.get(
+    '/api/campaigns/:campaignId/starting-gear',
+    { preHandler },
+    (request): Promise<StartingGear> => getStartingGear(deps.db, campaignOf(request)),
+  );
+
+  app.put('/api/campaigns/:campaignId/starting-gear', { preHandler }, async (request, reply) => {
+    const scope = campaignOf(request);
+    assertGm(scope);
+    assertWritable(scope);
+    const parsed = startingGearSchema.safeParse(request.body);
+    if (!parsed.success) return sendValidationError(reply, parsed.error);
+    return putStartingGear(deps.db, scope, parsed.data);
+  });
 }

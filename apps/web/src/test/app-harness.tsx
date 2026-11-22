@@ -7,6 +7,9 @@ import {
   applyFieldsPatch,
   emptyLinksFor,
   addHeldCardRequestSchema,
+  BUILD_MESSAGES,
+  buildCharacterRequestSchema,
+  setNeedsGuideRequestSchema,
   buildSheet,
   characterSheetPatchSchemaFor,
   LOADOUT_FULL,
@@ -185,6 +188,8 @@ export function characterSheet(overrides: Partial<CharacterSheet> = {}): Charact
     gold: { handfuls: 0, bags: 0, chests: 0 },
     classFeature: null,
     combatOptions: [],
+    needsGuide: false,
+    builtAt: null,
     createdAt: '2026-11-10T10:00:00.000Z',
     updatedAt: '2026-11-10T10:00:00.000Z',
     ...overrides,
@@ -739,6 +744,92 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     return answer();
   };
 
+  /**
+   * The creation guide (F4.8): Finish (`…/build`, the PC's own player or the GM) and the GM's
+   * `…/guide`, as `campaigns/character-build.ts` does them.
+   */
+  const respondGuide = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const match = /^\/characters\/([^/]+)\/(build|guide)$/.exec(rest);
+    if (match === null || method !== 'POST') return null;
+    const [, characterId = '', action] = match;
+    const sheet = d.characters.find((c) => c.id === characterId);
+    const isGm = found.role === 'gm';
+    if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+    if (action === 'guide') {
+      if (!isGm) return refused(403, 'Only the GM can do that');
+      if (sheet === undefined) return notFound('Character not found');
+      const parsed = setNeedsGuideRequestSchema.safeParse(rawBody);
+      if (!parsed.success) return invalid(parsed.error.issues);
+      sheet.needsGuide = parsed.data.needsGuide;
+      return Response.json({ ...rebuilt(found, sheet), assignedToUserId: holderOf(d, sheet.id) });
+    }
+    if (sheet === undefined || (!isGm && holderOf(d, sheet.id) !== me?.id)) {
+      return notFound('Character not found');
+    }
+    const parsed = buildCharacterRequestSchema.safeParse(rawBody);
+    if (!parsed.success) return invalid(parsed.error.issues);
+    if (!sheet.needsGuide) return refused(409, BUILD_MESSAGES.alreadyBuilt);
+    const ruleset = rulesetFor(found.rulesetVersion);
+    const checked = gameplay.checkBuild(found.id, parsed.data, ruleset);
+    if ('error' in checked) return checked.error;
+    const request = parsed.data;
+    const { cls, equipped, items, gold } = checked;
+    Object.assign(sheet, {
+      name: request.name,
+      publicDescription: request.publicDescription,
+      traits: request.traits,
+      level: 1,
+      proficiency: ruleset.proficiency?.start ?? 1,
+      evasion: cls.startingEvasion,
+      hpMax: cls.startingHp,
+      hpCurrent: cls.startingHp,
+      stressMax: ruleset.start?.stressSlots ?? 6,
+      stressCurrent: 0,
+      hope: ruleset.start?.hope ?? 0,
+      hopeBonus: 0,
+      armorScore: 0,
+      armorSlotsMax: 0,
+      armorSlotsMarked: 0,
+      className: '',
+      weapons: { primary: null, secondary: null, inventory: sheet.weapons.inventory },
+      armor: null,
+      classFeature: null,
+      inventory: [...sheet.inventory, ...items],
+      gold: {
+        handfuls: sheet.gold.handfuls + gold.handfuls,
+        bags: sheet.gold.bags + gold.bags,
+        chests: sheet.gold.chests + gold.chests,
+      },
+      links: {
+        ...sheet.links,
+        classId: cls.id,
+        subclassId: request.subclassId,
+        subclassCards: 1,
+        speciesIds: request.speciesIds,
+        ...equipped,
+      },
+      needsGuide: false,
+      builtAt: '2026-11-21T12:00:00.000Z',
+    });
+    const held = gameplay.heldOf(sheet.id);
+    held.splice(
+      0,
+      held.length,
+      ...checked.cardIds.map((cardId) => ({ cardId, place: 'loadout' as const, takenAtLevel: 1 })),
+    );
+    for (const m of d.members) {
+      if (m.character?.id === sheet.id) m.character = { id: sheet.id, name: sheet.name };
+    }
+    const built = { ...rebuilt(found, sheet), assignedToUserId: holderOf(d, sheet.id) };
+    return Response.json(isGm ? built : playerCharacterSheetSchema.parse(built));
+  };
+
   /** One PC's sheet: the GM's full sheet, or a player's own through the allow-list. */
   const respondCharacter = (
     found: Campaign,
@@ -749,6 +840,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
   ): Response | null => {
     const cards = respondHeldCards(found, d, rest, method, rawBody);
     if (cards !== null) return cards;
+    const guide = respondGuide(found, d, rest, method, rawBody);
+    if (guide !== null) return guide;
     const sheetMatch = /^\/characters\/([^/]+)$/.exec(rest);
     if (sheetMatch === null) return null;
     const sheet = d.characters.find((c) => c.id === sheetMatch[1]);
@@ -998,7 +1091,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         return Response.json({ characters: charactersOf(d) });
       }
       if (rest === '/characters' && method === 'POST') {
-        const pc = characterSheet({ name: String(body.name) });
+        // A new PC waits for the creation guide (F4.8).
+        const pc = characterSheet({ name: String(body.name), needsGuide: true });
         d.characters.push(pc);
         if (body.assignToUserId !== undefined) assign(d, body.assignToUserId, pc.id);
         const created = charactersOf(d).find((c) => c.id === pc.id);

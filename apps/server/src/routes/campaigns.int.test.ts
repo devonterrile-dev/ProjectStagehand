@@ -220,6 +220,45 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     gmOnly: false,
     payload: { to: 'vault' },
   },
+  // The creation guide (F4.8): the PC's player or the GM builds; the GM sends a PC through it.
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/build',
+    gmOnly: false,
+    payload: {
+      name: 'Vex',
+      publicDescription: { type: 'doc', content: [{ type: 'paragraph' }] },
+      classId: '00000000-0000-4000-8000-000000000001',
+      subclassId: '00000000-0000-4000-8000-000000000002',
+      speciesIds: ['00000000-0000-4000-8000-000000000003', null],
+      traits: {},
+      gear: null,
+      cardIds: [],
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/guide',
+    gmOnly: true,
+    payload: { needsGuide: true },
+  },
+  // Starting gear (F4.8): every member reads it; the GM sets it.
+  { method: 'GET', path: '/api/campaigns/:campaignId/starting-gear', gmOnly: false },
+  {
+    method: 'PUT',
+    path: '/api/campaigns/:campaignId/starting-gear',
+    gmOnly: true,
+    payload: {
+      mode: 'none',
+      kit: {
+        primaryWeaponId: null,
+        secondaryWeaponId: null,
+        armorId: null,
+        items: [],
+        gold: { handfuls: 0, bags: 0, chests: 0 },
+      },
+    },
+  },
   // Species (F4.6): the same rule.
   { method: 'GET', path: '/api/campaigns/:campaignId/species', gmOnly: false },
   {

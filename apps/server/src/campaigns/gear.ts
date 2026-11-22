@@ -28,6 +28,7 @@ import { armor, weapons } from '../db/schema';
 import { httpError } from '../http/errors';
 
 import { clearSuggestionsOf } from './classes';
+import { clearFromKit } from './starting-gear';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 import { refuseWhileUsed, sheetsUsing } from './sheet-links';
@@ -185,6 +186,7 @@ export async function deleteWeapon(
   await db.transaction(async (tx) => {
     refuseWhileUsed(await sheetsUsing(tx, scope, { weaponId }));
     await clearSuggestionsOf(tx, scope, { weaponId });
+    await clearFromKit(tx, scope, { weaponId });
     const removed = await tx
       .delete(weapons)
       .where(weaponScoped(scope, weaponId))
@@ -250,6 +252,7 @@ export async function deleteArmor(
   await db.transaction(async (tx) => {
     refuseWhileUsed(await sheetsUsing(tx, scope, { armorId }));
     await clearSuggestionsOf(tx, scope, { armorId });
+    await clearFromKit(tx, scope, { armorId });
     const removed = await tx
       .delete(armor)
       .where(armorScoped(scope, armorId))

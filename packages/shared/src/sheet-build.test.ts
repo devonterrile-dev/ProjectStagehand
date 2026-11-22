@@ -332,3 +332,49 @@ describe('sheet link and card requests (F4.7)', () => {
     expect(unlinkedSheetParts(STORED, v2).links).toEqual(noSheetLinks());
   });
 });
+
+describe('buildSheet for a sheet the creation guide built (F4.8)', () => {
+  const UNARMORED: StoredSheet = { ...STORED, armor: null, builtAt: AT };
+
+  it('gives a built sheet with no armor the level and twice the level as thresholds', () => {
+    const { built } = buildSheet(UNARMORED, noSheetLinks(), NO_SHEET_RECORDS, v2);
+    expect(built.thresholds).toEqual({ minor: null, major: 3, severe: 6 });
+    expect(built.armorScore).toBe(0);
+    expect(built.armorSlotsMax).toBe(0);
+  });
+
+  it('adds gear bonuses to the unarmored thresholds', () => {
+    const shield = weapon({
+      id: id(9),
+      slot: 'secondary',
+      burden: 'one_handed',
+      bonuses: { ...noGearBonuses(), armorScore: 1, majorThreshold: 1, severeThreshold: 2 },
+    });
+    const { built } = buildSheet(
+      UNARMORED,
+      noSheetLinks(),
+      { ...NO_SHEET_RECORDS, secondary: shield },
+      v2,
+    );
+    expect(built.thresholds).toEqual({ minor: null, major: 4, severe: 8 });
+    expect(built.armorScore).toBe(1);
+  });
+
+  it('keeps typed values for a sheet typed by hand, or one with typed armor', () => {
+    const typed = buildSheet({ ...STORED, armor: null }, noSheetLinks(), NO_SHEET_RECORDS, v2);
+    expect(typed.built.thresholds).toEqual({ minor: 3, major: 7, severe: 14 });
+    const withArmor = buildSheet({ ...STORED, builtAt: AT }, noSheetLinks(), NO_SHEET_RECORDS, v2);
+    expect(withArmor.built.thresholds).toEqual({ minor: 3, major: 7, severe: 14 });
+    expect(withArmor.built.armorScore).toBe(2);
+  });
+
+  it('uses linked armor over the unarmored rule', () => {
+    const { built } = buildSheet(
+      UNARMORED,
+      noSheetLinks(),
+      { ...NO_SHEET_RECORDS, armor: ARMOR },
+      v2,
+    );
+    expect(built.thresholds).toEqual({ minor: null, major: 10, severe: 18 });
+  });
+});
