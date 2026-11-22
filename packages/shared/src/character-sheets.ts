@@ -191,6 +191,10 @@ export const SHEET_LINK_KEYS = [
   'secondaryWeaponId',
   'armorId',
   'spareWeaponIds',
+  'multiclassClassId',
+  'multiclassDomainId',
+  'multiclassSubclassId',
+  'multiclassSubclassCards',
 ] as const satisfies readonly (keyof SheetLinks)[];
 
 /**
@@ -291,6 +295,11 @@ function patchShapeFor(ruleset: Ruleset) {
     secondaryWeaponId: z.uuid().nullable(),
     armorId: z.uuid().nullable(),
     spareWeaponIds: sheetListSchema(z.uuid()),
+    // A second class (F4.10); the server checks the domain and subclass are that class's.
+    multiclassClassId: z.uuid().nullable(),
+    multiclassDomainId: z.uuid().nullable(),
+    multiclassSubclassId: z.uuid().nullable(),
+    multiclassSubclassCards: z.int().min(0).max(SUBCLASS_CARDS_MAX),
   };
 }
 

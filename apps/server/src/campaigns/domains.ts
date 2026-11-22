@@ -21,6 +21,7 @@ import { httpError } from '../http/errors';
 import { classesUsingDomain } from './classes';
 import { cardsOf, DOMAIN_NOT_FOUND } from './domain-cards';
 import { namesOf } from './names';
+import { refuseWhileUsed, sheetsUsing } from './sheet-links';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 
@@ -139,6 +140,8 @@ export async function deleteDomain(
     if (users.length > 0) {
       throw httpError(409, `Used by ${namesOf(users, users.length)}. Change or delete them first.`);
     }
+    // A sheet's multiclass domain (F4.10).
+    refuseWhileUsed(await sheetsUsing(tx, scope, { domainId }));
     await tx.delete(domains).where(scoped(scope, domainId));
   });
 }

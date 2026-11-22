@@ -146,6 +146,9 @@ export {
   heldCardSchema,
   LOADOUT_FULL,
   loadoutMaxOf,
+  multiclassCardLevel,
+  type SubclassCard,
+  type SubclassRecordForSheet,
   moveHeldCardRequestSchema,
   NO_SHEET_RECORDS,
   noSheetLinks,
@@ -168,6 +171,7 @@ export {
 export {
   grantLevelRequestSchema,
   LEVEL_UP_MESSAGES,
+  completesMulticlass,
   levelUpEffects,
   levelUpEntrySchema,
   levelUpPickSchema,

@@ -156,7 +156,7 @@ const RULESET_V2: Ruleset = Object.freeze({
     option('evasion', '+1 Evasion', ALL_TIERS, 1),
     option('subclass', 'Upgrade your subclass card (specialization, then mastery)', FROM_TIER_3, 1),
     option('proficiency', '+1 Proficiency (two marks)', FROM_TIER_3, 1, 2),
-    option('multiclass', 'Multiclass (two marks): coming with F4.10', FROM_TIER_3, 1, 2, false),
+    option('multiclass', 'Multiclass: take a second class (two marks)', FROM_TIER_3, 1, 2),
   ]),
 });
 

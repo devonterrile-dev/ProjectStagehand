@@ -378,3 +378,81 @@ describe('buildSheet for a sheet the creation guide built (F4.8)', () => {
     expect(built.thresholds).toEqual({ minor: null, major: 10, severe: 18 });
   });
 });
+
+describe('buildSheet with a second class (F4.10)', () => {
+  const MULTI = {
+    class: { id: id(61), name: 'Ranger', classFeatures: [{ name: 'Ranger’s Focus', text: '' }] },
+    domain: { id: id(62), name: 'Bone' },
+    subclass: {
+      id: id(63),
+      name: 'Beastbound',
+      className: 'Ranger',
+      spellcastTrait: null,
+      foundation: [{ name: 'Companion', text: '' }],
+      specialization: [{ name: 'Pack', text: '' }],
+      mastery: [],
+    },
+  };
+  const BARD_CLASS = {
+    id: id(64),
+    name: 'Bard',
+    domainIds: [id(65), id(66)],
+    hopeFeature: { name: 'Make a Scene', cost: 3, text: '' },
+    classFeatures: [],
+  };
+  const boneCard = (level: number) => ({
+    card: {
+      id: id(70 + level),
+      name: `Bone ${String(level)}`,
+      domainId: id(62),
+      domainName: 'Bone',
+      level,
+      recallCost: 0,
+      type: 'ability' as const,
+      feature: emptyRichText(),
+      updatedAt: AT,
+      createdAt: AT,
+    },
+    place: 'loadout' as const,
+    takenAtLevel: 3,
+  });
+
+  it('names both classes, carries the second class’s card, and limits its domain', () => {
+    const { built, cards } = buildSheet(
+      STORED,
+      { subclassCards: 1, multiclassSubclassCards: 2 },
+      {
+        ...NO_SHEET_RECORDS,
+        class: BARD_CLASS,
+        multiclass: MULTI,
+        cards: [boneCard(2), boneCard(3)],
+      },
+      v2,
+    );
+    expect(built.className).toBe('Bard / Ranger');
+    expect(cards.multiclass).toMatchObject({
+      className: 'Ranger',
+      domainName: 'Bone',
+      classFeatures: [{ name: 'Ranger’s Focus', text: '' }],
+      subclass: { name: 'Beastbound', specialization: [{ name: 'Pack', text: '' }], mastery: null },
+    });
+    expect(cards.loadout.map((card) => card.warning)).toEqual([
+      null,
+      "Bone is Vex's multiclass domain: level 2 or lower",
+    ]);
+  });
+
+  it('handles a second class without its domain or subclass yet', () => {
+    const { cards } = buildSheet(
+      STORED,
+      { subclassCards: 1 },
+      {
+        ...NO_SHEET_RECORDS,
+        class: BARD_CLASS,
+        multiclass: { ...MULTI, domain: null, subclass: null },
+      },
+      v2,
+    );
+    expect(cards.multiclass).toMatchObject({ domainName: null, subclass: null });
+  });
+});

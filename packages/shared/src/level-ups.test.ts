@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  completesMulticlass,
   levelUpEffects,
   levelUpProblem,
   levelUpRequestSchema,
@@ -83,7 +84,7 @@ describe('levelUpState', () => {
     expect(option(state, 2, 'hp')).toMatchObject({ used: 2, left: 0 });
     expect(option(state, 2, 'stress')).toMatchObject({ used: 1, left: 1 });
     expect(option(state, 3, 'hp')).toMatchObject({ used: 0, left: 2 });
-    expect(option(state, 3, 'multiclass')).toMatchObject({ pickable: false });
+    expect(option(state, 3, 'multiclass')).toMatchObject({ pickable: true, crossedOut: false });
   });
 
   it('marks traits within a tier, and clears the marks on a new tier', () => {
@@ -164,8 +165,14 @@ describe('levelUpProblem', () => {
     expect(problem({ picks: [pick(2, 'subclass'), pick(2, 'hp')] })).toBe(
       "That option isn't in a list you can pick from",
     );
-    expect(problem({ picks: [pick(3, 'multiclass'), pick(3, 'hp')] }, 4)).toBe(
-      "Multiclass (two marks): coming with F4.10 can't be picked yet",
+    const locked: Ruleset = {
+      ...v2,
+      levelUpOptions: v2.levelUpOptions?.map((rule) =>
+        rule.id === 'evasion' ? { ...rule, pickable: false } : rule,
+      ),
+    };
+    expect(problem({ picks: [pick(2, 'evasion'), pick(2, 'hp')] }, 1, [], {}, locked)).toBe(
+      "+1 Evasion can't be picked yet",
     );
   });
 
@@ -349,5 +356,174 @@ describe('levelUpRequestSchema', () => {
     expect(
       levelUpRequestSchema.safeParse({ ...body, picks: [pick(2, 'hp')], cardId: '' }).success,
     ).toBe(false);
+  });
+});
+
+describe('Multiclassing (F4.10)', () => {
+  const BARD = id(41);
+  const RANGER = id(42);
+  const BONE = id(43);
+  const TROUBADOUR = id(44);
+  const BEASTBOUND = id(45);
+  const BONE_3 = id(46);
+  const BONE_4 = id(47);
+  const classes = [
+    { id: BARD, name: 'Bard', domainIds: [GRACE, CODEX], subclassIds: [TROUBADOUR] },
+    { id: RANGER, name: 'Ranger', domainIds: [BONE, CODEX], subclassIds: [BEASTBOUND] },
+  ];
+  const mcContext = (over: Partial<LevelUpContext> = {}): LevelUpContext =>
+    context({
+      classId: BARD,
+      classes,
+      cards: [
+        ...context().cards,
+        { id: BONE_3, name: 'Track', domainId: BONE, level: 3 },
+        { id: BONE_4, name: 'Pounce', domainId: BONE, level: 4 },
+      ],
+      ...over,
+    });
+  const twice = [pick(3, 'multiclass'), pick(3, 'multiclass')];
+  const second = { classId: RANGER, domainId: BONE, subclassId: BEASTBOUND };
+  const check = (
+    over: Partial<LevelUpRequest>,
+    level = 4,
+    history: LevelUpEntry[] = [],
+    ctx: Partial<LevelUpContext> = {},
+  ) => levelUpProblem(request(over), levelUpState(history, level, v2), mcContext(ctx), v2);
+
+  it('crosses out the other tier and the same tier’s unused subclass upgrade', () => {
+    const done = [entry(5, ...twice)];
+    const now = levelUpState(done, 5, v2);
+    expect(option(now, 3, 'multiclass')).toMatchObject({ used: 2, left: 0, crossedOut: false });
+    expect(option(now, 3, 'subclass')).toMatchObject({ crossedOut: true, left: 0 });
+    const later = levelUpState([...done, entry(6, pick(3, 'hp'), pick(3, 'hp'))], 7, v2);
+    expect(option(later, 4, 'multiclass')).toMatchObject({ crossedOut: true, left: 0 });
+    expect(option(later, 4, 'subclass')).toMatchObject({ crossedOut: false, left: 1 });
+
+    const upgradedFirst = levelUpState(
+      [entry(5, pick(3, 'subclass'), pick(3, 'hp')), entry(6, ...twice)],
+      6,
+      v2,
+    );
+    expect(option(upgradedFirst, 3, 'subclass')).toMatchObject({ crossedOut: false, left: 0 });
+
+    const byHand = levelUpState([], 7, v2, true);
+    expect(option(byHand, 3, 'multiclass')).toMatchObject({ crossedOut: true });
+    expect(option(byHand, 4, 'multiclass')).toMatchObject({ crossedOut: true });
+  });
+
+  it('completes with both picks now, or the second mark after a half mark', () => {
+    expect(completesMulticlass(request({ picks: twice }), levelUpState([], 4, v2))).toBe(3);
+    const half = [entry(5, pick(3, 'multiclass'), pick(3, 'hp'))];
+    const one = request({ picks: [pick(3, 'multiclass'), pick(3, 'hp')] });
+    expect(completesMulticlass(one, levelUpState(half, 5, v2))).toBe(3);
+    expect(completesMulticlass(one, levelUpState([], 4, v2))).toBeNull();
+    expect(completesMulticlass(request(), levelUpState([], 1, v2))).toBeNull();
+  });
+
+  it('needs another class, one of its domains the PC hasn’t, and one of its subclasses', () => {
+    expect(check({ picks: twice })).toBe(
+      'Pick your second class, one of its domains and a subclass',
+    );
+    expect(check({ multiclass: second })).toBe('Only completing Multiclass picks a second class');
+    expect(check({ picks: twice, multiclass: { ...second, classId: id(99) } })).toBe(
+      'That class isn’t in this campaign',
+    );
+    expect(check({ picks: twice, multiclass: { ...second, classId: BARD } })).toBe(
+      'Pick a class other than your own',
+    );
+    for (const domainId of [CODEX, GRACE]) {
+      expect(check({ picks: twice, multiclass: { ...second, domainId } })).toBe(
+        "Pick one of Ranger's domains that you don't have",
+      );
+    }
+    expect(check({ picks: twice, multiclass: { ...second, subclassId: TROUBADOUR } })).toBe(
+      'Pick a subclass of Ranger',
+    );
+    expect(check({ picks: twice, multiclass: second })).toBeNull();
+    expect(check({ picks: twice, multiclass: second }, 4, [], { classes: undefined })).toBe(
+      'That class isn’t in this campaign',
+    );
+  });
+
+  it('takes multiclass domain cards up to half the level, rounded up', () => {
+    expect(check({ picks: twice, multiclass: second, cardId: BONE_3 })).toBeNull();
+    expect(check({ picks: twice, multiclass: second, cardId: BONE_4 })).toBe(
+      'Pounce is level 4: multiclass domain cards go up to level 3',
+    );
+    const have = { multiclass: { domainId: BONE, subclassId: BEASTBOUND, subclassCards: 1 } };
+    expect(check({ cardId: BONE_3 }, 5, [], have)).toBeNull();
+    expect(check({ cardId: BONE_3 }, 5, [], {})).toBe("Track isn't from your class's domains");
+  });
+
+  it('upgrades the subclass the player picks, but not in the tier it multiclasses', () => {
+    const half = [entry(5, pick(3, 'multiclass'), pick(3, 'hp'))];
+    expect(
+      check({ picks: [pick(3, 'multiclass'), pick(3, 'subclass')], multiclass: second }, 5, half),
+    ).toBe("Multiclassing crosses out this tier's subclass upgrade");
+    const target = (picked: LevelUpPick) => ({ picks: [picked, pick(4, 'hp')] });
+    const multi: LevelUpPick = { tier: 4, option: 'subclass', target: 'multiclass' };
+    const have = (subclassCards: number, subclassId: string | null = BEASTBOUND) => ({
+      multiclass: { domainId: BONE, subclassId, subclassCards },
+    });
+    expect(check(target(multi), 7, [], have(1))).toBeNull();
+    expect(check(target(multi), 7, [], have(3))).toBe(
+      'Your multiclass subclass is already at mastery',
+    );
+    expect(check(target(multi), 7, [], have(1, null))).toBe(
+      'You have no multiclass subclass to upgrade',
+    );
+    expect(check(target(multi), 7)).toBe('You have no multiclass subclass to upgrade');
+    expect(check(target({ tier: 4, option: 'hp', target: 'main' }), 7)).toBe(
+      'Only the subclass option picks a subclass',
+    );
+  });
+
+  it('sets the second class on completing, and upgrades the multiclass subclass', () => {
+    const base: LevelUpColumns = {
+      level: 4,
+      traits: { ...TRAITS },
+      hpMax: 6,
+      hpCurrent: 6,
+      stressMax: 6,
+      hopeBonus: 0,
+      evasion: 10,
+      proficiency: 2,
+      subclassCards: 1,
+      minorThreshold: 0,
+      majorThreshold: 0,
+      severeThreshold: 0,
+    };
+    const done = levelUpEffects(
+      request({ picks: twice, multiclass: second }),
+      levelUpState([], 4, v2),
+      base,
+      false,
+      v2,
+    );
+    expect(done).toMatchObject({
+      multiclassClassId: RANGER,
+      multiclassDomainId: BONE,
+      multiclassSubclassId: BEASTBOUND,
+      multiclassSubclassCards: 1,
+    });
+    const notYet = levelUpEffects(
+      request({ picks: [pick(3, 'multiclass'), pick(3, 'hp')], multiclass: second }),
+      levelUpState([], 4, v2),
+      base,
+      false,
+      v2,
+    );
+    expect(notYet.multiclassClassId).toBeUndefined();
+    const up = (multiclassSubclassCards?: number) =>
+      levelUpEffects(
+        request({ picks: [{ tier: 4, option: 'subclass', target: 'multiclass' }, pick(4, 'hp')] }),
+        levelUpState([], 8, v2),
+        { ...base, level: 8, multiclassSubclassCards },
+        false,
+        v2,
+      );
+    expect(up(2)).toMatchObject({ multiclassSubclassCards: 3, subclassCards: 1 });
+    expect(up(undefined).multiclassSubclassCards).toBe(2);
   });
 });

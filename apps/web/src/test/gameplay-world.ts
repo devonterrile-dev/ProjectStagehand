@@ -932,6 +932,34 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     return list;
   };
 
+  /** A subclass as `buildSheet` reads it, or null. */
+  const subclassRecord = (campaignId: string, subclassId: string | null) => {
+    const sub = subclassesOf(campaignId).find((entry) => entry.id === subclassId);
+    return sub === undefined
+      ? null
+      : {
+          id: sub.id,
+          name: sub.name,
+          className: classesOf(campaignId).find((entry) => entry.id === sub.classId)?.name ?? '',
+          spellcastTrait: sub.spellcastTrait,
+          foundation: sub.foundation,
+          specialization: sub.specialization,
+          mastery: sub.mastery,
+        };
+  };
+
+  /** A sheet's second class, its domain and subclass (F4.10), as the server reads them. */
+  const multiclassRecords = (campaignId: string, links: SheetLinks): SheetRecords['multiclass'] => {
+    const cls = classesOf(campaignId).find((entry) => entry.id === links.multiclassClassId);
+    if (cls === undefined) return null;
+    const domain = domainsOf(campaignId).find((entry) => entry.id === links.multiclassDomainId);
+    return {
+      class: { id: cls.id, name: cls.name, classFeatures: cls.classFeatures },
+      domain: domain === undefined ? null : { id: domain.id, name: domain.name },
+      subclass: subclassRecord(campaignId, links.multiclassSubclassId),
+    };
+  };
+
   /** The records a sheet links, as the server reads them for `buildSheet` (F4.7). */
   function sheetRecords(campaignId: string, characterId: string, links: SheetLinks): SheetRecords {
     const weapon = (weaponId: string | null) =>
@@ -966,6 +994,7 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
               specialization: sub.specialization,
               mastery: sub.mastery,
             },
+      multiclass: multiclassRecords(campaignId, links),
       species: [kind(links.speciesIds[0]), kind(links.speciesIds[1])],
       primary: weapon(links.primaryWeaponId),
       secondary: weapon(links.secondaryWeaponId),
@@ -1093,6 +1122,17 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
   const classDomainIds = (campaignId: string, classId: string) =>
     classesOf(campaignId).find((one) => one.id === classId)?.domainIds;
 
+  /** The campaign's classes with their domains and subclasses, for multiclassing (F4.10). */
+  const classChoices = (campaignId: string) =>
+    classesOf(campaignId).map((cls) => ({
+      id: cls.id,
+      name: cls.name,
+      domainIds: cls.domainIds,
+      subclassIds: subclassesOf(campaignId)
+        .filter((sub) => sub.classId === cls.id)
+        .map((sub) => sub.id),
+    }));
+
   /** Every card of the campaign, as the level-up rules read them (F4.9). */
   const cardList = (campaignId: string) =>
     cardsOf(campaignId).map((card) => ({
@@ -1111,5 +1151,6 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     checkBuild,
     classDomainIds,
     cardList,
+    classChoices,
   };
 }

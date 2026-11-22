@@ -60,6 +60,60 @@ export function linksOf(row: CharacterRow, spareWeaponIds: readonly string[]): S
     secondaryWeaponId: row.secondaryWeaponId,
     armorId: row.armorId,
     spareWeaponIds: [...spareWeaponIds],
+    multiclassClassId: row.multiclassClassId,
+    multiclassDomainId: row.multiclassDomainId,
+    multiclassSubclassId: row.multiclassSubclassId,
+    multiclassSubclassCards: row.multiclassSubclassCards,
+  };
+}
+
+/** A subclass with its class's name, as `buildSheet` reads it; null when it isn't the campaign's. */
+async function subclassForSheet(db: DbOrTx, scope: CampaignScope, id: string | null) {
+  if (id === null) return null;
+  const [found] = await db
+    .select({ sub: subclasses, className: classes.name })
+    .from(subclasses)
+    .innerJoin(
+      classes,
+      and(eq(classes.id, subclasses.classId), eq(classes.campaignId, subclasses.campaignId)),
+    )
+    .where(and(eq(subclasses.id, id), eq(subclasses.campaignId, scope.campaignId)));
+  if (found === undefined) return null;
+  return {
+    id: found.sub.id,
+    name: found.sub.name,
+    className: found.className,
+    spellcastTrait: found.sub.spellcastTrait,
+    foundation: found.sub.foundation,
+    specialization: found.sub.specialization,
+    mastery: found.sub.mastery,
+  };
+}
+
+/** A sheet's second class, its domain and its subclass (F4.10); null without one. */
+async function multiclassOf(
+  db: DbOrTx,
+  scope: CampaignScope,
+  row: CharacterRow,
+): Promise<SheetRecords['multiclass']> {
+  if (row.multiclassClassId === null) return null;
+  const [cls] = await db
+    .select({ id: classes.id, name: classes.name, classFeatures: classes.classFeatures })
+    .from(classes)
+    .where(and(eq(classes.id, row.multiclassClassId), eq(classes.campaignId, scope.campaignId)));
+  if (cls === undefined) return null;
+  let domain: { id: string; name: string } | null = null;
+  if (row.multiclassDomainId !== null) {
+    const [found] = await db
+      .select({ id: domains.id, name: domains.name })
+      .from(domains)
+      .where(and(eq(domains.id, row.multiclassDomainId), eq(domains.campaignId, scope.campaignId)));
+    domain = found ?? null;
+  }
+  return {
+    class: cls,
+    domain,
+    subclass: await subclassForSheet(db, scope, row.multiclassSubclassId),
   };
 }
 
@@ -127,28 +181,7 @@ export async function loadSheetRecords(
     }
   }
 
-  let linkedSubclass: SheetRecords['subclass'] = null;
-  if (row.subclassId !== null) {
-    const [found] = await db
-      .select({ sub: subclasses, className: classes.name })
-      .from(subclasses)
-      .innerJoin(
-        classes,
-        and(eq(classes.id, subclasses.classId), eq(classes.campaignId, subclasses.campaignId)),
-      )
-      .where(and(eq(subclasses.id, row.subclassId), eq(subclasses.campaignId, scope.campaignId)));
-    if (found !== undefined) {
-      linkedSubclass = {
-        id: found.sub.id,
-        name: found.sub.name,
-        className: found.className,
-        spellcastTrait: found.sub.spellcastTrait,
-        foundation: found.sub.foundation,
-        specialization: found.sub.specialization,
-        mastery: found.sub.mastery,
-      };
-    }
-  }
+  const linkedSubclass = await subclassForSheet(db, scope, row.subclassId);
 
   let linkedArmor: SheetRecords['armor'] = null;
   if (row.armorId !== null) {
@@ -191,6 +224,7 @@ export async function loadSheetRecords(
     records: {
       class: linkedClass,
       subclass: linkedSubclass,
+      multiclass: await multiclassOf(db, scope, row),
       species: [
         await speciesById(db, scope, row.species1Id),
         await speciesById(db, scope, row.species2Id),
@@ -247,6 +281,10 @@ export interface LinkChanges {
       | 'primaryWeaponId'
       | 'secondaryWeaponId'
       | 'armorId'
+      | 'multiclassClassId'
+      | 'multiclassDomainId'
+      | 'multiclassSubclassId'
+      | 'multiclassSubclassCards'
     >
   >;
   spareWeaponIds?: readonly string[];
@@ -338,6 +376,8 @@ export async function checkLinkPatch(
     columns.armorId = patch.armorId;
   }
 
+  await checkMulticlassPatch(tx, scope, current, patch, classId, columns);
+
   if (patch.spareWeaponIds === undefined) return { columns };
   const distinct = [...new Set(patch.spareWeaponIds)];
   if (distinct.length > 0) {
@@ -348,6 +388,91 @@ export async function checkLinkPatch(
     if (found.length !== distinct.length) throw httpError(404, WEAPON_NOT_FOUND);
   }
   return { columns, spareWeaponIds: patch.spareWeaponIds };
+}
+
+/** The refusals for a second class set by hand (F4.10). */
+export const MULTICLASS_NOT_OWN = 'Pick a second class other than the first';
+export const MULTICLASS_DOMAIN =
+  "Pick one of the second class's domains that the first doesn't have";
+export const MULTICLASS_SUBCLASS = 'Pick a subclass of the second class';
+
+/**
+ * The GM's second class (F4.10): another class of the campaign, one of its domains the first
+ * class hasn't, and one of its subclasses. A changed second class drops a domain or subclass
+ * that no longer fits, unless they are sent with it (then they must fit).
+ */
+async function checkMulticlassPatch(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  current: CharacterRow,
+  patch: CharacterSheetPatch,
+  classId: string | null,
+  columns: LinkChanges['columns'],
+): Promise<void> {
+  const touched =
+    patch.multiclassClassId !== undefined ||
+    patch.multiclassDomainId !== undefined ||
+    patch.multiclassSubclassId !== undefined ||
+    patch.classId !== undefined;
+  if (patch.multiclassSubclassCards !== undefined) {
+    columns.multiclassSubclassCards = patch.multiclassSubclassCards;
+  }
+  if (!touched) return;
+  const secondId =
+    patch.multiclassClassId === undefined ? current.multiclassClassId : patch.multiclassClassId;
+  let domainId =
+    patch.multiclassDomainId === undefined ? current.multiclassDomainId : patch.multiclassDomainId;
+  let subclassId =
+    patch.multiclassSubclassId === undefined
+      ? current.multiclassSubclassId
+      : patch.multiclassSubclassId;
+
+  if (secondId === null) {
+    if (patch.multiclassDomainId != null || patch.multiclassSubclassId != null) {
+      throw httpError(400, MULTICLASS_SUBCLASS);
+    }
+    columns.multiclassClassId = null;
+    columns.multiclassDomainId = null;
+    columns.multiclassSubclassId = null;
+    return;
+  }
+  const [second] = await tx
+    .select({ id: classes.id, domain1Id: classes.domain1Id, domain2Id: classes.domain2Id })
+    .from(classes)
+    .where(and(eq(classes.id, secondId), eq(classes.campaignId, scope.campaignId)));
+  if (second === undefined) throw httpError(404, CLASS_NOT_FOUND);
+  if (second.id === classId) throw httpError(400, MULTICLASS_NOT_OWN);
+
+  let first: (string | null)[] = [];
+  if (classId !== null) {
+    const [found] = await tx
+      .select({ domain1Id: classes.domain1Id, domain2Id: classes.domain2Id })
+      .from(classes)
+      .where(and(eq(classes.id, classId), eq(classes.campaignId, scope.campaignId)));
+    first = found === undefined ? [] : [found.domain1Id, found.domain2Id];
+  }
+  if (domainId !== null) {
+    const fits =
+      [second.domain1Id, second.domain2Id].includes(domainId) && !first.includes(domainId);
+    if (!fits) {
+      if (patch.multiclassDomainId !== undefined) throw httpError(400, MULTICLASS_DOMAIN);
+      domainId = null;
+    }
+  }
+  if (subclassId !== null) {
+    const [found] = await tx
+      .select({ classId: subclasses.classId })
+      .from(subclasses)
+      .where(and(eq(subclasses.id, subclassId), eq(subclasses.campaignId, scope.campaignId)));
+    if (found === undefined) throw httpError(404, SUBCLASS_NOT_FOUND);
+    if (found.classId !== second.id) {
+      if (patch.multiclassSubclassId !== undefined) throw httpError(400, MULTICLASS_SUBCLASS);
+      subclassId = null;
+    }
+  }
+  columns.multiclassClassId = second.id;
+  columns.multiclassDomainId = domainId;
+  columns.multiclassSubclassId = subclassId;
 }
 
 /** Replaces a sheet's linked spare weapons. */
@@ -383,7 +508,8 @@ export type SheetUse =
   | { speciesId: string }
   | { weaponId: string }
   | { armorId: string }
-  | { cardId: string };
+  | { cardId: string }
+  | { domainId: string };
 
 /** The names of the PCs whose sheets use a record, by name. */
 export async function sheetsUsing(
@@ -393,10 +519,16 @@ export async function sheetsUsing(
 ): Promise<string[]> {
   const mine = eq(characters.campaignId, scope.campaignId);
   let where;
-  if ('classId' in use) where = eq(characters.classId, use.classId);
-  else if ('subclassIds' in use) {
+  if ('classId' in use) {
+    where = or(eq(characters.classId, use.classId), eq(characters.multiclassClassId, use.classId));
+  } else if ('subclassIds' in use) {
     if (use.subclassIds.length === 0) return [];
-    where = inArray(characters.subclassId, [...use.subclassIds]);
+    where = or(
+      inArray(characters.subclassId, [...use.subclassIds]),
+      inArray(characters.multiclassSubclassId, [...use.subclassIds]),
+    );
+  } else if ('domainId' in use) {
+    where = eq(characters.multiclassDomainId, use.domainId);
   } else if ('speciesId' in use) {
     where = or(eq(characters.species1Id, use.speciesId), eq(characters.species2Id, use.speciesId));
   } else if ('armorId' in use) where = eq(characters.armorId, use.armorId);

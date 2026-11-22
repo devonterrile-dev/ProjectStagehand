@@ -211,6 +211,13 @@
       "when": 1795313632976,
       "tag": "0029_level_ups",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795319708265,
+      "tag": "0030_multiclassing",
+      "breakpoints": true
     }
   ]
 }

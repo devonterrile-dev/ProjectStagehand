@@ -56,6 +56,11 @@ export const sheetLinksSchema = z.object({
   armorId: z.uuid().nullable(),
   /** Linked spare weapons, in order; the same weapon may be carried twice. */
   spareWeaponIds: z.array(z.uuid()),
+  /** A second class (F4.10): its class features, one of its domains and one of its subclasses. */
+  multiclassClassId: z.uuid().nullable(),
+  multiclassDomainId: z.uuid().nullable(),
+  multiclassSubclassId: z.uuid().nullable(),
+  multiclassSubclassCards: z.int().min(0).max(SUBCLASS_CARDS_MAX),
 });
 export type SheetLinks = z.infer<typeof sheetLinksSchema>;
 
@@ -70,6 +75,10 @@ export function noSheetLinks(): SheetLinks {
     secondaryWeaponId: null,
     armorId: null,
     spareWeaponIds: [],
+    multiclassClassId: null,
+    multiclassDomainId: null,
+    multiclassSubclassId: null,
+    multiclassSubclassCards: 1,
   };
 }
 
@@ -129,6 +138,18 @@ export const heldCardSchema = domainCardSchema.extend({
 });
 export type HeldCard = z.infer<typeof heldCardSchema>;
 
+/** A subclass card, with the cards held (the rest are null). */
+const subclassCardSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  className: z.string(),
+  spellcastTrait: z.string().nullable(),
+  foundation: z.array(featureRowSchema).nullable(),
+  specialization: z.array(featureRowSchema).nullable(),
+  mastery: z.array(featureRowSchema).nullable(),
+});
+export type SubclassCard = z.infer<typeof subclassCardSchema>;
+
 /** The PC's feature cards: what lies beside the sheet page at the table. */
 export const sheetCardsSchema = z.object({
   class: z
@@ -139,15 +160,15 @@ export const sheetCardsSchema = z.object({
       classFeatures: z.array(featureRowSchema),
     })
     .nullable(),
-  subclass: z
+  subclass: subclassCardSchema.nullable(),
+  /** The second class (F4.10): its class features, the domain taken, and the subclass held. */
+  multiclass: z
     .object({
-      id: z.uuid(),
-      name: z.string(),
+      classId: z.uuid(),
       className: z.string(),
-      spellcastTrait: z.string().nullable(),
-      foundation: z.array(featureRowSchema).nullable(),
-      specialization: z.array(featureRowSchema).nullable(),
-      mastery: z.array(featureRowSchema).nullable(),
+      classFeatures: z.array(featureRowSchema),
+      domainName: z.string().nullable(),
+      subclass: subclassCardSchema.nullable(),
     })
     .nullable(),
   /** One species with all its features, or two with one feature each (a mixed ancestry). */
@@ -164,6 +185,17 @@ export const sheetCardsSchema = z.object({
 });
 export type SheetCards = z.infer<typeof sheetCardsSchema>;
 
+/** A subclass as `buildSheet` reads it. */
+export interface SubclassRecordForSheet {
+  id: string;
+  name: string;
+  className: string;
+  spellcastTrait: string | null;
+  foundation: FeatureRow[];
+  specialization: FeatureRow[];
+  mastery: FeatureRow[];
+}
+
 /** The linked records `buildSheet` reads, loaded by the server. */
 export interface SheetRecords {
   class: {
@@ -173,14 +205,12 @@ export interface SheetRecords {
     hopeFeature: HopeFeature;
     classFeatures: FeatureRow[];
   } | null;
-  subclass: {
-    id: string;
-    name: string;
-    className: string;
-    spellcastTrait: string | null;
-    foundation: FeatureRow[];
-    specialization: FeatureRow[];
-    mastery: FeatureRow[];
+  subclass: SubclassRecordForSheet | null;
+  /** The second class, its domain taken and its subclass (F4.10); missing or null without. */
+  multiclass?: {
+    class: { id: string; name: string; classFeatures: FeatureRow[] };
+    domain: { id: string; name: string } | null;
+    subclass: SubclassRecordForSheet | null;
   } | null;
   species: readonly [
     { id: string; name: string; features: FeatureRow[] } | null,
@@ -288,7 +318,7 @@ function typedWeapon(weapon: Weapon): BuiltWeapon {
 /** Works out the sheet's shown numbers, its weapons and its feature cards. */
 export function buildSheet(
   stored: StoredSheet,
-  links: Pick<SheetLinks, 'subclassCards'>,
+  links: Pick<SheetLinks, 'subclassCards'> & Partial<Pick<SheetLinks, 'multiclassSubclassCards'>>,
   records: SheetRecords,
   ruleset: Ruleset,
 ): { built: BuiltSheet; cards: SheetCards } {
@@ -331,7 +361,12 @@ export function buildSheet(
   }
 
   const built: BuiltSheet = {
-    className: records.class?.name ?? stored.className,
+    className:
+      records.class === null
+        ? stored.className
+        : records.multiclass == null
+          ? records.class.name
+          : `${records.class.name} / ${records.multiclass.class.name}`,
     traits: effectiveTraits(stored.traits, bonuses, ruleset),
     evasion: stored.evasion + bonuses.evasion,
     armorScore,
@@ -372,11 +407,22 @@ export function buildSheet(
         ...card,
         place,
         takenAtLevel,
-        warning: cardWarning(card, stored, records.class),
+        warning: cardWarning(card, stored, records.class, records.multiclass?.domain ?? null),
       }))
       .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
 
+  /** A subclass with the cards held: none, the foundation, then specialization, then mastery. */
+  const subclassCard = (sub: SubclassRecordForSheet, held: number) => ({
+    id: sub.id,
+    name: sub.name,
+    className: sub.className,
+    spellcastTrait: sub.spellcastTrait,
+    foundation: held >= 1 ? sub.foundation : null,
+    specialization: held >= 2 ? sub.specialization : null,
+    mastery: held >= 3 ? sub.mastery : null,
+  });
   const sub = records.subclass;
+  const multi = records.multiclass ?? null;
   const [first, second] = records.species;
   const species =
     first !== null && second !== null
@@ -396,17 +442,19 @@ export function buildSheet(
             hopeFeature: records.class.hopeFeature,
             classFeatures: records.class.classFeatures,
           },
-    subclass:
-      sub === null
+    subclass: sub === null ? null : subclassCard(sub, links.subclassCards),
+    multiclass:
+      multi === null
         ? null
         : {
-            id: sub.id,
-            name: sub.name,
-            className: sub.className,
-            spellcastTrait: sub.spellcastTrait,
-            foundation: links.subclassCards >= 1 ? sub.foundation : null,
-            specialization: links.subclassCards >= 2 ? sub.specialization : null,
-            mastery: links.subclassCards >= 3 ? sub.mastery : null,
+            classId: multi.class.id,
+            className: multi.class.name,
+            classFeatures: multi.class.classFeatures,
+            domainName: multi.domain?.name ?? null,
+            subclass:
+              multi.subclass === null
+                ? null
+                : subclassCard(multi.subclass, links.multiclassSubclassCards ?? 1),
           },
     species,
     gear: { primary, secondary, armor },
@@ -442,14 +490,28 @@ function cardWarning(
   card: DomainCard,
   stored: Pick<StoredSheet, 'level' | 'name'>,
   linkedClass: SheetRecords['class'],
+  multiclassDomain: { id: string; name: string } | null,
 ): string | null {
-  if (linkedClass !== null && !linkedClass.domainIds.includes(card.domainId)) {
+  const ownDomain = linkedClass === null || linkedClass.domainIds.includes(card.domainId);
+  if (!ownDomain && multiclassDomain?.id === card.domainId) {
+    // A multiclass domain's cards go up to half the level, rounded up (F4.10).
+    const limit = multiclassCardLevel(stored.level);
+    return card.level > limit
+      ? `${card.domainName} is ${stored.name}'s multiclass domain: level ${String(limit)} or lower`
+      : null;
+  }
+  if (linkedClass !== null && !ownDomain) {
     return `${card.domainName} isn't one of ${linkedClass.name}'s domains`;
   }
   if (card.level > stored.level) {
     return `Level ${String(card.level)}, above ${stored.name}'s level (${String(stored.level)})`;
   }
   return null;
+}
+
+/** The highest level of card a PC at `level` may take from a multiclass domain (F4.10). */
+export function multiclassCardLevel(level: number): number {
+  return Math.ceil(level / 2);
 }
 
 /** The loadout's limit, from the ruleset (five in v2). */

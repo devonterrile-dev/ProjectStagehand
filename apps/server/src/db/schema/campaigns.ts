@@ -39,7 +39,7 @@ import {
 
 import { assets } from './assets';
 import { users } from './auth';
-import { armor, classes, species, subclasses, weapons } from './gameplay';
+import { armor, classes, domains, species, subclasses, weapons } from './gameplay';
 
 export const campaignRole = pgEnum('campaign_role', ['gm', 'player']);
 
@@ -199,6 +199,14 @@ export const characters = pgTable(
     needsGuide: boolean('needs_guide').default(false).notNull(),
     /** When the creation guide last finished it; null for a sheet typed by hand. */
     builtAt: timestamp('built_at', { withTimezone: true }),
+    // A second class (F4.10, D-69): its domain taken and one of its subclasses, each a
+    // composite FK with no action, like the other links.
+    multiclassClassId: uuid('multiclass_class_id'),
+    multiclassDomainId: uuid('multiclass_domain_id'),
+    multiclassSubclassId: uuid('multiclass_subclass_id'),
+    /** 0 none, 1 the foundation, 2 + specialization, 3 + mastery. */
+    multiclassSubclassCards: integer('multiclass_subclass_cards').default(1).notNull(),
+
     /** The GM granted the next level and the player hasn't levelled up yet (F4.9, D-68). */
     levelUpGranted: boolean('level_up_granted').default(false).notNull(),
 
@@ -259,6 +267,29 @@ export const characters = pgTable(
       foreignColumns: [armor.id, armor.campaignId],
     }),
     check('characters_subclass_cards', sql`${table.subclassCards} between 0 and 3`),
+    foreignKey({
+      name: 'characters_multiclass_class_fk',
+      columns: [table.multiclassClassId, table.campaignId],
+      foreignColumns: [classes.id, classes.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_multiclass_domain_fk',
+      columns: [table.multiclassDomainId, table.campaignId],
+      foreignColumns: [domains.id, domains.campaignId],
+    }),
+    foreignKey({
+      name: 'characters_multiclass_subclass_fk',
+      columns: [table.multiclassSubclassId, table.campaignId],
+      foreignColumns: [subclasses.id, subclasses.campaignId],
+    }),
+    check(
+      'characters_multiclass_subclass_cards',
+      sql`${table.multiclassSubclassCards} between 0 and 3`,
+    ),
+    check(
+      'characters_multiclass_needs_class',
+      sql`(${table.multiclassDomainId} is null and ${table.multiclassSubclassId} is null) or ${table.multiclassClassId} is not null`,
+    ),
     check(
       'characters_subclass_needs_class',
       sql`${table.subclassId} is null or ${table.classId} is not null`,

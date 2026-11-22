@@ -16,9 +16,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildTestApp, discordUser, SAME_ORIGIN, signIn } from '../../test/auth-helpers';
 import type { DbHandle } from '../db/client';
+import { MULTICLASS_DOMAIN, MULTICLASS_NOT_OWN } from '../campaigns/sheet-links';
 import { campaignMembers, users } from '../db/schema';
 
-type Method = 'GET' | 'POST' | 'PATCH';
+type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 interface Person {
   cookie: string;
@@ -103,7 +104,23 @@ describe('Leveling up', () => {
       tome: await card('Tome', 'Codex', 2),
       anthem: await card('Anthem', 'Grace', 3),
       whirl: await card('Whirlwind', 'Blade', 1),
+      track: await card('Track', 'Bone', 3),
+      pounce: await card('Pounce', 'Bone', 4),
     };
+    // A second class to multiclass into (F4.10).
+    const ranger = await made<{ id: string }>('POST', `${base}/classes`, { name: 'Ranger' });
+    await made('PATCH', `${base}/classes/${ranger.id}`, {
+      domainIds: [domainId('Bone'), domainId('Codex')],
+      classFeatures: [{ name: 'Ranger’s Focus', text: 'Mark a target.' }],
+    });
+    const beastbound = await made<{ id: string }>('POST', `${base}/subclasses`, {
+      classId: ranger.id,
+      name: 'Beastbound',
+    });
+    await made('PATCH', `${base}/subclasses/${beastbound.id}`, {
+      foundation: [{ name: 'Companion', text: '' }],
+      specialization: [{ name: 'Pack', text: '' }],
+    });
     const vex = await made<{ id: string }>('POST', `${base}/characters`, {
       name: 'Vex',
       assignToUserId: player.id,
@@ -125,7 +142,18 @@ describe('Leveling up', () => {
       severeThreshold: 14,
     });
     await made('POST', `${url}/domain-cards`, { cardId: cards.hold });
-    return { base, url, ashUrl: `${base}/characters/${ash.id}`, cards, grace: domainId('Grace') };
+    return {
+      base,
+      url,
+      ashUrl: `${base}/characters/${ash.id}`,
+      cards,
+      grace: domainId('Grace'),
+      bone: domainId('Bone'),
+      codex: domainId('Codex'),
+      bard: bard.id,
+      ranger: ranger.id,
+      beastbound: beastbound.id,
+    };
   }
 
   it('lets the GM grant one level at a time, to a PC with a class, below the last level', async () => {
@@ -270,6 +298,114 @@ describe('Leveling up', () => {
     });
     // Entering tier 3 adds one; the completed option adds another.
     expect(five).toMatchObject({ level: 5, proficiency: 3 });
+  });
+
+  it('multiclasses with both picks, limits the new domain, crosses out, and undoes', async () => {
+    const w = await world('Level multiclass');
+    const { url, cards } = w;
+    await made('PATCH', url, { level: 4 });
+    await made('POST', `${url}/grant-level`, { granted: true });
+    const multiclass = { classId: w.ranger, domainId: w.bone, subclassId: w.beastbound };
+    const take = {
+      picks: [
+        { tier: 3, option: 'multiclass' },
+        { tier: 3, option: 'multiclass' },
+      ],
+      cardId: cards.pounce,
+      extraCardId: null,
+      swap: null,
+      multiclass,
+    };
+    const tooHigh = await call('POST', `${url}/level-up`, player, take);
+    expect(message(tooHigh)).toBe('Pounce is level 4: multiclass domain cards go up to level 3');
+    const own = await call('POST', `${url}/level-up`, player, {
+      ...take,
+      multiclass: { ...multiclass, domainId: w.codex },
+    });
+    expect(message(own)).toBe("Pick one of Ranger's domains that you don't have");
+
+    const five = await made<PlayerCharacterSheet>(
+      'POST',
+      `${url}/level-up`,
+      { ...take, cardId: cards.track },
+      player,
+    );
+    expect(five.links).toMatchObject({
+      multiclassClassId: w.ranger,
+      multiclassDomainId: w.bone,
+      multiclassSubclassId: w.beastbound,
+      multiclassSubclassCards: 1,
+    });
+    expect(five.built.className).toBe('Bard / Ranger');
+    expect(five.cards.multiclass).toMatchObject({
+      className: 'Ranger',
+      domainName: 'Bone',
+      classFeatures: [{ name: 'Ranger’s Focus', text: 'Mark a target.' }],
+      subclass: { name: 'Beastbound', foundation: [{ name: 'Companion', text: '' }] },
+    });
+    expect(five.cards.loadout.find((card) => card.name === 'Track')?.warning).toBeNull();
+
+    // Tier 4: Multiclass is crossed out; the multiclass subclass can be upgraded.
+    await made('PATCH', url, { level: 7 });
+    await made('POST', `${url}/grant-level`, { granted: true });
+    const again = await call('POST', `${url}/level-up`, player, {
+      picks: [
+        { tier: 4, option: 'multiclass' },
+        { tier: 4, option: 'hp' },
+      ],
+      cardId: cards.anthem,
+      extraCardId: null,
+      swap: null,
+    });
+    expect(message(again)).toBe(
+      'Tier 4 has no more of: Multiclass: take a second class (two marks)',
+    );
+    const eight = await made<PlayerCharacterSheet>(
+      'POST',
+      `${url}/level-up`,
+      {
+        picks: [
+          { tier: 4, option: 'subclass', target: 'multiclass' },
+          { tier: 4, option: 'hp' },
+        ],
+        cardId: cards.anthem,
+        extraCardId: null,
+        swap: null,
+      },
+      player,
+    );
+    expect(eight.links).toMatchObject({ subclassCards: 1, multiclassSubclassCards: 2 });
+    expect(eight.cards.multiclass?.subclass?.specialization).toEqual([{ name: 'Pack', text: '' }]);
+
+    await made('POST', `${url}/level-ups/undo`);
+    const undone = await made<CharacterSheet>('POST', `${url}/level-ups/undo`);
+    expect(undone.links).toMatchObject({ multiclassClassId: null, multiclassSubclassId: null });
+    expect(undone.built.className).toBe('Bard');
+  });
+
+  it('lets the GM set a second class by hand, with its checks and delete guard', async () => {
+    const w = await world('Level multiclass by hand');
+    const patch = (body: Record<string, unknown>) => call('PATCH', w.url, gm, body);
+    expect(message(await patch({ multiclassClassId: w.bard }))).toBe(MULTICLASS_NOT_OWN);
+    expect(message(await patch({ multiclassClassId: w.ranger, multiclassDomainId: w.codex }))).toBe(
+      MULTICLASS_DOMAIN,
+    );
+    const linked = await patch({
+      multiclassClassId: w.ranger,
+      multiclassDomainId: w.bone,
+      multiclassSubclassId: w.beastbound,
+    });
+    expect(linked.statusCode, linked.body).toBe(200);
+    expect(linked.json<CharacterSheet>().built.className).toBe('Bard / Ranger');
+    const blocked = await call('DELETE', `${w.base}/classes/${w.ranger}`, gm);
+    expect(blocked.statusCode).toBe(409);
+    expect(message(blocked)).toBe("Used by Vex's sheet. Unlink it there first.");
+    const cleared = await patch({ multiclassClassId: null });
+    expect(cleared.json<CharacterSheet>().links).toMatchObject({
+      multiclassClassId: null,
+      multiclassDomainId: null,
+      multiclassSubclassId: null,
+    });
   });
 
   it('logs a level-up while a session runs', async () => {

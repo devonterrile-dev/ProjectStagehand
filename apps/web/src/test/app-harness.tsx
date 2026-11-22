@@ -841,6 +841,27 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     return Response.json(isGm ? built : playerCharacterSheetSchema.parse(built));
   };
 
+  /** Writes a level-up's columns: the sheet's values, and the subclass and multiclass links. */
+  const applyLevelColumns = (sheet: CharacterSheet, columns: LevelUpColumns) => {
+    const {
+      subclassCards,
+      multiclassClassId,
+      multiclassDomainId,
+      multiclassSubclassId,
+      multiclassSubclassCards,
+      ...values
+    } = columns;
+    Object.assign(sheet, values);
+    sheet.links = {
+      ...sheet.links,
+      subclassCards,
+      ...(multiclassClassId === undefined ? {} : { multiclassClassId }),
+      ...(multiclassDomainId === undefined ? {} : { multiclassDomainId }),
+      ...(multiclassSubclassId === undefined ? {} : { multiclassSubclassId }),
+      ...(multiclassSubclassCards === undefined ? {} : { multiclassSubclassCards }),
+    };
+  };
+
   /** The values before each level-up, by character, for undo (F4.9). */
   const levelUpBefore = new Map<
     string,
@@ -893,7 +914,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     if (action === 'level-ups/undo') {
       const last = before.pop();
       if (last === undefined) return refused(409, LEVEL_UP_MESSAGES.noLevelUp);
-      Object.assign(sheet, last.columns);
+      applyLevelColumns(sheet, last.columns);
       held.splice(0, held.length, ...last.held);
       sheet.levelUp = { granted: true, history: sheet.levelUp.history.slice(0, -1) };
       return answer();
@@ -907,7 +928,12 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         ? undefined
         : gameplay.classDomainIds(found.id, sheet.links.classId);
     if (domainIds === undefined) return refused(400, LEVEL_UP_MESSAGES.needsClass);
-    const state = levelUpState(sheet.levelUp.history, sheet.level, ruleset);
+    const state = levelUpState(
+      sheet.levelUp.history,
+      sheet.level,
+      ruleset,
+      sheet.links.multiclassClassId !== null,
+    );
     const problem = levelUpProblem(
       parsed.data,
       state,
@@ -917,6 +943,16 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
         domainIds,
         cards: gameplay.cardList(found.id),
         heldIds: held.map((entry) => entry.cardId),
+        classId: sheet.links.classId,
+        classes: gameplay.classChoices(found.id),
+        multiclass:
+          sheet.links.multiclassClassId === null
+            ? null
+            : {
+                domainId: sheet.links.multiclassDomainId,
+                subclassId: sheet.links.multiclassSubclassId,
+                subclassCards: sheet.links.multiclassSubclassCards,
+              },
       },
       ruleset,
     );
@@ -934,12 +970,15 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       minorThreshold: sheet.minorThreshold,
       majorThreshold: sheet.majorThreshold,
       severeThreshold: sheet.severeThreshold,
+      multiclassClassId: sheet.links.multiclassClassId,
+      multiclassDomainId: sheet.links.multiclassDomainId,
+      multiclassSubclassId: sheet.links.multiclassSubclassId,
+      multiclassSubclassCards: sheet.links.multiclassSubclassCards,
     };
     before.push({ columns, held: held.map((entry) => ({ ...entry })) });
     const typed = sheet.links.armorId === null && !(sheet.builtAt !== null && sheet.armor === null);
-    const { subclassCards, ...after } = levelUpEffects(parsed.data, state, columns, typed, ruleset);
-    Object.assign(sheet, after);
-    sheet.links = { ...sheet.links, subclassCards };
+    const after = levelUpEffects(parsed.data, state, columns, typed, ruleset);
+    applyLevelColumns(sheet, after);
     const max = loadoutMaxOf(ruleset);
     for (const cardId of [
       parsed.data.cardId,
@@ -1061,6 +1100,22 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
       if (patch.secondaryWeaponId !== undefined) links.secondaryWeaponId = patch.secondaryWeaponId;
       if (patch.armorId !== undefined) links.armorId = patch.armorId;
       if (patch.spareWeaponIds !== undefined) links.spareWeaponIds = patch.spareWeaponIds;
+      // A second class (F4.10): clearing the class clears its domain and subclass.
+      if (patch.multiclassClassId !== undefined) {
+        links.multiclassClassId = patch.multiclassClassId;
+        if (patch.multiclassClassId === null) {
+          links.multiclassDomainId = null;
+          links.multiclassSubclassId = null;
+        }
+      }
+      if (patch.multiclassDomainId !== undefined)
+        links.multiclassDomainId = patch.multiclassDomainId;
+      if (patch.multiclassSubclassId !== undefined) {
+        links.multiclassSubclassId = patch.multiclassSubclassId;
+      }
+      if (patch.multiclassSubclassCards !== undefined) {
+        links.multiclassSubclassCards = patch.multiclassSubclassCards;
+      }
       Object.assign(sheet, stored, { links, updatedAt: '2026-11-10T12:00:00.000Z' });
       for (const m of d.members) {
         if (m.character?.id === sheet.id) m.character = { id: sheet.id, name: sheet.name };

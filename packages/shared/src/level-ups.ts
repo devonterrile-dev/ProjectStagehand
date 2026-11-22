@@ -27,6 +27,8 @@ export const levelUpPickSchema = z.strictObject({
   tier: z.int(),
   option: levelUpOptionIdSchema,
   traits: z.tuple([z.string(), z.string()]).optional(),
+  /** Which subclass a `subclass` pick upgrades, once the PC has two (F4.10); the first by default. */
+  target: z.enum(['main', 'multiclass']).optional(),
 });
 export type LevelUpPick = z.infer<typeof levelUpPickSchema>;
 
@@ -39,6 +41,11 @@ export const levelUpRequestSchema = z.strictObject({
   extraCardId: z.uuid().nullable(),
   /** A held card swapped for another of equal or lower level; null for none. */
   swap: z.strictObject({ outId: z.uuid(), inId: z.uuid() }).nullable(),
+  /** The second class, when this level-up completes the Multiclass option (F4.10). */
+  multiclass: z
+    .strictObject({ classId: z.uuid(), domainId: z.uuid(), subclassId: z.uuid() })
+    .nullable()
+    .optional(),
 });
 export type LevelUpRequest = z.infer<typeof levelUpRequestSchema>;
 
@@ -82,6 +89,8 @@ export interface LevelUpListOption {
   readonly left: number;
   /** A two-mark option with one mark made in the next level's tier: the next mark completes it. */
   readonly halfMarked: boolean;
+  /** Crossed out by multiclassing (F4.10): another tier's Multiclass, or the tier's unused subclass upgrade. */
+  readonly crossedOut: boolean;
   /** A two-mark option's half mark made in an earlier tier: it can't be completed any more. */
   readonly lost: boolean;
 }
@@ -108,6 +117,8 @@ export function levelUpState(
   history: readonly LevelUpEntry[],
   level: number,
   ruleset: Ruleset,
+  /** The sheet already has a second class, linked by hand or by a level-up (F4.10). */
+  multiclassed = false,
 ): LevelUpState {
   const nextLevel = level + 1;
   const tier = tierAt(level, ruleset);
@@ -121,6 +132,16 @@ export function levelUpState(
     .filter((mark) => mark.option === 'traits' && mark.at === nextTier)
     .flatMap((mark) => mark.traits ?? []);
 
+  // The tier whose Multiclass option was completed, if any (F4.10): a PC multiclasses once.
+  const multiclassMarks = new Map<number, number>();
+  for (const mark of marks.filter((one) => one.option === 'multiclass')) {
+    multiclassMarks.set(mark.tier, (multiclassMarks.get(mark.tier) ?? 0) + 1);
+  }
+  const doneAt = [...multiclassMarks].find(([, made]) => made >= 2)?.[0] ?? null;
+  const crossed = (listTier: number, id: LevelUpOptionId, used: number) =>
+    (id === 'multiclass' && (doneAt !== null || multiclassed) && listTier !== doneAt) ||
+    (id === 'subclass' && doneAt === listTier && used === 0);
+
   const listOption = (listTier: number, rule: LevelUpOptionRule): LevelUpListOption => {
     const made = marks.filter((mark) => mark.tier === listTier && mark.option === rule.id);
     const total = rule.count * rule.marks;
@@ -130,6 +151,7 @@ export function levelUpState(
     const lost = odd && lastAt !== nextTier;
     // A half mark made in the tier being left now: the guide warns that it will be lost.
     if (odd && entersTier && lastAt === tier) losing.push({ tier: listTier, option: rule.id });
+    const crossedOut = crossed(listTier, rule.id, made.length);
     return {
       id: rule.id,
       label: rule.label,
@@ -137,8 +159,9 @@ export function levelUpState(
       pickable: rule.pickable,
       total,
       used: made.length,
-      left: Math.max(0, total - made.length - (lost ? 1 : 0)),
+      left: crossedOut ? 0 : Math.max(0, total - made.length - (lost ? 1 : 0)),
       halfMarked,
+      crossedOut,
       lost,
     };
   };
@@ -175,6 +198,36 @@ export interface LevelUpContext {
   readonly cards: readonly Pick<DomainCardSummary, 'id' | 'name' | 'domainId' | 'level'>[];
   /** The cards the PC holds. */
   readonly heldIds: readonly string[];
+  /** The PC's class (F4.10): a second class must be another. */
+  readonly classId?: string | null;
+  /** The campaign's classes, with their domains and subclasses, to pick a second class from. */
+  readonly classes?: readonly {
+    id: string;
+    name: string;
+    domainIds: readonly (string | null)[];
+    subclassIds: readonly string[];
+  }[];
+  /** The PC's second class, if it has one. */
+  readonly multiclass?: {
+    domainId: string | null;
+    subclassId: string | null;
+    subclassCards: number;
+  } | null;
+}
+
+/**
+ * The tier whose Multiclass option this level-up completes (its second mark, with a half mark
+ * from before or both picks now), or null (F4.10).
+ */
+export function completesMulticlass(request: LevelUpRequest, state: LevelUpState): number | null {
+  for (const list of state.lists) {
+    const option = list.options.find((one) => one.id === 'multiclass');
+    const now = request.picks.filter(
+      (pick) => pick.tier === list.tier && pick.option === 'multiclass',
+    ).length;
+    if (option !== undefined && now > 0 && (option.halfMarked ? 1 : 0) + now >= 2) return list.tier;
+  }
+  return null;
 }
 
 const SUBCLASS_CARDS_MAX = 3;
@@ -192,6 +245,9 @@ export function levelUpProblem(
   const marked = new Set(state.markedTraits);
   const taken = new Map<string, number>();
   let subclass = context.subclassCards;
+  const current = context.multiclass ?? null;
+  let multiSubclass = current?.subclassId == null ? null : current.subclassCards;
+  const completing = completesMulticlass(request, state);
   for (const pick of request.picks) {
     const list = state.lists.find((entry) => entry.tier === pick.tier);
     const option = list?.options.find((one) => one.id === pick.option);
@@ -217,12 +273,44 @@ export function levelUpProblem(
     } else if (pick.traits !== undefined) {
       return 'Only the trait option names traits';
     }
+    if (pick.target !== undefined && pick.option !== 'subclass') {
+      return 'Only the subclass option picks a subclass';
+    }
     if (pick.option === 'subclass') {
-      if (subclass === null) return 'Link a subclass first';
-      if (subclass >= SUBCLASS_CARDS_MAX) return 'Your subclass is already at mastery';
-      subclass += 1;
+      if (completing === pick.tier) return "Multiclassing crosses out this tier's subclass upgrade";
+      if (pick.target === 'multiclass') {
+        if (multiSubclass === null) return 'You have no multiclass subclass to upgrade';
+        if (multiSubclass >= SUBCLASS_CARDS_MAX) {
+          return 'Your multiclass subclass is already at mastery';
+        }
+        multiSubclass += 1;
+      } else {
+        if (subclass === null) return 'Link a subclass first';
+        if (subclass >= SUBCLASS_CARDS_MAX) return 'Your subclass is already at mastery';
+        subclass += 1;
+      }
     }
   }
+
+  // The second class (F4.10): another class, one of its domains the PC hasn't, and one of its
+  // subclasses.
+  const second = request.multiclass ?? null;
+  if (completing !== null && second === null) {
+    return 'Pick your second class, one of its domains and a subclass';
+  }
+  if (completing === null && second !== null)
+    return 'Only completing Multiclass picks a second class';
+  if (second !== null) {
+    const cls = context.classes?.find((one) => one.id === second.classId);
+    if (cls === undefined) return 'That class isn’t in this campaign';
+    if (cls.id === context.classId) return 'Pick a class other than your own';
+    if (!cls.domainIds.includes(second.domainId) || context.domainIds.includes(second.domainId)) {
+      return `Pick one of ${cls.name}'s domains that you don't have`;
+    }
+    if (!cls.subclassIds.includes(second.subclassId)) return `Pick a subclass of ${cls.name}`;
+  }
+  const multiDomain = second?.domainId ?? current?.domainId ?? null;
+  const multiLimit = Math.ceil(state.nextLevel / 2);
 
   const extra = request.picks.some((pick) => pick.option === 'domainCard');
   if (extra !== (request.extraCardId !== null)) {
@@ -235,7 +323,11 @@ export function levelUpProblem(
     if (found === undefined) return 'That card isn’t in this campaign';
     if (held.has(cardId)) return `${found.name} is already on your sheet`;
     if (!context.domainIds.includes(found.domainId)) {
-      return `${found.name} isn't from your class's domains`;
+      if (multiDomain !== found.domainId) return `${found.name} isn't from your class's domains`;
+      // A multiclass domain's cards go up to half the level, rounded up.
+      if (found.level > multiLimit) {
+        return `${found.name} is level ${String(found.level)}: multiclass domain cards go up to level ${String(multiLimit)}`;
+      }
     }
     if (found.level > maxLevel) {
       return `${found.name} is level ${String(found.level)}: pick level ${String(maxLevel)} or lower`;
@@ -275,6 +367,11 @@ export interface LevelUpColumns {
   minorThreshold: number;
   majorThreshold: number;
   severeThreshold: number;
+  /** The second class (F4.10). Level-ups kept before F4.10 don't have these. */
+  multiclassClassId?: string | null;
+  multiclassDomainId?: string | null;
+  multiclassSubclassId?: string | null;
+  multiclassSubclassCards?: number;
 }
 
 /**
@@ -311,7 +408,11 @@ export function levelUpEffects(
         after.evasion += 1;
         break;
       case 'subclass':
-        after.subclassCards += 1;
+        if (pick.target === 'multiclass') {
+          after.multiclassSubclassCards = (after.multiclassSubclassCards ?? 1) + 1;
+        } else {
+          after.subclassCards += 1;
+        }
         break;
       case 'proficiency': {
         // Every second mark completes it: a half mark from before, or the other pick now.
@@ -328,6 +429,13 @@ export function levelUpEffects(
       case 'multiclass':
         break;
     }
+  }
+  const second = request.multiclass ?? null;
+  if (second !== null && completesMulticlass(request, state) !== null) {
+    after.multiclassClassId = second.classId;
+    after.multiclassDomainId = second.domainId;
+    after.multiclassSubclassId = second.subclassId;
+    after.multiclassSubclassCards = 1;
   }
   if (state.entersTier) after.proficiency += ruleset.proficiency?.perTier ?? 0;
   if (typedThresholds) {

@@ -33,6 +33,7 @@ import {
   classes,
   domainCards,
   playSessions,
+  subclasses,
   type LevelUpCards,
 } from '../db/schema';
 import { httpError } from '../http/errors';
@@ -73,6 +74,10 @@ function columnsOf(row: CharacterRow): LevelUpColumns {
     minorThreshold: row.minorThreshold,
     majorThreshold: row.majorThreshold,
     severeThreshold: row.severeThreshold,
+    multiclassClassId: row.multiclassClassId,
+    multiclassDomainId: row.multiclassDomainId,
+    multiclassSubclassId: row.multiclassSubclassId,
+    multiclassSubclassCards: row.multiclassSubclassCards,
   };
 }
 
@@ -124,7 +129,12 @@ export async function levelUp(
       .where(and(eq(classes.id, row.classId), eq(classes.campaignId, scope.campaignId)));
     if (cls === undefined) throw httpError(400, LEVEL_UP_MESSAGES.needsClass);
 
-    const state = levelUpState(await levelUpHistory(tx, scope, characterId), row.level, ruleset);
+    const state = levelUpState(
+      await levelUpHistory(tx, scope, characterId),
+      row.level,
+      ruleset,
+      row.multiclassClassId !== null,
+    );
     const before = columnsOf(row);
     const traits = Object.fromEntries(
       ruleset.traits.map((trait) => [trait.id, row.traits[trait.id] ?? 0]),
@@ -146,6 +156,20 @@ export async function levelUp(
       })
       .from(domainCards)
       .where(eq(domainCards.campaignId, scope.campaignId));
+    // The campaign's classes, to pick a second class from (F4.10).
+    const classRows = await tx
+      .select({
+        id: classes.id,
+        name: classes.name,
+        domain1Id: classes.domain1Id,
+        domain2Id: classes.domain2Id,
+      })
+      .from(classes)
+      .where(eq(classes.campaignId, scope.campaignId));
+    const subclassRows = await tx
+      .select({ id: subclasses.id, classId: subclasses.classId })
+      .from(subclasses)
+      .where(eq(subclasses.campaignId, scope.campaignId));
     const problem = levelUpProblem(
       request,
       state,
@@ -155,6 +179,21 @@ export async function levelUp(
         domainIds: [cls.domain1Id, cls.domain2Id],
         cards,
         heldIds: held.map((entry) => entry.cardId),
+        classId: row.classId,
+        classes: classRows.map((one) => ({
+          id: one.id,
+          name: one.name,
+          domainIds: [one.domain1Id, one.domain2Id],
+          subclassIds: subclassRows.filter((sub) => sub.classId === one.id).map((sub) => sub.id),
+        })),
+        multiclass:
+          row.multiclassClassId === null
+            ? null
+            : {
+                domainId: row.multiclassDomainId,
+                subclassId: row.multiclassSubclassId,
+                subclassCards: row.multiclassSubclassCards,
+              },
       },
       ruleset,
     );
