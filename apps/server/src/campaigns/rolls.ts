@@ -99,6 +99,9 @@ const sceneLoadEventSchema = z.object({ name: z.string() });
 /** The GM turned Rest on or off (F4.7). */
 export const restEventSchema = z.object({ on: z.boolean() });
 /** A PC brought a domain card back from the vault (F4.7). */
+/** A PC levelled up (F4.9). */
+const levelUpEventSchema = z.object({ characterName: z.string(), level: z.int() });
+
 /** A track a player (or the GM) marked on a sheet (D-67). */
 export const trackAdjustEventSchema = z.object({
   characterId: z.uuid(),
@@ -727,6 +730,12 @@ function logText(
       const paid = rest ? 'free (Rest)' : stress === 0 ? 'free' : `for ${String(stress)} Stress`;
       const swap = swappedOut === null ? '' : `, putting ${swappedOut} in the vault`;
       return `${characterName} brought ${cardName} back from the vault ${paid}${swap}`;
+    }
+    case 'level_up': {
+      const up = levelUpEventSchema.safeParse(data);
+      return up.success
+        ? `${up.data.characterName} reached level ${String(up.data.level)}`
+        : 'Levelled up';
     }
     case 'track_adjust': {
       const track = trackAdjustEventSchema.safeParse(data);

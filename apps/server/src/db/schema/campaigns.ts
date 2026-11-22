@@ -199,6 +199,8 @@ export const characters = pgTable(
     needsGuide: boolean('needs_guide').default(false).notNull(),
     /** When the creation guide last finished it; null for a sheet typed by hand. */
     builtAt: timestamp('built_at', { withTimezone: true }),
+    /** The GM granted the next level and the player hasn't levelled up yet (F4.9, D-68). */
+    levelUpGranted: boolean('level_up_granted').default(false).notNull(),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })

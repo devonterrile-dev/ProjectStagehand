@@ -220,6 +220,29 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     gmOnly: false,
     payload: { to: 'vault' },
   },
+  // Leveling up (F4.9): the GM grants and undoes; the PC's player or the GM levels up.
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/grant-level',
+    gmOnly: true,
+    payload: { granted: false },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/level-up',
+    gmOnly: false,
+    payload: {
+      picks: [],
+      cardId: '00000000-0000-4000-8000-000000000001',
+      extraCardId: null,
+      swap: null,
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/level-ups/undo',
+    gmOnly: true,
+  },
   // Tracks (D-67): the PC's player or the GM.
   {
     method: 'POST',

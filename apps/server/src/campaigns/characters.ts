@@ -29,6 +29,7 @@ import type { Database } from '../db/client';
 import { campaignMembers, characters } from '../db/schema';
 import { httpError } from '../http/errors';
 
+import { levelUpHistory } from './level-up-history';
 import { assignCharacterIn, type DbOrTx } from './members';
 import { requireInventoryItems } from './record-links';
 import type { CampaignScope } from './scope';
@@ -102,6 +103,10 @@ export async function toCharacterSheet(
     cards,
     needsGuide: row.needsGuide,
     builtAt: row.builtAt?.toISOString() ?? null,
+    levelUp: {
+      granted: row.levelUpGranted,
+      history: await levelUpHistory(db, scope, row.id),
+    },
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   });
@@ -148,6 +153,8 @@ function toPlayerCharacterSheet(sheet: CharacterSheet): PlayerCharacterSheet {
     // Whether the creation guide is waiting, and when it last finished (F4.8).
     needsGuide: sheet.needsGuide,
     builtAt: sheet.builtAt,
+    // A level granted, and the level-ups taken (F4.9).
+    levelUp: sheet.levelUp,
     createdAt: sheet.createdAt,
     updatedAt: sheet.updatedAt,
   });

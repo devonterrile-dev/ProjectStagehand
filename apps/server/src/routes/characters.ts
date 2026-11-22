@@ -2,6 +2,8 @@ import {
   addHeldCardRequestSchema,
   buildCharacterRequestSchema,
   characterTracksRequestSchema,
+  grantLevelRequestSchema,
+  levelUpRequestSchema,
   createCharacterRequestSchema,
   moveHeldCardRequestSchema,
   setNeedsGuideRequestSchema,
@@ -13,6 +15,7 @@ import type { Auth } from '../auth/auth';
 import { buildCharacter, setNeedsGuide } from '../campaigns/character-build';
 import { addHeldCard, moveHeldCard, removeHeldCard } from '../campaigns/character-cards';
 import { setTracks } from '../campaigns/character-tracks';
+import { grantLevel, levelUp, undoLevelUp } from '../campaigns/level-ups';
 import {
   createCharacter,
   deleteCharacter,
@@ -153,6 +156,52 @@ export function registerCharacterRoutes(
       if (!parsed.success) return sendValidationError(reply, parsed.error);
       const change = await moveHeldCard(deps.db, scope, id, card, parsed.data);
       return afterCards(request, id, change.logged);
+    },
+  );
+
+  // Leveling up (F4.9): the GM grants a level and can undo the latest; the PC's own player, or
+  // the GM, levels up.
+  app.post(
+    '/api/campaigns/:campaignId/characters/:characterId/grant-level',
+    { preHandler },
+    async (request, reply) => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      assertWritable(scope);
+      const id = characterId(request);
+      const parsed = grantLevelRequestSchema.safeParse(request.body);
+      if (!parsed.success) return sendValidationError(reply, parsed.error);
+      await grantLevel(deps.db, scope, id, parsed.data.granted);
+      return afterCards(request, id, false);
+    },
+  );
+
+  app.post(
+    '/api/campaigns/:campaignId/characters/:characterId/level-up',
+    { preHandler },
+    async (request, reply) => {
+      const scope = campaignOf(request);
+      assertWritable(scope);
+      const id = characterId(request);
+      const parsed = levelUpRequestSchema.safeParse(request.body);
+      if (!parsed.success) return sendValidationError(reply, parsed.error);
+      const { logged } = await levelUp(deps.db, scope, id, parsed.data);
+      deps.live.stageChanged(scope);
+      return afterCards(request, id, logged);
+    },
+  );
+
+  app.post(
+    '/api/campaigns/:campaignId/characters/:characterId/level-ups/undo',
+    { preHandler },
+    async (request) => {
+      const scope = campaignOf(request);
+      assertGm(scope);
+      assertWritable(scope);
+      const id = characterId(request);
+      await undoLevelUp(deps.db, scope, id);
+      deps.live.stageChanged(scope);
+      return afterCards(request, id, false);
     },
   );
 

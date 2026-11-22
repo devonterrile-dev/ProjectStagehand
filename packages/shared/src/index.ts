@@ -166,6 +166,26 @@ export {
   type StoredSheet,
 } from './sheet-build';
 export {
+  grantLevelRequestSchema,
+  LEVEL_UP_MESSAGES,
+  levelUpEffects,
+  levelUpEntrySchema,
+  levelUpPickSchema,
+  levelUpProblem,
+  levelUpRequestSchema,
+  levelUpState,
+  sheetLevelUpSchema,
+  type GrantLevelRequest,
+  type LevelUpColumns,
+  type LevelUpContext,
+  type LevelUpEntry,
+  type LevelUpListOption,
+  type LevelUpPick,
+  type LevelUpRequest,
+  type LevelUpState,
+  type SheetLevelUp,
+} from './level-ups';
+export {
   BUILD_MESSAGES,
   buildCharacterRequestSchema,
   creationCardProblem,
@@ -585,9 +605,12 @@ export {
 } from './record-search';
 export {
   DEFAULT_RULESET_VERSION,
+  LEVEL_UP_OPTION_IDS,
   RULESETS,
   rulesetFor,
   traitIdsOf,
+  type LevelUpOptionId,
+  type LevelUpOptionRule,
   type Ruleset,
   type RulesetTier,
   type RulesetTrait,

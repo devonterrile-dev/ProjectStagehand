@@ -12,6 +12,14 @@ import {
   setNeedsGuideRequestSchema,
   characterTracksRequestSchema,
   TRACK_KEYS,
+  grantLevelRequestSchema,
+  LEVEL_UP_MESSAGES,
+  levelUpEffects,
+  levelUpProblem,
+  levelUpRequestSchema,
+  levelUpState,
+  type CardPlace,
+  type LevelUpColumns,
   buildSheet,
   characterSheetPatchSchemaFor,
   LOADOUT_FULL,
@@ -192,6 +200,7 @@ export function characterSheet(overrides: Partial<CharacterSheet> = {}): Charact
     combatOptions: [],
     needsGuide: false,
     builtAt: null,
+    levelUp: { granted: false, history: [] },
     createdAt: '2026-11-10T10:00:00.000Z',
     updatedAt: '2026-11-10T10:00:00.000Z',
     ...overrides,
@@ -832,6 +841,129 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     return Response.json(isGm ? built : playerCharacterSheetSchema.parse(built));
   };
 
+  /** The values before each level-up, by character, for undo (F4.9). */
+  const levelUpBefore = new Map<
+    string,
+    {
+      columns: LevelUpColumns;
+      held: { cardId: string; place: CardPlace; takenAtLevel: number }[];
+    }[]
+  >();
+
+  /** Leveling up (F4.9): grant (GM), level up (the PC's player or the GM), undo (GM). */
+  const respondLevelUps = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const match = /^\/characters\/([^/]+)\/(grant-level|level-up|level-ups\/undo)$/.exec(rest);
+    if (match === null || method !== 'POST') return null;
+    const [, characterId = '', action] = match;
+    const sheet = d.characters.find((c) => c.id === characterId);
+    const isGm = found.role === 'gm';
+    if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+    if (sheet === undefined || (!isGm && holderOf(d, sheet.id) !== me?.id)) {
+      return notFound('Character not found');
+    }
+    if (action !== 'level-up' && !isGm) return refused(403, 'Only the GM can do that');
+    const ruleset = rulesetFor(found.rulesetVersion);
+    const answer = () => {
+      const built = { ...rebuilt(found, sheet), assignedToUserId: holderOf(d, sheet.id) };
+      return Response.json(isGm ? built : playerCharacterSheetSchema.parse(built));
+    };
+    const held = gameplay.heldOf(sheet.id);
+    const before = levelUpBefore.get(sheet.id) ?? [];
+    levelUpBefore.set(sheet.id, before);
+
+    if (action === 'grant-level') {
+      const parsed = grantLevelRequestSchema.safeParse(rawBody);
+      if (!parsed.success) return invalid(parsed.error.issues);
+      if (parsed.data.granted) {
+        if (sheet.level >= (ruleset.levels?.max ?? sheet.level)) {
+          return refused(409, LEVEL_UP_MESSAGES.maxLevel);
+        }
+        if (sheet.links.classId === null) return refused(400, LEVEL_UP_MESSAGES.needsClass);
+        if (sheet.levelUp.granted) return refused(409, LEVEL_UP_MESSAGES.alreadyGranted);
+      }
+      sheet.levelUp = { ...sheet.levelUp, granted: parsed.data.granted };
+      return answer();
+    }
+    if (action === 'level-ups/undo') {
+      const last = before.pop();
+      if (last === undefined) return refused(409, LEVEL_UP_MESSAGES.noLevelUp);
+      Object.assign(sheet, last.columns);
+      held.splice(0, held.length, ...last.held);
+      sheet.levelUp = { granted: true, history: sheet.levelUp.history.slice(0, -1) };
+      return answer();
+    }
+
+    const parsed = levelUpRequestSchema.safeParse(rawBody);
+    if (!parsed.success) return invalid(parsed.error.issues);
+    if (!sheet.levelUp.granted) return refused(409, LEVEL_UP_MESSAGES.noGrant);
+    const domainIds =
+      sheet.links.classId === null
+        ? undefined
+        : gameplay.classDomainIds(found.id, sheet.links.classId);
+    if (domainIds === undefined) return refused(400, LEVEL_UP_MESSAGES.needsClass);
+    const state = levelUpState(sheet.levelUp.history, sheet.level, ruleset);
+    const problem = levelUpProblem(
+      parsed.data,
+      state,
+      {
+        traits: sheet.traits,
+        subclassCards: sheet.links.subclassId === null ? null : sheet.links.subclassCards,
+        domainIds,
+        cards: gameplay.cardList(found.id),
+        heldIds: held.map((entry) => entry.cardId),
+      },
+      ruleset,
+    );
+    if (problem !== null) return refused(400, problem);
+    const columns = {
+      level: sheet.level,
+      traits: { ...sheet.traits },
+      hpMax: sheet.hpMax,
+      hpCurrent: sheet.hpCurrent,
+      stressMax: sheet.stressMax,
+      hopeBonus: sheet.hopeBonus,
+      evasion: sheet.evasion,
+      proficiency: sheet.proficiency,
+      subclassCards: sheet.links.subclassCards,
+      minorThreshold: sheet.minorThreshold,
+      majorThreshold: sheet.majorThreshold,
+      severeThreshold: sheet.severeThreshold,
+    };
+    before.push({ columns, held: held.map((entry) => ({ ...entry })) });
+    const typed = sheet.links.armorId === null && !(sheet.builtAt !== null && sheet.armor === null);
+    const { subclassCards, ...after } = levelUpEffects(parsed.data, state, columns, typed, ruleset);
+    Object.assign(sheet, after);
+    sheet.links = { ...sheet.links, subclassCards };
+    const max = loadoutMaxOf(ruleset);
+    for (const cardId of [
+      parsed.data.cardId,
+      ...(parsed.data.extraCardId === null ? [] : [parsed.data.extraCardId]),
+    ]) {
+      const inLoadout = held.filter((entry) => entry.place === 'loadout').length;
+      held.push({
+        cardId,
+        place: inLoadout < max ? 'loadout' : 'vault',
+        takenAtLevel: after.level,
+      });
+    }
+    const swap = parsed.data.swap;
+    const out = swap === null ? undefined : held.find((entry) => entry.cardId === swap.outId);
+    if (swap !== null && out !== undefined) {
+      held.splice(held.indexOf(out), 1, { ...out, cardId: swap.inId, takenAtLevel: after.level });
+    }
+    sheet.levelUp = {
+      granted: false,
+      history: [...sheet.levelUp.history, { level: after.level, picks: parsed.data.picks }],
+    };
+    return answer();
+  };
+
   /** Hope, HP, Stress and marked armor slots (D-67): the PC's own player, or the GM. */
   const respondTracks = (
     found: Campaign,
@@ -882,6 +1014,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     if (guide !== null) return guide;
     const tracks = respondTracks(found, d, rest, method, rawBody);
     if (tracks !== null) return tracks;
+    const levels = respondLevelUps(found, d, rest, method, rawBody);
+    if (levels !== null) return levels;
     const sheetMatch = /^\/characters\/([^/]+)$/.exec(rest);
     if (sheetMatch === null) return null;
     const sheet = d.characters.find((c) => c.id === sheetMatch[1]);

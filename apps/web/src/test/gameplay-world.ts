@@ -1089,5 +1089,27 @@ export function gameplayWorld(options: GameplayWorldOptions, ctx: Ctx) {
     return { cls, equipped, items, gold, cardIds: request.cardIds };
   }
 
-  return { respond, created, sheetRecords, heldOf, cardById, checkBuild };
+  /** A class's domains (F4.9); undefined when the class isn't the campaign's. */
+  const classDomainIds = (campaignId: string, classId: string) =>
+    classesOf(campaignId).find((one) => one.id === classId)?.domainIds;
+
+  /** Every card of the campaign, as the level-up rules read them (F4.9). */
+  const cardList = (campaignId: string) =>
+    cardsOf(campaignId).map((card) => ({
+      id: card.id,
+      name: card.name,
+      domainId: card.domainId,
+      level: card.level,
+    }));
+
+  return {
+    respond,
+    created,
+    sheetRecords,
+    heldOf,
+    cardById,
+    checkBuild,
+    classDomainIds,
+    cardList,
+  };
 }

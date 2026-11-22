@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.json && pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rules": "vitest run --project shared --coverage --coverage.include=src/rules.ts --coverage.thresholds.100",
+    "test:rules": "vitest run --project shared --coverage --coverage.include=src/rules.ts --coverage.include=src/level-ups.ts --coverage.thresholds.100",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "eval": "pnpm --filter @stagehand/server eval",
     "style:sample": "pnpm --filter @stagehand/server style:sample",

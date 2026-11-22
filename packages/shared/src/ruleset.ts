@@ -24,6 +24,34 @@ export interface RulesetTier {
   readonly maxLevel: number;
 }
 
+/** The level-up options (§9 "Leveling up", F4.9). */
+export const LEVEL_UP_OPTION_IDS = [
+  'traits',
+  'hp',
+  'stress',
+  'hopeBonus',
+  'domainCard',
+  'evasion',
+  'subclass',
+  'proficiency',
+  'multiclass',
+] as const;
+export type LevelUpOptionId = (typeof LEVEL_UP_OPTION_IDS)[number];
+
+/** One level-up option, as each tier's list offers it. */
+export interface LevelUpOptionRule {
+  readonly id: LevelUpOptionId;
+  readonly label: string;
+  /** The tiers whose lists have it. */
+  readonly tiers: readonly number[];
+  /** How many times each of those lists offers it. */
+  readonly count: number;
+  /** Two marks: one pick at each of two level-ups in the same tier, applied on the second. */
+  readonly marks: 1 | 2;
+  /** False for an option that can't be picked yet (multiclassing arrives with F4.10). */
+  readonly pickable: boolean;
+}
+
 export interface Ruleset {
   readonly version: number;
   /** The six traits in display order; each PC has a modifier for every one. */
@@ -58,7 +86,24 @@ export interface Ruleset {
   readonly start?: { readonly hope: number; readonly stressSlots: number };
   /** Level-1 cards picked at creation, and most cards in the loadout. */
   readonly domainCards?: { readonly atCreation: number; readonly loadoutMax: number };
+  /** Options picked at each level-up (F4.9). */
+  readonly levelUpPicks?: number;
+  /** The level-up options and each tier list's counts (F4.9, §9). */
+  readonly levelUpOptions?: readonly LevelUpOptionRule[];
 }
+
+const option = (
+  id: LevelUpOptionId,
+  label: string,
+  tiers: readonly number[],
+  count: number,
+  marks: 1 | 2 = 1,
+  pickable = true,
+): LevelUpOptionRule =>
+  Object.freeze({ id, label, tiers: Object.freeze([...tiers]), count, marks, pickable });
+
+const ALL_TIERS = [2, 3, 4] as const;
+const FROM_TIER_3 = [3, 4] as const;
 
 const TRAITS: readonly RulesetTrait[] = Object.freeze([
   Object.freeze({ id: 'agility', label: 'Agility' }),
@@ -101,6 +146,18 @@ const RULESET_V2: Ruleset = Object.freeze({
   creationTraitSpread: Object.freeze([2, 1, 1, 0, 0, -1]),
   start: Object.freeze({ hope: 0, stressSlots: 6 }),
   domainCards: Object.freeze({ atCreation: 2, loadoutMax: 5 }),
+  levelUpPicks: 2,
+  levelUpOptions: Object.freeze([
+    option('traits', '+1 to two unmarked traits, and mark them', ALL_TIERS, 3),
+    option('hp', 'One more HP slot', ALL_TIERS, 2),
+    option('stress', 'One more Stress slot', ALL_TIERS, 2),
+    option('hopeBonus', '+1 to your Hope bonus', ALL_TIERS, 1),
+    option('domainCard', 'An extra domain card of your level or lower', ALL_TIERS, 1),
+    option('evasion', '+1 Evasion', ALL_TIERS, 1),
+    option('subclass', 'Upgrade your subclass card (specialization, then mastery)', FROM_TIER_3, 1),
+    option('proficiency', '+1 Proficiency (two marks)', FROM_TIER_3, 1, 2),
+    option('multiclass', 'Multiclass (two marks): coming with F4.10', FROM_TIER_3, 1, 2, false),
+  ]),
 });
 
 /** Every published ruleset, by version. */

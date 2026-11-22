@@ -13,6 +13,7 @@
 import { z } from 'zod';
 
 import { characterNameSchema } from './characters';
+import { sheetLevelUpSchema } from './level-ups';
 import { richTextSchema } from './rich-text';
 import { traitIdsOf, type Ruleset } from './ruleset';
 import {
@@ -104,6 +105,8 @@ export const characterSheetSchema = z.object({
   needsGuide: z.boolean(),
   /** When the creation guide last finished it; null for a sheet typed by hand. */
   builtAt: timestamp.nullable(),
+  /** A level granted and waiting, and the level-ups taken (F4.9). */
+  levelUp: sheetLevelUpSchema,
 
   createdAt: timestamp,
   updatedAt: timestamp,
@@ -147,6 +150,7 @@ const PLAYER_SHEET_KEYS = {
   cards: true,
   needsGuide: true,
   builtAt: true,
+  levelUp: true,
   createdAt: true,
   updatedAt: true,
 } as const;
