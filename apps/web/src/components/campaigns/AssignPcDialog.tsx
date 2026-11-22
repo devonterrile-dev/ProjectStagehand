@@ -1,4 +1,4 @@
-import { characterNameSchema, type Member } from '@stagehand/shared';
+import { characterNameSchema, STARTING_CHARACTER_NAME, type Member } from '@stagehand/shared';
 import { useState, type SubmitEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -55,7 +55,8 @@ function AssignPcForm({
   const assign = useAssignCharacter(campaignId);
   const create = useCreateCharacter(campaignId);
   const [choice, setChoice] = useState<string>(player.character?.id ?? NEW);
-  const [name, setName] = useState('');
+  // The player renames their PC in the creation guide (F4.8).
+  const [name, setName] = useState(STARTING_CHARACTER_NAME);
   const [error, setError] = useState<string | null>(null);
   const saving = assign.isPending || create.isPending;
 

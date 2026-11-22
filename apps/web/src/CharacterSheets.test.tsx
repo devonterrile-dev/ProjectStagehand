@@ -351,6 +351,11 @@ describe('Characters on the campaign page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'New PC' }));
     const dialog = await screen.findByRole('dialog');
+    // Its player names it in the creation guide (F4.8).
+    expect(within(dialog).getByLabelText('Character name')).toHaveProperty(
+      'value',
+      'Starting Character',
+    );
     fireEvent.change(within(dialog).getByLabelText('Character name'), {
       target: { value: 'Nyx' },
     });

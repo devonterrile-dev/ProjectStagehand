@@ -174,6 +174,10 @@ describe('Members and PCs', () => {
     renderAt(`/campaigns/${coast.id}`);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Set PC for Tomas' }));
+    // A new PC starts as "Starting Character" (F4.8); clearing the name is refused.
+    const name = await screen.findByRole('textbox', { name: /name/i });
+    expect(name).toHaveProperty('value', 'Starting Character');
+    fireEvent.change(name, { target: { value: '' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Save PC' }));
 
     expect(await screen.findByRole('alert')).toHaveProperty(

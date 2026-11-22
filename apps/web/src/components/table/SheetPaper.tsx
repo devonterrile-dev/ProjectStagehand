@@ -145,7 +145,14 @@ export function SheetPaper({ sheet, ruleset, call, onRoll, onBack, tray }: Sheet
         {sheet === null && (
           <p className="text-stone-600">Your sheet can&apos;t be read right now.</p>
         )}
-        {sheet != null && <CharacterSheetView sheet={sheet} ruleset={ruleset} />}
+        {sheet?.needsGuide === true && (
+          <p className="text-lg">
+            Your character isn&apos;t built yet. Build it on the site, from the campaign page.
+          </p>
+        )}
+        {sheet != null && !sheet.needsGuide && (
+          <CharacterSheetView sheet={sheet} ruleset={ruleset} />
+        )}
       </div>
     </section>
   );

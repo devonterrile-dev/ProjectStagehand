@@ -2,6 +2,7 @@ import { loadoutMaxOf, rulesetFor, type Campaign } from '@stagehand/shared';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { CharacterSheetForm } from '@/components/sheets/CharacterSheetForm';
+import { Button } from '@/components/ui/button';
 import { CharacterSheetView } from '@/components/sheets/CharacterSheetView';
 import { DomainPiles, FeatureSideCards } from '@/components/sheets/SideCards';
 import { VisualCard } from '@/components/visuals/VisualCard';
@@ -13,6 +14,7 @@ import {
   useOwnCharacterSheet,
 } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
+import { characterBuildPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
@@ -121,6 +123,20 @@ function PlayerSheet({ campaign, characterId }: { campaign: Campaign; characterI
 
   const ruleset = rulesetFor(campaign.rulesetVersion);
   const held = sheet.cards.loadout.length + sheet.cards.vault.length;
+
+  // A PC waiting for the creation guide (F4.8) is built first.
+  if (sheet.needsGuide && campaign.archivedAt === null) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <BackLink campaign={campaign} />
+        <h1 className="text-2xl font-bold">{sheet.name}</h1>
+        <p>Your GM has given you this character to build, a step at a time.</p>
+        <Button asChild>
+          <Link to={characterBuildPath(campaign.id, sheet.id)}>Build your character</Link>
+        </Button>
+      </div>
+    );
+  }
 
   // On a wide screen the domain card piles lie left of the sheet and the subclass and ancestry
   // cards right of it (F4.7); on a narrow one they follow it.

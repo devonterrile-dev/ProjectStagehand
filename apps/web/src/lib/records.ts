@@ -28,6 +28,11 @@ export function characterPath(campaignId: string, characterId: string): string {
   return `/campaigns/${campaignId}/characters/${characterId}`;
 }
 
+/** A PC's creation guide (F4.8). */
+export function characterBuildPath(campaignId: string, characterId: string): string {
+  return `${characterPath(campaignId, characterId)}/build`;
+}
+
 /**
  * The gameplay section (F4.3): domains and their cards, weapons and armor (F4.4), classes and
  * subclasses (F4.5), species (F4.6), and the GM's stat blocks.

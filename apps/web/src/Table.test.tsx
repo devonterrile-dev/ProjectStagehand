@@ -847,3 +847,24 @@ describe('The cards beside the sheet page (F4.7)', () => {
     expect(await loadout.findByText('2 of 5')).toBeDefined();
   });
 });
+
+describe('An unbuilt PC at the table (F4.8)', () => {
+  it('tells the player to build their character on the site, with no cards beside the page', async () => {
+    const coast = campaign({ name: 'Painted Coast', role: 'player' });
+    mockApi(MIRA, [coast], {
+      campaignData: {
+        [coast.id]: {
+          characters: [{ id: uuid(), name: 'Vex', needsGuide: true, assignedToUserId: MIRA.id }],
+        },
+      },
+    });
+    await seated(coast, playerStage());
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    expect(
+      await screen.findByText(
+        "Your character isn't built yet. Build it on the site, from the campaign page.",
+      ),
+    ).toBeDefined();
+    expect(props().table?.sheet?.cards).toBeNull();
+  });
+});

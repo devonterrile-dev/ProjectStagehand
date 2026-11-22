@@ -190,7 +190,8 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
   // its right. Moving a card is the same request as on the site; the sheet comes back with it.
   const sideCards = useMemo((): SheetSideCards | null => {
     const cards = sheet.data?.cards;
-    if (cards === undefined) return null;
+    // A PC waiting for the creation guide (F4.8) has no cards to lay out yet.
+    if (cards === undefined || sheet.data?.needsGuide === true) return null;
     const actions = canWrite
       ? {
           onMove: (cardId: string, to: CardPlace, swapOut?: string) =>
@@ -218,7 +219,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
           : card(<SubclassCard subclass={cards.subclass} ruleset={ruleset} />),
       ancestry: cards.species.length === 0 ? null : card(<AncestryCard species={cards.species} />),
     };
-  }, [sheet.data?.cards, canWrite, moveCard, ruleset, rest]);
+  }, [sheet.data?.cards, sheet.data?.needsGuide, canWrite, moveCard, ruleset, rest]);
 
   const scene = useMemo((): TableScene => {
     const imageUrl = (image: Parameters<typeof stageImageUrl>[1]) =>

@@ -1,4 +1,9 @@
-import { CHARACTER_NAME_MAX, characterNameSchema, type Campaign } from '@stagehand/shared';
+import {
+  CHARACTER_NAME_MAX,
+  characterNameSchema,
+  STARTING_CHARACTER_NAME as STARTING_NAME,
+  type Campaign,
+} from '@stagehand/shared';
 import { PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
@@ -6,8 +11,14 @@ import { Link, useNavigate } from 'react-router';
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useCharacters, useCreateCharacter, useMe, useMembers } from '@/lib/queries';
-import { characterPath } from '@/lib/records';
+import {
+  useCharacters,
+  useCreateCharacter,
+  useMe,
+  useMembers,
+  useOwnCharacterSheet,
+} from '@/lib/queries';
+import { characterBuildPath, characterPath } from '@/lib/records';
 
 /**
  * PCs on the campaign page. The GM sees every PC, assigned or not, and can create one;
@@ -88,9 +99,10 @@ function GmCharacters({ campaign }: { campaign: Campaign }) {
         open={creating}
         onOpenChange={setCreating}
         title="New PC"
-        description="Give the PC a name. You can fill in the sheet and assign a player after."
+        description="Give the PC a name. Its player builds it with the creation guide, and names it there."
         submitLabel="Create PC"
         label="Character name"
+        initialName={STARTING_NAME}
         schema={characterNameSchema}
         maxLength={CHARACTER_NAME_MAX}
         onSave={async (name) => {
@@ -106,6 +118,9 @@ function YourCharacter({ campaign }: { campaign: Campaign }) {
   const { data: me } = useMe();
   const { data: members } = useMembers(campaign.id);
   const mine = members?.find((member) => member.userId === me?.id)?.character ?? null;
+  // A PC waiting for the creation guide (F4.8) is built before its sheet is read.
+  const sheet = useOwnCharacterSheet(campaign.id, mine?.id ?? '', mine !== null).data;
+  const unbuilt = sheet?.needsGuide === true && campaign.archivedAt === null;
 
   return (
     <Card>
@@ -115,14 +130,23 @@ function YourCharacter({ campaign }: { campaign: Campaign }) {
             <h2 className="text-xl">Your character</h2>
           </CardTitle>
           <CardDescription>
-            {mine === null ? "The GM hasn't given you a PC yet." : mine.name}
+            {mine === null
+              ? "The GM hasn't given you a PC yet."
+              : unbuilt
+                ? `${mine.name}: waiting for you to build them.`
+                : mine.name}
           </CardDescription>
         </div>
-        {mine !== null && (
-          <Button asChild size="sm" variant="outline">
-            <Link to={characterPath(campaign.id, mine.id)}>Open sheet</Link>
-          </Button>
-        )}
+        {mine !== null &&
+          (unbuilt ? (
+            <Button asChild size="sm">
+              <Link to={characterBuildPath(campaign.id, mine.id)}>Build your character</Link>
+            </Button>
+          ) : (
+            <Button asChild size="sm" variant="outline">
+              <Link to={characterPath(campaign.id, mine.id)}>Open sheet</Link>
+            </Button>
+          ))}
       </CardHeader>
     </Card>
   );

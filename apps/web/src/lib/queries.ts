@@ -45,6 +45,8 @@ import type {
   UpdateSpeciesRequest,
   UpdateSubclassRequest,
   UpdateWeaponRequest,
+  BuildCharacterRequest,
+  StartingGear,
 } from '@stagehand/shared';
 import {
   keepPreviousData,
@@ -170,6 +172,10 @@ import {
   patchSpecies,
   patchSubclass,
   patchWeapon,
+  buildCharacter,
+  fetchStartingGear,
+  putStartingGear,
+  setNeedsGuide,
 } from './api';
 import { signOut } from './auth-client';
 
@@ -558,6 +564,54 @@ export function useAddHeldCard(campaignId: string, characterId: string) {
     mutationFn: (input: AddHeldCardRequest) => addHeldCard(campaignId, characterId, input),
     onSuccess: (sheet) => {
       queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
+    },
+  });
+}
+
+/**
+ * The creation guide's Finish (F4.8). The sheet comes back for the caller's view; the lists
+ * (a new name) and the GM's view are read again.
+ */
+export function useBuildCharacter(campaignId: string, characterId: string, view: SheetView) {
+  const queryClient = useQueryClient();
+  const refetchLists = useRefetch(campaignId, 'characters', 'members');
+  return useMutation({
+    mutationFn: (input: BuildCharacterRequest) =>
+      buildCharacter(campaignId, characterId, input, view),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, view), sheet);
+      void queryClient.invalidateQueries({ queryKey: characterSheetKey(campaignId, characterId) });
+      refetchLists();
+    },
+  });
+}
+
+/** Sends a PC through the creation guide, or takes it back (GM, F4.8). */
+export function useSetNeedsGuide(campaignId: string, characterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (needsGuide: boolean) => setNeedsGuide(campaignId, characterId, needsGuide),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
+    },
+  });
+}
+
+/** The campaign's starting gear (F4.8). */
+export function useStartingGear(campaignId: string) {
+  return useQuery({
+    queryKey: gameplayKey(campaignId, 'starting-gear'),
+    queryFn: () => fetchStartingGear(campaignId),
+  });
+}
+
+/** Sets the starting gear (GM); the response becomes the cached setting. */
+export function usePutStartingGear(campaignId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (gear: StartingGear) => putStartingGear(campaignId, gear),
+    onSuccess: (gear) => {
+      queryClient.setQueryData(gameplayKey(campaignId, 'starting-gear'), gear);
     },
   });
 }

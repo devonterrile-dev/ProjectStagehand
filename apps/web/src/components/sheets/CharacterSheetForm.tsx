@@ -19,7 +19,8 @@ import {
   type InventoryItem,
   type Weapon,
 } from '@stagehand/shared';
-import { MoreHorizontalIcon, Trash2Icon } from 'lucide-react';
+import { MoreHorizontalIcon, Trash2Icon, WandSparklesIcon } from 'lucide-react';
+import { Link } from 'react-router';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -39,12 +40,14 @@ import { NativeSelect } from '@/components/ui/native-select';
 import {
   useAddHeldCard,
   useDeleteCharacter,
+  useSetNeedsGuide,
   useDomainCards,
   useMoveHeldCard,
   usePatchCharacter,
   useRecords,
   useRemoveHeldCard,
 } from '@/lib/queries';
+import { characterBuildPath } from '@/lib/records';
 import { useAutosave, type SendPatch } from '@/lib/useAutosave';
 
 import { formatModifier } from './format';
@@ -121,6 +124,9 @@ export function CharacterSheetForm({
   const latest = useRef<Partial<Record<Key, unknown>>>({});
   const [errors, setErrors] = useState<Partial<Record<Key, string | undefined>>>({});
   const [deleting, setDeleting] = useState(false);
+  const [sendingToGuide, setSendingToGuide] = useState(false);
+  const [skippingGuide, setSkippingGuide] = useState(false);
+  const guide = useSetNeedsGuide(campaign.id, sheet.id);
   const [linkError, setLinkError] = useState<string | null>(null);
   const built = sheet.built;
 
@@ -251,6 +257,16 @@ export function CharacterSheetForm({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {!sheet.needsGuide && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setSendingToGuide(true);
+                    }}
+                  >
+                    <WandSparklesIcon aria-hidden />
+                    Send through the creation guide…
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => {
@@ -265,6 +281,35 @@ export function CharacterSheetForm({
           )}
         </div>
       </div>
+
+      {sheet.needsGuide && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/60 bg-amber-50 px-4 py-3 text-sm dark:bg-amber-950/40"
+        >
+          <p>
+            Waiting for {playerName ?? 'its player'} to build this character with the creation
+            guide. The sheet changes when the guide finishes.
+          </p>
+          {!readOnly && (
+            <div className="flex gap-2">
+              <Button asChild size="sm">
+                <Link to={characterBuildPath(campaign.id, sheet.id)}>Run the guide for them</Link>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={guide.isPending}
+                onClick={() => {
+                  setSkippingGuide(true);
+                }}
+              >
+                Fill it in by hand instead…
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <Group title="Identity">
         <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
@@ -708,6 +753,39 @@ export function CharacterSheetForm({
         />
         <FieldError message={errors.gmNotes ?? null} />
       </Group>
+
+      {skippingGuide && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setSkippingGuide(false);
+          }}
+          title={`Fill in ${sheet.name} by hand?`}
+          description={`${playerName ?? 'Its player'} won't get the creation guide for this character: you fill in the sheet yourself. You can send them through the guide later with Send through the creation guide… in the ⋯ menu.`}
+          confirmLabel="Fill it in by hand"
+          onConfirm={async () => {
+            await guide.mutateAsync(false);
+            setSkippingGuide(false);
+          }}
+        />
+      )}
+
+      {sendingToGuide && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setSendingToGuide(false);
+          }}
+          title={`Send ${sheet.name} through the creation guide?`}
+          description={`${playerName ?? 'Its player'} builds a new level 1 character with the guide, or you can run it for them. When it finishes, the class, subclass, species, traits, level, weapons, armor and domain cards are replaced, and the starting items and gold are added to the inventory. Experiences, combat options, spare weapons and your notes stay. Nothing changes until then.`}
+          confirmLabel="Send through the guide"
+          onConfirm={async () => {
+            autosave.flush();
+            await guide.mutateAsync(true);
+            setSendingToGuide(false);
+          }}
+        />
+      )}
 
       {deleting && (
         <ConfirmDialog

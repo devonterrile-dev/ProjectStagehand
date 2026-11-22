@@ -13,6 +13,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { Button } from '@/components/ui/button';
+import { StartingGearSection } from '@/components/gameplay/StartingGearSection';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { domainsLabel } from '@/components/gameplay/labels';
 import {
@@ -134,6 +135,7 @@ function GameplayView({ campaign }: { campaign: Campaign }) {
       </Card>
 
       <GearCard campaign={campaign} />
+      {isGm && <StartingGearSection campaignId={campaign.id} canWrite={canWrite} />}
 
       {isGm && (
         <Card>

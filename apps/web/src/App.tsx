@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
 import { ArmorPage } from '@/pages/ArmorPage';
 import { CampaignPage } from '@/pages/CampaignPage';
+import { CharacterBuildPage } from '@/pages/CharacterBuildPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
 import { ClassPage } from '@/pages/ClassPage';
 import { DomainCardPage } from '@/pages/DomainCardPage';
@@ -126,6 +127,14 @@ export function App() {
           element={
             <RequireAuth>
               <CharacterSheetPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/characters/:characterId/build"
+          element={
+            <RequireAuth>
+              <CharacterBuildPage />
             </RequireAuth>
           }
         />

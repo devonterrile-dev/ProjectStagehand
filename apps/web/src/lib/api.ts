@@ -125,7 +125,10 @@ import {
   type UpdateSubclassRequest,
   weaponListResponseSchema,
   weaponRecordSchema,
+  startingGearSchema,
   type ArmorRecord,
+  type BuildCharacterRequest,
+  type StartingGear,
   type CreateArmorRequest,
   type CreateWeaponRequest,
   type UpdateArmorRequest,
@@ -535,6 +538,49 @@ export async function moveHeldCard<V extends 'gm' | 'player'>(
   return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
     body,
   ) as V extends 'gm' ? CharacterSheet : PlayerCharacterSheet;
+}
+
+/**
+ * The creation guide's Finish (F4.8): builds a PC waiting for the guide. The PC's own player, or
+ * the GM for them; each gets their own view of the sheet back.
+ */
+export async function buildCharacter<V extends 'gm' | 'player'>(
+  campaignId: string,
+  characterId: string,
+  input: BuildCharacterRequest,
+  view: V,
+): Promise<V extends 'gm' ? CharacterSheet : PlayerCharacterSheet> {
+  const response = await send(`${characterPath(campaignId, characterId)}/build`, 'POST', input);
+  const body: unknown = await response.json();
+  return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
+    body,
+  ) as V extends 'gm' ? CharacterSheet : PlayerCharacterSheet;
+}
+
+/** Sends a PC through the creation guide, or takes it back (F4.8). GM only. */
+export async function setNeedsGuide(
+  campaignId: string,
+  characterId: string,
+  needsGuide: boolean,
+): Promise<CharacterSheet> {
+  const response = await send(`${characterPath(campaignId, characterId)}/guide`, 'POST', {
+    needsGuide,
+  });
+  return characterSheetSchema.parse(await response.json());
+}
+
+/** The campaign's starting gear (F4.8): every member reads it. */
+export async function fetchStartingGear(campaignId: string): Promise<StartingGear> {
+  return startingGearSchema.parse(await getJson(campaignPath(campaignId, '/starting-gear')));
+}
+
+/** Sets the starting gear mode and kit. GM only. */
+export async function putStartingGear(
+  campaignId: string,
+  gear: StartingGear,
+): Promise<StartingGear> {
+  const response = await send(campaignPath(campaignId, '/starting-gear'), 'PUT', gear);
+  return startingGearSchema.parse(await response.json());
 }
 
 /** Deletes a PC for good; its player stays without one. GM only. */
