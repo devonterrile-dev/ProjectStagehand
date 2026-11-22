@@ -52,6 +52,12 @@ export function CharacterSheetView({
   const gold = sheet.gold;
   const hasGold = gold.handfuls + gold.bags + gold.chests > 0;
   const linkedClass = sheet.cards.class;
+  // Traits raised by a level-up in the PC's tier are marked until the next tier (F4.9).
+  const marked = new Set(
+    sheet.levelUp.history
+      .filter((entry) => tierOf(entry.level, ruleset) === tier)
+      .flatMap((entry) => entry.picks.flatMap((pick) => pick.traits ?? [])),
+  );
 
   return (
     <div className="space-y-4">
@@ -113,7 +119,16 @@ export function CharacterSheetView({
             <Rows
               items={ruleset.traits.map((trait) => [
                 trait.label,
-                formatModifier(built.traits[trait.id] ?? 0),
+                <>
+                  {formatModifier(built.traits[trait.id] ?? 0)}
+                  {marked.has(trait.id) && (
+                    <span
+                      title="Raised this tier: it can't be raised again until the next tier"
+                      aria-label="marked"
+                      className="ml-1 inline-block size-2 rounded-full bg-stone-700 align-middle"
+                    />
+                  )}
+                </>,
               ])}
             />
           </Group>

@@ -892,3 +892,29 @@ describe('Marking tracks on the sheet page (D-67)', () => {
     expect(sent.map(([, init]) => init?.body)).toEqual([JSON.stringify({ hope: 3 })]);
   });
 });
+
+describe('A granted level at the table (F4.9)', () => {
+  it('tells the player to level up on the site', async () => {
+    const coast = campaign({ name: 'Painted Coast', role: 'player' });
+    mockApi(MIRA, [coast], {
+      campaignData: {
+        [coast.id]: {
+          characters: [
+            {
+              id: uuid(),
+              name: 'Vex',
+              level: 2,
+              levelUp: { granted: true, history: [] },
+              assignedToUserId: MIRA.id,
+            },
+          ],
+        },
+      },
+    });
+    await seated(coast, playerStage());
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    expect(
+      await screen.findByText('Level 3 is waiting: level up on the site, from the campaign page.'),
+    ).toBeDefined();
+  });
+});

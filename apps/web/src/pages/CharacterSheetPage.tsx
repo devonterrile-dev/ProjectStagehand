@@ -15,7 +15,7 @@ import {
   useSetTracks,
 } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
-import { characterBuildPath } from '@/lib/records';
+import { characterBuildPath, characterLevelUpPath } from '@/lib/records';
 import { CampaignNotFound } from '@/pages/CampaignPage';
 
 /**
@@ -146,6 +146,19 @@ function PlayerSheet({ campaign, characterId }: { campaign: Campaign; characterI
     <div className="space-y-4">
       <div className="mx-auto max-w-3xl space-y-4">
         <BackLink campaign={campaign} />
+        {sheet.levelUp.granted && campaign.archivedAt === null && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-500/60 bg-sky-50 px-4 py-3 text-sm dark:bg-sky-950/40"
+          >
+            <p>Your GM has granted level {sheet.level + 1}.</p>
+            <Button asChild size="sm">
+              <Link to={characterLevelUpPath(campaign.id, sheet.id)}>
+                Level up to {sheet.level + 1}
+              </Link>
+            </Button>
+          </div>
+        )}
         <p className="text-sm text-muted-foreground">
           Your GM keeps this sheet up to date.
           {held > 0 &&

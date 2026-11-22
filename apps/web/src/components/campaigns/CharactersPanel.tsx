@@ -18,7 +18,7 @@ import {
   useMembers,
   useOwnCharacterSheet,
 } from '@/lib/queries';
-import { characterBuildPath, characterPath } from '@/lib/records';
+import { characterBuildPath, characterLevelUpPath, characterPath } from '@/lib/records';
 
 /**
  * PCs on the campaign page. The GM sees every PC, assigned or not, and can create one;
@@ -121,6 +121,11 @@ function YourCharacter({ campaign }: { campaign: Campaign }) {
   // A PC waiting for the creation guide (F4.8) is built before its sheet is read.
   const sheet = useOwnCharacterSheet(campaign.id, mine?.id ?? '', mine !== null).data;
   const unbuilt = sheet?.needsGuide === true && campaign.archivedAt === null;
+  // A level the GM granted waits for the level-up guide (F4.9).
+  const levelUp =
+    !unbuilt && sheet?.levelUp.granted === true && campaign.archivedAt === null
+      ? sheet.level + 1
+      : null;
 
   return (
     <Card>
@@ -142,6 +147,15 @@ function YourCharacter({ campaign }: { campaign: Campaign }) {
             <Button asChild size="sm">
               <Link to={characterBuildPath(campaign.id, mine.id)}>Build your character</Link>
             </Button>
+          ) : levelUp !== null ? (
+            <div className="flex gap-2">
+              <Button asChild size="sm">
+                <Link to={characterLevelUpPath(campaign.id, mine.id)}>Level up to {levelUp}</Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link to={characterPath(campaign.id, mine.id)}>Open sheet</Link>
+              </Button>
+            </div>
           ) : (
             <Button asChild size="sm" variant="outline">
               <Link to={characterPath(campaign.id, mine.id)}>Open sheet</Link>

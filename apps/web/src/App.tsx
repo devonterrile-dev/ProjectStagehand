@@ -8,6 +8,7 @@ import { ArmorPage } from '@/pages/ArmorPage';
 import { CampaignPage } from '@/pages/CampaignPage';
 import { CharacterBuildPage } from '@/pages/CharacterBuildPage';
 import { CharacterSheetPage } from '@/pages/CharacterSheetPage';
+import { LevelUpPage } from '@/pages/LevelUpPage';
 import { ClassPage } from '@/pages/ClassPage';
 import { DomainCardPage } from '@/pages/DomainCardPage';
 import { DomainPage } from '@/pages/DomainPage';
@@ -127,6 +128,14 @@ export function App() {
           element={
             <RequireAuth>
               <CharacterSheetPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/campaigns/:campaignId/characters/:characterId/level-up"
+          element={
+            <RequireAuth>
+              <LevelUpPage />
             </RequireAuth>
           }
         />

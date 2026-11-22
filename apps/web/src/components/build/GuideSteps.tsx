@@ -504,7 +504,8 @@ export function CardsStep({
   );
 }
 
-function CardPreview({ campaignId, card }: { campaignId: string; card: DomainCardSummary }) {
+/** A card drawn as a card once it loads; its domain and level meanwhile. */
+export function CardPreview({ campaignId, card }: { campaignId: string; card: DomainCardSummary }) {
   const full = useDomainCard(campaignId, card.id).data;
   if (full == null) {
     return (

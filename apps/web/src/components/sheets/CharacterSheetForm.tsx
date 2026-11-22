@@ -19,7 +19,7 @@ import {
   type InventoryItem,
   type Weapon,
 } from '@stagehand/shared';
-import { MoreHorizontalIcon, Trash2Icon, WandSparklesIcon } from 'lucide-react';
+import { MoreHorizontalIcon, Trash2Icon, Undo2Icon, WandSparklesIcon } from 'lucide-react';
 import { Link } from 'react-router';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 
@@ -40,14 +40,16 @@ import { NativeSelect } from '@/components/ui/native-select';
 import {
   useAddHeldCard,
   useDeleteCharacter,
+  useGrantLevel,
   useSetNeedsGuide,
+  useUndoLevelUp,
   useDomainCards,
   useMoveHeldCard,
   usePatchCharacter,
   useRecords,
   useRemoveHeldCard,
 } from '@/lib/queries';
-import { characterBuildPath } from '@/lib/records';
+import { characterBuildPath, characterLevelUpPath } from '@/lib/records';
 import { useAutosave, type SendPatch } from '@/lib/useAutosave';
 
 import { formatModifier } from './format';
@@ -126,6 +128,11 @@ export function CharacterSheetForm({
   const [deleting, setDeleting] = useState(false);
   const [sendingToGuide, setSendingToGuide] = useState(false);
   const [skippingGuide, setSkippingGuide] = useState(false);
+  const [undoingLevel, setUndoingLevel] = useState(false);
+  const grant = useGrantLevel(campaign.id, sheet.id);
+  const undoLevel = useUndoLevelUp(campaign.id, sheet.id);
+  const latestLevelUp = sheet.levelUp.history.at(-1) ?? null;
+  const levelMax = ruleset.levels?.max ?? sheet.level;
   const guide = useSetNeedsGuide(campaign.id, sheet.id);
   const [linkError, setLinkError] = useState<string | null>(null);
   const built = sheet.built;
@@ -257,6 +264,16 @@ export function CharacterSheetForm({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {latestLevelUp !== null && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setUndoingLevel(true);
+                    }}
+                  >
+                    <Undo2Icon aria-hidden />
+                    Undo level-up to {latestLevelUp.level}…
+                  </DropdownMenuItem>
+                )}
                 {!sheet.needsGuide && (
                   <DropdownMenuItem
                     onSelect={() => {
@@ -309,6 +326,20 @@ export function CharacterSheetForm({
             </div>
           )}
         </div>
+      )}
+
+      {!sheet.needsGuide && !readOnly && (
+        <LevelUpBar
+          campaignId={campaign.id}
+          sheet={sheet}
+          playerName={playerName}
+          levelMax={levelMax}
+          busy={grant.isPending}
+          error={grant.error?.message ?? null}
+          onGrant={(granted) => {
+            grant.mutate(granted);
+          }}
+        />
       )}
 
       <Group title="Identity">
@@ -754,6 +785,23 @@ export function CharacterSheetForm({
         <FieldError message={errors.gmNotes ?? null} />
       </Group>
 
+      {undoingLevel && latestLevelUp !== null && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setUndoingLevel(false);
+          }}
+          title={`Undo ${sheet.name}'s level-up to ${String(latestLevelUp.level)}?`}
+          description={`The sheet goes back to how it was before: level, traits, slots, evasion, Hope bonus, proficiency and thresholds. The cards it added are removed and any swap is reversed. The level stays granted, so ${playerName ?? 'the player'} can level up again.`}
+          confirmLabel="Undo level-up"
+          onConfirm={async () => {
+            autosave.flush();
+            await undoLevel.mutateAsync();
+            setUndoingLevel(false);
+          }}
+        />
+      )}
+
       {skippingGuide && (
         <ConfirmDialog
           open
@@ -807,6 +855,80 @@ export function CharacterSheetForm({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Leveling up (F4.9) on the GM's editor: Grant a level, or while one waits, who is levelling up,
+ * with Run the level-up for them and Withdraw. A PC without a linked class can't use the guide.
+ */
+function LevelUpBar({
+  campaignId,
+  sheet,
+  playerName,
+  levelMax,
+  busy,
+  error,
+  onGrant,
+}: {
+  campaignId: string;
+  sheet: CharacterSheet;
+  playerName: string | null;
+  levelMax: number;
+  busy: boolean;
+  error: string | null;
+  onGrant: (granted: boolean) => void;
+}) {
+  const next = sheet.level + 1;
+  if (sheet.levelUp.granted) {
+    return (
+      <div
+        role="status"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-500/60 bg-sky-50 px-4 py-3 text-sm dark:bg-sky-950/40"
+      >
+        <p>
+          Level {next} granted: waiting for {playerName ?? 'its player'} to level up with the guide.
+        </p>
+        <div className="flex gap-2">
+          <Button asChild size="sm">
+            <Link to={characterLevelUpPath(campaignId, sheet.id)}>Run the level-up for them</Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              onGrant(false);
+            }}
+          >
+            Withdraw
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (sheet.level >= levelMax) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      {sheet.links.classId === null ? (
+        <p className="text-muted-foreground">
+          Link a class (or send the character through the creation guide) to level up with the
+          guide.
+        </p>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => {
+            onGrant(true);
+          }}
+        >
+          Grant a level (to {next})
+        </Button>
+      )}
+      <FieldError message={error} />
     </div>
   );
 }

@@ -129,6 +129,7 @@ import {
   type ArmorRecord,
   type BuildCharacterRequest,
   type CharacterTracksRequest,
+  type LevelUpRequest,
   type StartingGear,
   type CreateArmorRequest,
   type CreateWeaponRequest,
@@ -573,6 +574,48 @@ export async function setTracks<V extends 'gm' | 'player'>(
   return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
     body,
   ) as V extends 'gm' ? CharacterSheet : PlayerCharacterSheet;
+}
+
+/** The caller's view of a sheet from a response body. */
+function sheetFor<V extends 'gm' | 'player'>(
+  body: unknown,
+  view: V,
+): V extends 'gm' ? CharacterSheet : PlayerCharacterSheet {
+  return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
+    body,
+  ) as V extends 'gm' ? CharacterSheet : PlayerCharacterSheet;
+}
+
+/** Grants the next level, or withdraws a grant (F4.9). GM only. */
+export async function grantLevel(
+  campaignId: string,
+  characterId: string,
+  granted: boolean,
+): Promise<CharacterSheet> {
+  const response = await send(`${characterPath(campaignId, characterId)}/grant-level`, 'POST', {
+    granted,
+  });
+  return characterSheetSchema.parse(await response.json());
+}
+
+/** The level-up guide's Finish (F4.9): the PC's own player, or the GM. */
+export async function levelUp<V extends 'gm' | 'player'>(
+  campaignId: string,
+  characterId: string,
+  input: LevelUpRequest,
+  view: V,
+): Promise<V extends 'gm' ? CharacterSheet : PlayerCharacterSheet> {
+  const response = await send(`${characterPath(campaignId, characterId)}/level-up`, 'POST', input);
+  return sheetFor(await response.json(), view);
+}
+
+/** Undoes the latest level-up, granting the level again (F4.9). GM only. */
+export async function undoLevelUp(
+  campaignId: string,
+  characterId: string,
+): Promise<CharacterSheet> {
+  const response = await send(`${characterPath(campaignId, characterId)}/level-ups/undo`, 'POST');
+  return characterSheetSchema.parse(await response.json());
 }
 
 /** Sends a PC through the creation guide, or takes it back (F4.8). GM only. */

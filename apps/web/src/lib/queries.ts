@@ -47,6 +47,7 @@ import type {
   UpdateWeaponRequest,
   BuildCharacterRequest,
   CharacterTracksRequest,
+  LevelUpRequest,
   StartingGear,
 } from '@stagehand/shared';
 import {
@@ -178,6 +179,9 @@ import {
   putStartingGear,
   setNeedsGuide,
   setTracks,
+  grantLevel,
+  levelUp,
+  undoLevelUp,
 } from './api';
 import { signOut } from './auth-client';
 
@@ -595,6 +599,40 @@ export function useSetTracks(campaignId: string, characterId: string, view: Shee
     mutationFn: (input: CharacterTracksRequest) => setTracks(campaignId, characterId, input, view),
     onSuccess: (sheet) => {
       queryClient.setQueryData(characterKey(campaignId, characterId, view), sheet);
+    },
+  });
+}
+
+/** Grants the next level, or withdraws it (GM, F4.9). */
+export function useGrantLevel(campaignId: string, characterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (granted: boolean) => grantLevel(campaignId, characterId, granted),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
+    },
+  });
+}
+
+/** The level-up guide's Finish (F4.9); the sheet comes back for the caller's view. */
+export function useLevelUp(campaignId: string, characterId: string, view: SheetView) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LevelUpRequest) => levelUp(campaignId, characterId, input, view),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, view), sheet);
+      void queryClient.invalidateQueries({ queryKey: characterSheetKey(campaignId, characterId) });
+    },
+  });
+}
+
+/** Undoes the latest level-up (GM, F4.9). */
+export function useUndoLevelUp(campaignId: string, characterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => undoLevelUp(campaignId, characterId),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, 'gm'), sheet);
     },
   });
 }

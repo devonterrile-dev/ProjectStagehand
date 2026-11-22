@@ -28,6 +28,11 @@ export function characterPath(campaignId: string, characterId: string): string {
   return `/campaigns/${campaignId}/characters/${characterId}`;
 }
 
+/** A PC's level-up guide (F4.9). */
+export function characterLevelUpPath(campaignId: string, characterId: string): string {
+  return `${characterPath(campaignId, characterId)}/level-up`;
+}
+
 /** A PC's creation guide (F4.8). */
 export function characterBuildPath(campaignId: string, characterId: string): string {
   return `${characterPath(campaignId, characterId)}/build`;

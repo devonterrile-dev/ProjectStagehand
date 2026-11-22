@@ -87,6 +87,12 @@ export function SheetPaper({
         </div>
       </div>
 
+      {sheet?.levelUp.granted === true && !sheet.needsGuide && (
+        <p className="rounded bg-sky-100 px-3 py-1.5 text-stone-800">
+          Level {sheet.level + 1} is waiting: level up on the site, from the campaign page.
+        </p>
+      )}
+
       {call !== null && sheet != null && (
         <div
           role="group"
