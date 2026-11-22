@@ -11,6 +11,10 @@ export interface LevelUpDraft {
   extraCardId: string | null;
   swapOutId: string | null;
   swapInId: string | null;
+  /** The second class, when the picks complete Multiclass (F4.10). */
+  multiclassClassId: string | null;
+  multiclassDomainId: string | null;
+  multiclassSubclassId: string | null;
 }
 
 export const NEW_LEVEL_UP_DRAFT: LevelUpDraft = Object.freeze({
@@ -20,6 +24,9 @@ export const NEW_LEVEL_UP_DRAFT: LevelUpDraft = Object.freeze({
   extraCardId: null,
   swapOutId: null,
   swapInId: null,
+  multiclassClassId: null,
+  multiclassDomainId: null,
+  multiclassSubclassId: null,
 });
 
 const keyOf = (characterId: string, level: number) =>
@@ -27,6 +34,9 @@ const keyOf = (characterId: string, level: number) =>
 
 const isId = (value: unknown): value is string | null =>
   value === null || (typeof value === 'string' && value.length > 0);
+
+/** An id kept in a draft, or null when missing (drafts kept before F4.10 have none). */
+const optionalId = (value: unknown): string | null => (isId(value) ? value : null);
 
 /** The draft kept for this level, or null when there is none or it can't be read. */
 export function loadLevelUpDraft(characterId: string, level: number): LevelUpDraft | null {
@@ -61,6 +71,9 @@ export function loadLevelUpDraft(characterId: string, level: number): LevelUpDra
       extraCardId: d['extraCardId'],
       swapOutId: d['swapOutId'],
       swapInId: d['swapInId'],
+      multiclassClassId: optionalId(d['multiclassClassId']),
+      multiclassDomainId: optionalId(d['multiclassDomainId']),
+      multiclassSubclassId: optionalId(d['multiclassSubclassId']),
     };
   } catch {
     return null;

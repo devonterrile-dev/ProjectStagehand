@@ -764,6 +764,10 @@ describe('The cards beside the sheet page (F4.7)', () => {
         secondaryWeaponId: null,
         armorId: null,
         spareWeaponIds: [],
+        multiclassClassId: null,
+        multiclassDomainId: null,
+        multiclassSubclassId: null,
+        multiclassSubclassCards: 1,
       },
     };
     const fetchMock = mockApi(MIRA, [coast], {

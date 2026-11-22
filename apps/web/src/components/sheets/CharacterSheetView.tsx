@@ -214,6 +214,12 @@ export function CharacterSheetView({
             </p>
           </section>
           <FeatureList title="Class features" features={linkedClass.classFeatures} />
+          {sheet.cards.multiclass !== null && (
+            <FeatureList
+              title={`${sheet.cards.multiclass.className} (multiclass)`}
+              features={sheet.cards.multiclass.classFeatures}
+            />
+          )}
         </Group>
       ) : (
         sheet.classFeature !== null && (

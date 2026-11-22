@@ -66,14 +66,25 @@ export function CardFrame({
 export function SubclassCard({
   subclass,
   ruleset,
+  multiclass = false,
 }: {
   subclass: NonNullable<SheetCards['subclass']>;
   ruleset: Ruleset;
+  /** The second class's subclass (F4.10). */
+  multiclass?: boolean;
 }) {
   return (
     <CardFrame
-      label={`${subclass.name}, the subclass`}
-      corner={<span>{subclass.className} subclass</span>}
+      label={
+        multiclass
+          ? `${subclass.name}, a ${subclass.className} subclass (multiclass)`
+          : `${subclass.name}, the subclass`
+      }
+      corner={
+        <span>
+          {subclass.className} subclass{multiclass ? ' · multiclass' : ''}
+        </span>
+      }
       name={subclass.name}
     >
       <Facts
@@ -359,11 +370,49 @@ export function DomainPiles({
 
 /** The subclass card above the ancestry card: what lies to the right of the sheet page. */
 export function FeatureSideCards({ cards, ruleset }: { cards: SheetCards; ruleset: Ruleset }) {
-  if (cards.subclass === null && cards.species.length === 0) return null;
+  const second = cards.multiclass?.subclass ?? null;
+  if (cards.subclass === null && second === null && cards.species.length === 0) return null;
   return (
     <div className="flex flex-col gap-6">
       {cards.subclass !== null && <SubclassCard subclass={cards.subclass} ruleset={ruleset} />}
+      {second !== null && <SubclassCard subclass={second} ruleset={ruleset} multiclass />}
       <AncestryCard species={cards.species} />
+    </div>
+  );
+}
+
+/**
+ * The subclass cards as a small pile at the table (F4.10): the first subclass and the second
+ * class's, one at a time with Next card, since the right column holds two cards.
+ */
+export function SubclassPile({ cards, ruleset }: { cards: SheetCards; ruleset: Ruleset }) {
+  const [at, setAt] = useState(0);
+  const pile = [
+    ...(cards.subclass === null ? [] : [{ card: cards.subclass, multiclass: false }]),
+    ...(cards.multiclass?.subclass == null
+      ? []
+      : [{ card: cards.multiclass.subclass, multiclass: true }]),
+  ];
+  const shown = pile[at % Math.max(1, pile.length)];
+  if (shown === undefined) return null;
+  return (
+    <div className="relative space-y-1" style={{ width: SIDE_CARD.widthPx }}>
+      {pile.length > 1 && (
+        <div className="flex justify-end">
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-label="Next subclass card"
+            onClick={() => {
+              setAt((current) => (current + 1) % pile.length);
+            }}
+          >
+            {(at % pile.length) + 1} of {pile.length}
+            <ChevronRightIcon aria-hidden />
+          </Button>
+        </div>
+      )}
+      <SubclassCard subclass={shown.card} ruleset={ruleset} multiclass={shown.multiclass} />
     </div>
   );
 }

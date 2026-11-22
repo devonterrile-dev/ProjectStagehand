@@ -32,6 +32,11 @@ const HOLD = '00000000-0000-4000-a920-000000000051';
 const TOME = '00000000-0000-4000-a920-000000000052';
 const ANTHEM = '00000000-0000-4000-a920-000000000053';
 const WHIRL = '00000000-0000-4000-a920-000000000054';
+const BONE = '00000000-0000-4000-a920-000000000004';
+const RANGER = '00000000-0000-4000-a920-000000000021';
+const BEASTBOUND = '00000000-0000-4000-a920-000000000022';
+const TRACK = '00000000-0000-4000-a920-000000000055';
+const POUNCE = '00000000-0000-4000-a920-000000000056';
 const TRAITS = { agility: 2, strength: 1, finesse: 1, instinct: 0, presence: 0, knowledge: -1 };
 
 beforeEach(() => {
@@ -46,7 +51,14 @@ function world(
     granted = true,
     history = [],
     linked = true,
-  }: { level?: number; granted?: boolean; history?: LevelUpEntry[]; linked?: boolean } = {},
+    multiclassed = false,
+  }: {
+    level?: number;
+    granted?: boolean;
+    history?: LevelUpEntry[];
+    linked?: boolean;
+    multiclassed?: boolean;
+  } = {},
 ) {
   const coast = campaign({ name: 'Shattered Coast', role });
   const jun = member('Jun');
@@ -68,6 +80,10 @@ function world(
       secondaryWeaponId: null,
       armorId: null,
       spareWeaponIds: [],
+      multiclassClassId: multiclassed ? RANGER : null,
+      multiclassDomainId: multiclassed ? BONE : null,
+      multiclassSubclassId: multiclassed ? BEASTBOUND : null,
+      multiclassSubclassCards: 1,
     },
     levelUp: { granted, history },
   });
@@ -78,6 +94,7 @@ function world(
         { id: GRACE, name: 'Grace' },
         { id: CODEX, name: 'Codex' },
         { id: BLADE, name: 'Blade' },
+        { id: BONE, name: 'Bone' },
       ],
     },
     domainCards: {
@@ -86,10 +103,32 @@ function world(
         { id: TOME, domainId: CODEX, name: 'Tome', level: 2 },
         { id: ANTHEM, domainId: GRACE, name: 'Anthem', level: 3 },
         { id: WHIRL, domainId: BLADE, name: 'Whirlwind', level: 1 },
+        { id: TRACK, domainId: BONE, name: 'Track', level: 3 },
+        { id: POUNCE, domainId: BONE, name: 'Pounce', level: 4 },
       ],
     },
-    classes: { [coast.id]: [{ id: BARD, name: 'Bard', domainIds: [GRACE, CODEX] }] },
-    subclasses: { [coast.id]: [{ id: TROUBADOUR, classId: BARD, name: 'Troubadour' }] },
+    classes: {
+      [coast.id]: [
+        { id: BARD, name: 'Bard', domainIds: [GRACE, CODEX] },
+        {
+          id: RANGER,
+          name: 'Ranger',
+          domainIds: [BONE, CODEX],
+          classFeatures: [{ name: 'Ranger’s Focus', text: 'Mark a target.' }],
+        },
+      ],
+    },
+    subclasses: {
+      [coast.id]: [
+        { id: TROUBADOUR, classId: BARD, name: 'Troubadour' },
+        {
+          id: BEASTBOUND,
+          classId: RANGER,
+          name: 'Beastbound',
+          foundation: [{ name: 'Companion', text: '' }],
+        },
+      ],
+    },
     heldCards: { [vex.id]: [{ cardId: HOLD, place: 'loadout' as const }] },
   });
   const sheetUrl = `/campaigns/${coast.id}/characters/${vex.id}`;
@@ -238,9 +277,9 @@ describe('The level-up guide (F4.9)', () => {
     expect(tier3.getByText('(half marked: this pick completes it)')).toBeDefined();
     expect(
       tier3.getByRole('button', {
-        name: 'Take Multiclass (two marks): coming with F4.10 from tier 3',
+        name: 'Take Multiclass: take a second class (two marks) from tier 3',
       }),
-    ).toHaveProperty('disabled', true);
+    ).toHaveProperty('disabled', false);
     fireEvent.click(
       tier3.getByRole('button', {
         name: 'Take +1 to two unmarked traits, and mark them from tier 3',
@@ -331,5 +370,135 @@ describe('The level-up guide (F4.9)', () => {
     const { levelUpUrl } = world('player', { granted: false });
     renderAt(levelUpUrl);
     expect(await screen.findByText(/No level is granted right now/)).toBeDefined();
+  });
+});
+
+describe('Multiclassing (F4.10)', () => {
+  it('takes Multiclass twice, picks the second class, and limits its domain’s cards', async () => {
+    const { vex, fetchMock, levelUpUrl } = world('player', { level: 4 });
+    renderAt(levelUpUrl);
+    const tier3 = within(await screen.findByRole('region', { name: 'Tier 3 options' }));
+    const take = () =>
+      tier3.getByRole('button', {
+        name: 'Take Multiclass: take a second class (two marks) from tier 3',
+      });
+    fireEvent.click(take());
+    fireEvent.click(take());
+    const choice = within(await screen.findByRole('region', { name: 'Multiclass' }));
+    expect(
+      screen.getByText('Pick your second class, one of its domains and a subclass'),
+    ).toBeDefined();
+    const cls = choice.getByLabelText('Second class');
+    expect(within(cls).queryByRole('option', { name: 'Bard' })).toBeNull();
+    fireEvent.change(cls, { target: { value: RANGER } });
+    const domain = choice.getByLabelText('Its domain');
+    await within(domain).findByRole('option', { name: 'Bone' });
+    expect(within(domain).getByRole('option', { name: 'Codex (already yours)' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    fireEvent.change(domain, { target: { value: BONE } });
+    fireEvent.change(choice.getByLabelText('Its subclass'), { target: { value: BEASTBOUND } });
+    fireEvent.click(next());
+
+    const newCard = within(await screen.findByRole('region', { name: 'New card' }));
+    expect(newCard.getByText(/multiclass domain go up to level 3/)).toBeDefined();
+    expect(newCard.queryByRole('radio', { name: /Pounce/ })).toBeNull();
+    fireEvent.click(newCard.getByRole('radio', { name: 'Take Track (level 3)' }));
+    fireEvent.click(next());
+
+    await screen.findByRole('heading', { name: 'Review', level: 2 });
+    expect(screen.getByText('Second class').nextSibling?.textContent).toBe(
+      'Ranger, Bone, Beastbound',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Level up to 5' }));
+    await waitFor(() => {
+      expect(sentTo(fetchMock, 'POST', `/characters/${vex.id}/level-up`)).toEqual([
+        {
+          picks: [
+            { tier: 3, option: 'multiclass' },
+            { tier: 3, option: 'multiclass' },
+          ],
+          cardId: TRACK,
+          extraCardId: null,
+          swap: null,
+          multiclass: { classId: RANGER, domainId: BONE, subclassId: BEASTBOUND },
+        },
+      ]);
+    });
+  });
+
+  it('crosses out Multiclass once taken, and lets the player upgrade either subclass', async () => {
+    const { vex, fetchMock, levelUpUrl } = world('player', { level: 7, multiclassed: true });
+    renderAt(levelUpUrl);
+    const tier4 = within(await screen.findByRole('region', { name: 'Tier 4 options' }));
+    expect(tier4.getAllByText('(crossed out by multiclassing)')).toHaveLength(1);
+    expect(
+      tier4.getByRole('button', {
+        name: 'Take Multiclass: take a second class (two marks) from tier 4',
+      }),
+    ).toHaveProperty('disabled', true);
+    fireEvent.click(
+      tier4.getByRole('button', {
+        name: 'Take Upgrade your subclass card (specialization, then mastery) from tier 4',
+      }),
+    );
+    fireEvent.click(tier4.getByRole('button', { name: 'Take One more HP slot from tier 4' }));
+    fireEvent.change(screen.getByLabelText('Upgrade which subclass'), {
+      target: { value: 'multiclass' },
+    });
+    fireEvent.click(next());
+    fireEvent.click(
+      within(await screen.findByRole('region', { name: 'New card' })).getByRole('radio', {
+        name: 'Take Anthem (level 3)',
+      }),
+    );
+    fireEvent.click(next());
+    await screen.findByRole('heading', { name: 'Review', level: 2 });
+    expect(screen.getByText('Multiclass subclass cards').nextSibling?.textContent).toBe('1 → 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Level up to 8' }));
+    await waitFor(() => {
+      const [body] = sentTo(fetchMock, 'POST', `/characters/${vex.id}/level-up`);
+      expect(body).toMatchObject({
+        picks: [
+          { tier: 4, option: 'subclass', target: 'multiclass' },
+          { tier: 4, option: 'hp' },
+        ],
+      });
+    });
+  });
+
+  it('shows both classes on the player’s sheet, with the second subclass card', async () => {
+    const { sheetUrl } = world('player', { level: 5, granted: false, multiclassed: true });
+    renderAt(sheetUrl);
+    expect(await screen.findByText('Level 5 Bard / Ranger · tier 3')).toBeDefined();
+    expect(screen.getByRole('region', { name: 'Ranger (multiclass)' })).toBeDefined();
+    expect(screen.getByText('Ranger’s Focus')).toBeDefined();
+    expect(
+      screen.getByRole('article', { name: 'Beastbound, a Ranger subclass (multiclass)' }),
+    ).toBeDefined();
+  });
+
+  it('lets the GM set a second class by hand', async () => {
+    const { vex, fetchMock, sheetUrl } = world('gm', { granted: false });
+    renderAt(sheetUrl);
+    const multiclass = await screen.findByLabelText('Multiclass');
+    await within(multiclass).findByRole('option', { name: 'Ranger' });
+    expect(within(multiclass).queryByRole('option', { name: 'Bard' })).toBeNull();
+    fireEvent.change(multiclass, { target: { value: RANGER } });
+    const domain = await screen.findByLabelText('Multiclass domain');
+    await within(domain).findByRole('option', { name: 'Bone' });
+    expect(within(domain).queryByRole('option', { name: 'Codex' })).toBeNull();
+    fireEvent.change(domain, { target: { value: BONE } });
+    fireEvent.change(screen.getByLabelText('Multiclass subclass'), {
+      target: { value: BEASTBOUND },
+    });
+    await waitFor(() => {
+      expect(sentTo(fetchMock, 'PATCH', `/characters/${vex.id}`)).toEqual([
+        { multiclassClassId: RANGER },
+        { multiclassDomainId: BONE },
+        { multiclassSubclassId: BEASTBOUND },
+      ]);
+    });
   });
 });

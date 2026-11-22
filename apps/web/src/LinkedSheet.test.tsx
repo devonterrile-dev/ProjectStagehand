@@ -196,6 +196,10 @@ describe('Linking a sheet to gameplay records (F4.7)', () => {
         secondaryWeaponId: null,
         armorId: null,
         spareWeaponIds: [],
+        multiclassClassId: null,
+        multiclassDomainId: null,
+        multiclassSubclassId: null,
+        multiclassSubclassCards: 1,
       },
     });
     renderAt(sheetUrl(coast, vex));
@@ -225,6 +229,10 @@ describe('A player’s linked sheet (F4.7)', () => {
     secondaryWeaponId: null,
     armorId: null,
     spareWeaponIds: [],
+    multiclassClassId: null,
+    multiclassDomainId: null,
+    multiclassSubclassId: null,
+    multiclassSubclassCards: 1,
   };
 
   it('shows the built values, with no weapon or armor card, and recalls a card for Stress', async () => {
@@ -335,6 +343,10 @@ describe('A player marking their own tracks (D-67)', () => {
         secondaryWeaponId: null,
         armorId: CHAINMAIL,
         spareWeaponIds: [],
+        multiclassClassId: null,
+        multiclassDomainId: null,
+        multiclassSubclassId: null,
+        multiclassSubclassCards: 1,
       },
     });
     renderAt(sheetUrl(coast, vex));

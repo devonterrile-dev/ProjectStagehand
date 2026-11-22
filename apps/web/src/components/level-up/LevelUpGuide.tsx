@@ -1,10 +1,13 @@
 import {
+  completesMulticlass,
   levelUpEffects,
   levelUpProblem,
   levelUpState,
   rulesetFor,
   traitLabel,
   type Campaign,
+  type ClassRecord,
+  type ClassSummary,
   type DomainCardSummary,
   type LevelUpColumns,
   type LevelUpListOption,
@@ -20,7 +23,7 @@ import { FieldError } from '@/components/FieldError';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
-import { useClass, useDomainCards, useLevelUp } from '@/lib/queries';
+import { useClass, useClasses, useDomainCards, useLevelUp } from '@/lib/queries';
 import { characterPath } from '@/lib/records';
 
 import {
@@ -72,7 +75,12 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
   const ruleset = rulesetFor(campaign.rulesetVersion);
   const view = campaign.role === 'gm' ? 'gm' : 'player';
   const navigate = useNavigate();
-  const state = levelUpState(sheet.levelUp.history, sheet.level, ruleset);
+  const state = levelUpState(
+    sheet.levelUp.history,
+    sheet.level,
+    ruleset,
+    sheet.links.multiclassClassId !== null,
+  );
   const [draft, setDraft] = useState<LevelUpDraft>(
     () => loadLevelUpDraft(sheet.id, state.nextLevel) ?? { ...NEW_LEVEL_UP_DRAFT, picks: [] },
   );
@@ -84,6 +92,9 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
   }, [sheet.id, state.nextLevel, draft]);
 
   const cls = useClass(campaign.id, sheet.links.classId ?? NO_CLASS).data;
+  const classes = useClasses(campaign.id).data;
+  const picked = useClass(campaign.id, draft.multiclassClassId ?? NO_CLASS).data;
+  const secondClass = picked?.id === draft.multiclassClassId ? picked : null;
   const allCards = useDomainCards(campaign.id).data;
   const finish = useLevelUp(campaign.id, sheet.id, view);
   const domainIds = cls?.domains.map((domain) => domain?.id ?? null) ?? [];
@@ -92,6 +103,22 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
   const pickCount = ruleset.levelUpPicks ?? 2;
   const extraWanted = draft.picks.some((pick) => pick.option === 'domainCard');
 
+  // Completing Multiclass picks a second class (F4.10).
+  const completing = completesMulticlass(
+    { picks: draft.picks, cardId: '', extraCardId: null, swap: null },
+    state,
+  );
+  const second =
+    completing !== null &&
+    draft.multiclassClassId !== null &&
+    draft.multiclassDomainId !== null &&
+    draft.multiclassSubclassId !== null
+      ? {
+          classId: draft.multiclassClassId,
+          domainId: draft.multiclassDomainId,
+          subclassId: draft.multiclassSubclassId,
+        }
+      : null;
   const request: LevelUpRequest = {
     picks: draft.picks,
     cardId: draft.cardId ?? '',
@@ -100,13 +127,31 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
       draft.swapOutId !== null && draft.swapInId !== null
         ? { outId: draft.swapOutId, inId: draft.swapInId }
         : null,
+    // Only a level-up completing Multiclass names a second class.
+    ...(second === null ? {} : { multiclass: second }),
   };
+  const multiclassDomainId = second?.domainId ?? sheet.links.multiclassDomainId;
   const context = {
     traits: sheet.traits,
     subclassCards: sheet.links.subclassId === null ? null : sheet.links.subclassCards,
     domainIds,
     cards: allCards ?? [],
     heldIds,
+    classId: sheet.links.classId,
+    classes: (classes ?? []).map((one) => ({
+      id: one.id,
+      name: one.name,
+      domainIds: one.domains.map((domain) => domain?.id ?? null),
+      subclassIds: secondClass?.id === one.id ? secondClass.subclasses.map((sub) => sub.id) : [],
+    })),
+    multiclass:
+      sheet.links.multiclassClassId === null
+        ? null
+        : {
+            domainId: sheet.links.multiclassDomainId,
+            subclassId: sheet.links.multiclassSubclassId,
+            subclassCards: sheet.links.multiclassSubclassCards,
+          },
   };
   const fullProblem =
     allCards === undefined || cls == null
@@ -127,7 +172,9 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
                 pick.traits[0] === pick.traits[1]),
           )
         ? 'Pick two different traits to raise'
-        : null;
+        : completing !== null && second === null
+          ? 'Pick your second class, one of its domains and a subclass'
+          : null;
   const cardsProblem =
     draft.cardId === null
       ? 'Pick your new domain card'
@@ -188,17 +235,33 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
           {STEPS[step]}
         </h2>
         {step === 0 && (
-          <OptionsStep
-            lists={state.lists}
-            picks={draft.picks}
-            pickCount={pickCount}
-            markedTraits={state.markedTraits}
-            traits={sheet.traits}
-            ruleset={ruleset}
-            onChange={(picks) => {
-              change({ picks });
-            }}
-          />
+          <>
+            <OptionsStep
+              lists={state.lists}
+              picks={draft.picks}
+              pickCount={pickCount}
+              markedTraits={state.markedTraits}
+              traits={sheet.traits}
+              ruleset={ruleset}
+              subclassNames={{
+                main: sheet.cards.subclass?.name ?? null,
+                multiclass: sheet.cards.multiclass?.subclass?.name ?? null,
+              }}
+              onChange={(picks) => {
+                change({ picks });
+              }}
+            />
+            {completing !== null && (
+              <MulticlassChoice
+                classes={classes ?? []}
+                ownClassId={sheet.links.classId}
+                ownDomainIds={domainIds}
+                second={secondClass}
+                draft={draft}
+                change={change}
+              />
+            )}
+          </>
         )}
         {step === 1 && (
           <CardsStep
@@ -208,6 +271,7 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
             nextLevel={state.nextLevel}
             cards={allCards}
             domainIds={domainIds}
+            multiclassDomainId={multiclassDomainId}
             held={held}
             heldIds={heldIds}
             extraWanted={extraWanted}
@@ -220,6 +284,17 @@ export function LevelUpGuide({ campaign, sheet }: { campaign: Campaign; sheet: L
             request={{ ...request, cardId: draft.cardId }}
             state={state}
             names={(id) => allCards?.find((card) => card.id === id)?.name ?? ''}
+            secondClass={
+              second === null || secondClass === null
+                ? null
+                : [
+                    secondClass.name,
+                    secondClass.domains.find((domain) => domain?.id === second.domainId)?.name,
+                    secondClass.subclasses.find((sub) => sub.id === second.subclassId)?.name,
+                  ]
+                    .filter((part) => part !== undefined)
+                    .join(', ')
+            }
           />
         )}
       </section>
@@ -284,8 +359,11 @@ function OptionsStep({
   markedTraits,
   traits,
   ruleset,
+  subclassNames,
   onChange,
 }: {
+  /** The subclasses a subclass pick may upgrade; `multiclass` null without a second (F4.10). */
+  subclassNames: { main: string | null; multiclass: string | null };
   lists: ReturnType<typeof levelUpState>['lists'];
   picks: LevelUpPick[];
   pickCount: number;
@@ -324,6 +402,11 @@ function OptionsStep({
                     {option.halfMarked && (
                       <span className="ml-2 text-xs text-amber-700">
                         (half marked: this pick completes it)
+                      </span>
+                    )}
+                    {option.crossedOut && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        (crossed out by multiclassing)
                       </span>
                     )}
                     {option.lost && (
@@ -382,6 +465,24 @@ function OptionsStep({
                     Remove
                   </Button>
                 </div>
+                {pick.option === 'subclass' && subclassNames.multiclass !== null && (
+                  <div className="max-w-sm space-y-1">
+                    <Label htmlFor={`level-up-subclass-${String(index)}`}>
+                      Upgrade which subclass
+                    </Label>
+                    <NativeSelect
+                      id={`level-up-subclass-${String(index)}`}
+                      value={pick.target ?? 'main'}
+                      onChange={(event) => {
+                        const target = event.target.value === 'multiclass' ? 'multiclass' : 'main';
+                        onChange(picks.map((one, at) => (at === index ? { ...one, target } : one)));
+                      }}
+                    >
+                      <option value="main">{subclassNames.main ?? 'Your subclass'}</option>
+                      <option value="multiclass">{subclassNames.multiclass} (multiclass)</option>
+                    </NativeSelect>
+                  </div>
+                )}
                 {pick.option === 'traits' && (
                   <div className="grid gap-2 sm:grid-cols-2">
                     {([0, 1] as const).map((slot) => (
@@ -431,6 +532,101 @@ function OptionsStep({
   );
 }
 
+/**
+ * Completing Multiclass (F4.10): another class, one of its two domains the PC hasn't, and one of
+ * its subclasses, whose foundation the PC takes.
+ */
+function MulticlassChoice({
+  classes,
+  ownClassId,
+  ownDomainIds,
+  second,
+  draft,
+  change,
+}: {
+  classes: ClassSummary[];
+  ownClassId: string | null;
+  ownDomainIds: (string | null)[];
+  second: ClassRecord | null;
+  draft: LevelUpDraft;
+  change: (patch: Partial<LevelUpDraft>) => void;
+}) {
+  const domains = (second?.domains ?? []).flatMap((domain) => (domain === null ? [] : [domain]));
+  return (
+    <section aria-label="Multiclass" className="space-y-3 rounded-md border px-4 py-3">
+      <h3 className="font-semibold">Your second class</h3>
+      <p className="text-sm text-muted-foreground">
+        You gain its class features, one of its domains, and the foundation of one of its
+        subclasses.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <Label htmlFor="level-up-multiclass-class">Second class</Label>
+          <NativeSelect
+            id="level-up-multiclass-class"
+            value={draft.multiclassClassId ?? ''}
+            onChange={(event) => {
+              change({
+                multiclassClassId: event.target.value === '' ? null : event.target.value,
+                multiclassDomainId: null,
+                multiclassSubclassId: null,
+              });
+            }}
+          >
+            <option value="">Pick a class</option>
+            {classes
+              .filter((one) => one.id !== ownClassId)
+              .map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.name}
+                </option>
+              ))}
+          </NativeSelect>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="level-up-multiclass-domain">Its domain</Label>
+          <NativeSelect
+            id="level-up-multiclass-domain"
+            value={draft.multiclassDomainId ?? ''}
+            disabled={second === null}
+            onChange={(event) => {
+              change({ multiclassDomainId: event.target.value === '' ? null : event.target.value });
+            }}
+          >
+            <option value="">Pick a domain</option>
+            {domains.map((domain) => (
+              <option key={domain.id} value={domain.id} disabled={ownDomainIds.includes(domain.id)}>
+                {domain.name}
+                {ownDomainIds.includes(domain.id) ? ' (already yours)' : ''}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="level-up-multiclass-subclass">Its subclass</Label>
+          <NativeSelect
+            id="level-up-multiclass-subclass"
+            value={draft.multiclassSubclassId ?? ''}
+            disabled={second === null}
+            onChange={(event) => {
+              change({
+                multiclassSubclassId: event.target.value === '' ? null : event.target.value,
+              });
+            }}
+          >
+            <option value="">Pick a subclass</option>
+            {(second?.subclasses ?? []).map((sub) => (
+              <option key={sub.id} value={sub.id}>
+                {sub.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** Step 2: the new card, an extra card with its option, and an optional swap. */
 function CardsStep({
   campaignId,
@@ -439,10 +635,13 @@ function CardsStep({
   nextLevel,
   cards,
   domainIds,
+  multiclassDomainId,
   held,
   heldIds,
   extraWanted,
 }: {
+  /** The multiclass domain, whose cards go up to half the level, rounded up (F4.10). */
+  multiclassDomainId: string | null;
   campaignId: string;
   draft: LevelUpDraft;
   change: (patch: Partial<LevelUpDraft>) => void;
@@ -454,14 +653,15 @@ function CardsStep({
   extraWanted: boolean;
 }) {
   if (cards === undefined) return <p className="text-muted-foreground">Loading cards…</p>;
+  const multiLimit = Math.ceil(nextLevel / 2);
+  const fits = (card: DomainCardSummary, maxLevel: number) =>
+    domainIds.includes(card.domainId)
+      ? card.level <= maxLevel
+      : card.domainId === multiclassDomainId && card.level <= Math.min(maxLevel, multiLimit);
   const open = (maxLevel: number, except: (string | null)[]) =>
     cards
       .filter(
-        (card) =>
-          domainIds.includes(card.domainId) &&
-          card.level <= maxLevel &&
-          !heldIds.includes(card.id) &&
-          !except.includes(card.id),
+        (card) => fits(card, maxLevel) && !heldIds.includes(card.id) && !except.includes(card.id),
       )
       .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name));
   const newCards = open(nextLevel, [draft.extraCardId, draft.swapInId]);
@@ -507,6 +707,8 @@ function CardsStep({
         <p className="text-sm text-muted-foreground">
           One card of level {nextLevel} or lower from your class&apos;s domains. It goes in your
           loadout if there is room, otherwise your vault.
+          {multiclassDomainId !== null &&
+            ` Cards from your multiclass domain go up to level ${String(multiLimit)}: half your level, rounded up.`}
         </p>
         {choose('level-up-card', newCards, draft.cardId, (cardId) => {
           change({ cardId });
@@ -563,12 +765,15 @@ function Review({
   state,
   names,
   ruleset,
+  secondClass,
 }: {
   sheet: LevelUpSheet;
   request: LevelUpRequest;
   state: ReturnType<typeof levelUpState>;
   names: (cardId: string) => string;
   ruleset: ReturnType<typeof rulesetFor>;
+  /** "Ranger, Bone, Beastbound": the second class taken now (F4.10). */
+  secondClass: string | null;
 }) {
   const before: LevelUpColumns = {
     level: sheet.level,
@@ -583,6 +788,7 @@ function Review({
     minorThreshold: sheet.minorThreshold,
     majorThreshold: sheet.majorThreshold,
     severeThreshold: sheet.severeThreshold,
+    multiclassSubclassCards: sheet.links.multiclassSubclassCards,
   };
   const typed = sheet.links.armorId === null && !(sheet.builtAt !== null && sheet.armor === null);
   const after = levelUpEffects(request, state, before, typed, ruleset);
@@ -594,6 +800,11 @@ function Review({
     ['Evasion', String(before.evasion), String(after.evasion)],
     ['Hope bonus', `+${String(before.hopeBonus)}`, `+${String(after.hopeBonus)}`],
     ['Subclass cards', String(before.subclassCards), String(after.subclassCards)],
+    [
+      'Multiclass subclass cards',
+      String(sheet.links.multiclassSubclassId === null ? 0 : before.multiclassSubclassCards),
+      String(sheet.links.multiclassSubclassId === null ? 0 : after.multiclassSubclassCards),
+    ],
     ...ruleset.traits.map((trait): [string, string, string] => [
       traitLabel(ruleset, trait.id),
       signedValue(before.traits[trait.id] ?? 0),
@@ -619,6 +830,12 @@ function Review({
             </dd>
           </div>
         ))}
+        {secondClass !== null && (
+          <div className="contents">
+            <dt className="text-sm text-muted-foreground">Second class</dt>
+            <dd className="font-medium">{secondClass}</dd>
+          </div>
+        )}
         <div className="contents">
           <dt className="text-sm text-muted-foreground">Thresholds</dt>
           <dd className="font-medium">+1 each, with the level</dd>

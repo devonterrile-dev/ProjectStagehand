@@ -39,6 +39,14 @@ export function ClassLinkFields({
   const [subclassId, setSubclassId] = useState(sheet.links.subclassId);
   const [cardsHeld, setCardsHeld] = useState(sheet.links.subclassCards);
   const [speciesIds, setSpeciesIds] = useState(sheet.links.speciesIds);
+  const [multi, setMulti] = useState({
+    classId: sheet.links.multiclassClassId,
+    domainId: sheet.links.multiclassDomainId,
+    subclassId: sheet.links.multiclassSubclassId,
+    cards: sheet.links.multiclassSubclassCards,
+  });
+  const firstDomains =
+    classes.find((cls) => cls.id === classId)?.domains.map((domain) => domain?.id ?? null) ?? [];
 
   const value = (id: string | null) => id ?? '';
   const idOf = (raw: string) => (raw === '' ? null : raw);
@@ -102,6 +110,58 @@ export function ClassLinkFields({
           </div>
         )}
       </div>
+      {classId !== null && (
+        <div className="grid gap-4 sm:grid-cols-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="link-multiclass">Multiclass</Label>
+            <NativeSelect
+              id="link-multiclass"
+              value={value(multi.classId)}
+              disabled={readOnly}
+              onChange={(event) => {
+                const next = idOf(event.target.value);
+                setMulti({ classId: next, domainId: null, subclassId: null, cards: 1 });
+                onLink({ multiclassClassId: next });
+              }}
+            >
+              <option value="">None</option>
+              {classes
+                .filter((cls) => cls.id !== classId)
+                .map((cls) => (
+                  <option key={cls.id} value={cls.id}>
+                    {cls.name}
+                  </option>
+                ))}
+            </NativeSelect>
+          </div>
+          {multi.classId !== null && (
+            <MulticlassParts
+              campaignId={campaign.id}
+              classId={multi.classId}
+              domainId={multi.domainId}
+              subclassId={multi.subclassId}
+              cards={multi.cards}
+              firstDomains={firstDomains}
+              disabled={readOnly}
+              onChange={(patch) => {
+                setMulti((current) => ({
+                  ...current,
+                  ...(patch.multiclassDomainId === undefined
+                    ? {}
+                    : { domainId: patch.multiclassDomainId }),
+                  ...(patch.multiclassSubclassId === undefined
+                    ? {}
+                    : { subclassId: patch.multiclassSubclassId }),
+                  ...(patch.multiclassSubclassCards === undefined
+                    ? {}
+                    : { cards: patch.multiclassSubclassCards }),
+                }));
+                onLink(patch);
+              }}
+            />
+          )}
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         {([0, 1] as const).map((index) => (
           <div key={index} className="space-y-1.5">
@@ -143,6 +203,95 @@ export function ClassLinkFields({
         ))}
       </div>
     </div>
+  );
+}
+
+/** The second class's domain (one the first hasn't), its subclass and the cards held (F4.10). */
+function MulticlassParts({
+  campaignId,
+  classId,
+  domainId,
+  subclassId,
+  cards,
+  firstDomains,
+  disabled,
+  onChange,
+}: {
+  campaignId: string;
+  classId: string;
+  domainId: string | null;
+  subclassId: string | null;
+  cards: number;
+  firstDomains: (string | null)[];
+  disabled: boolean;
+  onChange: OnLink;
+}) {
+  const second = useClass(campaignId, classId).data;
+  const domains = (second?.domains ?? []).filter(
+    (domain) => domain !== null && !firstDomains.includes(domain.id),
+  );
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="link-multiclass-domain">Multiclass domain</Label>
+        <NativeSelect
+          id="link-multiclass-domain"
+          value={domainId ?? ''}
+          disabled={disabled}
+          onChange={(event) => {
+            onChange({ multiclassDomainId: event.target.value === '' ? null : event.target.value });
+          }}
+        >
+          <option value="">None</option>
+          {domains.map((domain) =>
+            domain === null ? null : (
+              <option key={domain.id} value={domain.id}>
+                {domain.name}
+              </option>
+            ),
+          )}
+        </NativeSelect>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="link-multiclass-subclass">Multiclass subclass</Label>
+        <NativeSelect
+          id="link-multiclass-subclass"
+          value={subclassId ?? ''}
+          disabled={disabled}
+          onChange={(event) => {
+            onChange({
+              multiclassSubclassId: event.target.value === '' ? null : event.target.value,
+            });
+          }}
+        >
+          <option value="">None</option>
+          {(second?.subclasses ?? []).map((sub) => (
+            <option key={sub.id} value={sub.id}>
+              {sub.name}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
+      {subclassId !== null && (
+        <div className="space-y-1.5">
+          <Label htmlFor="link-multiclass-cards">Multiclass subclass cards</Label>
+          <NativeSelect
+            id="link-multiclass-cards"
+            value={String(cards)}
+            disabled={disabled}
+            onChange={(event) => {
+              onChange({ multiclassSubclassCards: Number(event.target.value) });
+            }}
+          >
+            {SUBCLASS_CARD_LABELS.slice(0, SUBCLASS_CARDS_MAX + 1).map((label, n) => (
+              <option key={label} value={n}>
+                {label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      )}
+    </>
   );
 }
 

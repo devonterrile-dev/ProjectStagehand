@@ -12,7 +12,7 @@ import {
 } from '@stagehand/shared';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
-import { AncestryCard, CardPile, SubclassCard } from '@/components/sheets/SideCards';
+import { AncestryCard, CardPile, SubclassPile } from '@/components/sheets/SideCards';
 import { stageImageUrl } from '@/lib/scenes';
 import {
   useCreateEntry,
@@ -216,9 +216,9 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     return {
       piles: { loadout: pile('loadout'), vault: pile('vault') },
       subclass:
-        cards.subclass === null
+        cards.subclass === null && cards.multiclass?.subclass == null
           ? null
-          : card(<SubclassCard subclass={cards.subclass} ruleset={ruleset} />),
+          : card(<SubclassPile cards={cards} ruleset={ruleset} />),
       ancestry: cards.species.length === 0 ? null : card(<AncestryCard species={cards.species} />),
     };
   }, [sheet.data?.cards, sheet.data?.needsGuide, canWrite, moveCard, ruleset, rest]);
