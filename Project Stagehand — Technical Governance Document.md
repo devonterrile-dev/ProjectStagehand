@@ -126,7 +126,7 @@ Players get real characters: built from classes, species, gear and domain cards 
 - [x] F4.7 The sheet built from gameplay records: class, subclass, species, weapons, armor and domain cards linked on the sheet; feature cards beside the sheet page at the table; thresholds worked out from the armor and level; the domain card loadout and vault, recall for Stress, and the GM's Rest switch
 - [x] F4.8 Character creation guide: class and subclass, species, traits, starting equipment, two level-1 domain cards; the campaign's starting gear setting (set, none or default)
 - [x] F4.9 Level up: the GM grants a level; the player's level-up guide with the tier options and their counts, trait marks, a new domain card (or a swap), and the tier change (proficiency +1, marks cleared)
-- [ ] F4.10 Multiclassing: a second class's domain and subclass through the two-mark multiclass option
+- [x] F4.10 Multiclassing: a second class's domain and subclass through the two-mark multiclass option
 
 **Exit:** each player in your group builds their character with the creation guide, at least one PC levels up through the level-up guide, and a session is played with the dice tray and feature cards.
 
