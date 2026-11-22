@@ -839,6 +839,7 @@ The control desk is a 2D panel beside the theater, for the GM only. It holds eve
 
 - **Scenes:** the campaign's scenes; loading one while the curtain is open closes it, swaps the scene and opens it again; loading one while it is closed keeps it closed, so the GM can set the stage first (D-52). A manual curtain open and close.
 - **Puppets:** every PC and NPC puppet in or near the scene. Select one, then raise or lower it, move it across, up or to another depth tick, flip it, or play an emote.
+- **Add players' characters** (under the curtain's button, 2026-11-22): puts the PC of every player at the table on the stage at once, waiting below it, skipping those already there. A PC needs a picture in use to be a puppet, as in Add to stage; one without is named on the desk, with Generate visual on its sheet to make one.
 - **Props:** show or hide placed props; add one from the tray.
 - **Reveal:** reveal or un-reveal records (section 7).
 - Any puppet or prop can also be selected by clicking it in the theater.

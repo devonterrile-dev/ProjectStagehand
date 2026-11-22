@@ -627,6 +627,46 @@ describe('The table, for the GM', () => {
       expect(picked('Old Marta').queryByRole('button', { name: 'Voice this NPC' })).toBeNull();
     });
 
+    it("adds every player's character at once, and names one without a picture", async () => {
+      const vexId = uuid();
+      const rookId = uuid();
+      const bramId = uuid();
+      mockApi(MIRA, [coast], {
+        playSessions: { [coast.id]: SESSION },
+        stageCharacters: {
+          [coast.id]: [
+            { id: vexId, name: 'Vex', image: stageImage(9) },
+            { id: rookId, name: 'Rook', image: stageImage(10) },
+          ],
+        },
+      });
+      await seated(coast, stageWith(), [
+        GM_HERE,
+        present(1, 'Ana', { characterId: vexId, characterName: 'Vex' }),
+        present(2, 'Sam', { characterId: rookId, characterName: 'Rook' }),
+        present(3, 'Jun', { characterId: bramId, characterName: 'Bram' }),
+        present(4, 'Lee'),
+      ]);
+
+      const curtain = within(desk().getByRole('region', { name: 'Curtain' }));
+      expect(
+        await curtain.findByText(
+          /No picture yet, so not added: Bram\. Make one with Generate visual/,
+        ),
+      ).toBeDefined();
+      fireEvent.click(await curtain.findByRole('button', { name: "Add players' characters (2)" }));
+      expect(socket.last(PLAY_SOCKET.addObject).payload).toEqual({
+        id: expect.any(String) as string,
+        characterId: vexId,
+      });
+      await answer(PLAY_SOCKET.addObject, { ok: true });
+      await waitFor(() => {
+        expect(socket.last(PLAY_SOCKET.addObject).payload).toMatchObject({ characterId: rookId });
+      });
+      await answer(PLAY_SOCKET.addObject, { ok: true });
+      expect(sent(PLAY_SOCKET.addObject)).toHaveLength(2);
+    });
+
     it('adds a PC out of sight, and picks it once the stage has it', async () => {
       const vexId = uuid();
       mockApi(MIRA, [coast], {

@@ -106,6 +106,67 @@ function Thumb({ campaignId, image }: { campaignId: string; image: StageImage })
   );
 }
 
+/**
+ * Puts the PCs of every player here now on the stage in one go, waiting below it like any puppet
+ * added live. A PC needs a picture in use to be a puppet; one without is named, with where to
+ * make one.
+ */
+function AddPlayersCharacters({
+  campaign,
+  stage,
+  presence,
+  disabled,
+  onAdd,
+}: {
+  campaign: Campaign;
+  stage: GmStage;
+  presence: Presence;
+  disabled: boolean;
+  onAdd: (characterIds: string[]) => Promise<void>;
+}) {
+  const offer = useStageRecords(campaign.id, true);
+  const onStage = new Set(
+    stage.objects.flatMap((object) => (object.subject.kind === 'pc' ? [object.subject.id] : [])),
+  );
+  const withImage = new Set((offer.data?.characters ?? []).map((pc) => pc.id));
+  const waiting = presence.flatMap((person) =>
+    person.role === 'player' && person.characterId !== null && !onStage.has(person.characterId)
+      ? [{ id: person.characterId, name: person.characterName ?? person.displayName }]
+      : [],
+  );
+  const ready = waiting.filter((pc) => withImage.has(pc.id));
+  const noImage = offer.data === undefined ? [] : waiting.filter((pc) => !withImage.has(pc.id));
+  const room = STAGE_MAX_OBJECTS - stage.objects.length;
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="secondary"
+        className="w-full"
+        disabled={disabled || ready.length === 0 || room < ready.length}
+        onClick={() => void onAdd(ready.map((pc) => pc.id))}
+      >
+        Add players&apos; characters
+        {ready.length > 0 && ` (${String(ready.length)})`}
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        {ready.length > 0
+          ? 'Their puppets wait below the stage until you raise them.'
+          : waiting.length === 0
+            ? 'Every player here has their character on the stage.'
+            : ''}
+        {room < ready.length && ` The stage has room for ${String(room)} more.`}
+      </p>
+      {noImage.length > 0 && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          No picture yet, so not added: {noImage.map((pc) => pc.name).join(', ')}. Make one with
+          Generate visual on their sheet.
+        </p>
+      )}
+    </>
+  );
+}
+
 /** What can be put on the stage live: the PCs, then every Prop, Item and NPC with an image. */
 function AddToStage({
   campaign,
@@ -397,6 +458,21 @@ export function GmDesk({
         >
           {stage.curtainOpen ? 'Close the curtain' : 'Open the curtain'}
         </Button>
+        <AddPlayersCharacters
+          campaign={campaign}
+          stage={stage}
+          presence={presence}
+          disabled={!idle}
+          onAdd={(characterIds) =>
+            send(async () => {
+              for (const characterId of characterIds) {
+                const result = await room.addObject({ id: crypto.randomUUID(), characterId });
+                if (!result.ok) return result;
+              }
+              return { ok: true };
+            })
+          }
+        />
         <p className="text-xs text-muted-foreground">
           {stage.curtainOpen
             ? 'Loading a scene now closes the curtain, changes the scene and opens it again.'
