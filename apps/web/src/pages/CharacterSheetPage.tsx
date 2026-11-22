@@ -12,6 +12,7 @@ import {
   useMembers,
   useMoveHeldCard,
   useOwnCharacterSheet,
+  useSetTracks,
 } from '@/lib/queries';
 import { useRememberRecent } from '@/lib/recent-items';
 import { characterBuildPath } from '@/lib/records';
@@ -113,6 +114,7 @@ function GmSheet({ campaign, characterId }: { campaign: Campaign; characterId: s
 function PlayerSheet({ campaign, characterId }: { campaign: Campaign; characterId: string }) {
   const sheetQuery = useOwnCharacterSheet(campaign.id, characterId, true);
   const move = useMoveHeldCard(campaign.id, characterId, 'player');
+  const tracks = useSetTracks(campaign.id, characterId, 'player');
 
   if (sheetQuery.isPending) return <p className="text-muted-foreground">Loading sheet…</p>;
   if (sheetQuery.isError) {
@@ -152,7 +154,11 @@ function PlayerSheet({ campaign, characterId }: { campaign: Campaign; characterI
       </div>
       <div className="grid items-start gap-6 xl:justify-center xl:grid-cols-[18.5rem_minmax(0,48rem)_18.5rem]">
         <div className="mx-auto w-full max-w-3xl xl:order-2">
-          <CharacterSheetView sheet={sheet} ruleset={ruleset} />
+          <CharacterSheetView
+            sheet={sheet}
+            ruleset={ruleset}
+            onTracks={campaign.archivedAt === null ? tracks.mutateAsync : undefined}
+          />
         </div>
         <aside aria-label="Subclass and ancestry" className="mx-auto xl:order-3">
           <FeatureSideCards cards={sheet.cards} ruleset={ruleset} />

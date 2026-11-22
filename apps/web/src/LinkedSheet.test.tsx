@@ -234,10 +234,11 @@ describe('A player’s linked sheet (F4.7)', () => {
     });
     renderAt(sheetUrl(coast, vex));
     expect(await screen.findByText('2d8+1 physical', { exact: false })).toBeDefined();
-    expect(screen.getByText('Thresholds (major / severe)').nextSibling?.textContent).toBe(
-      '10 / 18',
-    );
-    expect(screen.getByText('Evasion').nextSibling?.textContent).toBe('11');
+    expect(screen.getByLabelText('Major threshold: 10')).toBeDefined();
+    expect(screen.getByLabelText('Severe threshold: 18')).toBeDefined();
+    expect(screen.queryByLabelText(/Minor threshold/)).toBeNull();
+    expect(screen.getByLabelText('Evasion: 11')).toBeDefined();
+    expect(screen.getByLabelText('Armor: 4')).toBeDefined();
     expect(screen.queryByRole('article', { name: 'Chainmail, tier 1 armor' })).toBeNull();
     expect(screen.queryByRole('article', { name: /Rapier/ })).toBeNull();
 
@@ -254,7 +255,7 @@ describe('A player’s linked sheet (F4.7)', () => {
     const loadout = within(await screen.findByRole('region', { name: 'Loadout' }));
     expect(await loadout.findByRole('article', { name: 'Whirlwind, a Blade card' })).toBeDefined();
     expect(loadout.getByText('1 of 5')).toBeDefined();
-    expect(screen.getByText('Stress').nextSibling?.textContent).toBe('2 of 6');
+    expect(await screen.findByLabelText('Stress: 2 of 6')).toBeDefined();
   });
 
   it('puts the class features on the sheet and the subclass and ancestry cards beside it', async () => {
@@ -285,6 +286,8 @@ describe('A player’s linked sheet (F4.7)', () => {
     const loadout = within(await screen.findByRole('region', { name: 'Loadout' }));
     expect(loadout.getByRole('article', { name: 'Song 1, a Grace card' })).toBeDefined();
     expect(loadout.getByText('3 of 5')).toBeDefined();
+    // A loadout card only goes to the vault to make room for one coming back.
+    expect(loadout.queryByRole('button', { name: /in the vault/ })).toBeNull();
 
     fireEvent.click(loadout.getByRole('button', { name: 'Next card in the loadout' }));
     expect(loadout.getByRole('article', { name: 'Song 2, a Grace card' })).toBeDefined();
@@ -314,5 +317,65 @@ describe('A player’s linked sheet (F4.7)', () => {
       ]);
     });
     expect(await vault.findByRole('article', { name: 'Song 3, a Grace card' })).toBeDefined();
+  });
+});
+
+describe('A player marking their own tracks (D-67)', () => {
+  it('sets HP, Stress, Hope and armor slots from the bubbles', async () => {
+    const { coast, vex, fetchMock } = world('player', {
+      hpMax: 6,
+      hpCurrent: 6,
+      hope: 2,
+      links: {
+        classId: null,
+        subclassId: null,
+        subclassCards: 1,
+        speciesIds: [null, null],
+        primaryWeaponId: null,
+        secondaryWeaponId: null,
+        armorId: CHAINMAIL,
+        spareWeaponIds: [],
+      },
+    });
+    renderAt(sheetUrl(coast, vex));
+    const tracks = () => sentTo(fetchMock, 'POST', `/characters/${vex.id}/tracks`);
+
+    expect(await screen.findByLabelText('HP: 6 of 6')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Set HP to 4' }));
+    expect(await screen.findByLabelText('HP: 4 of 6')).toBeDefined();
+    // The last filled bubble lowers it by one.
+    fireEvent.click(screen.getByRole('button', { name: 'Lower HP to 3' }));
+    expect(await screen.findByLabelText('HP: 3 of 6')).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raise Stress' }));
+    expect(await screen.findByLabelText('Stress: 1 of 6')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Lower Hope' }));
+    expect(await screen.findByLabelText('Hope: 1 of 6')).toBeDefined();
+    // Chainmail gives four slots.
+    fireEvent.click(screen.getByRole('button', { name: 'Set Armor slots to 2' }));
+    expect(await screen.findByLabelText('Armor slots: 2 of 4')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Raise Hope' })).toHaveProperty('disabled', false);
+
+    expect(tracks()).toEqual([
+      { hpCurrent: 4 },
+      { hpCurrent: 3 },
+      { stressCurrent: 1 },
+      { hope: 1 },
+      { armorSlotsMarked: 2 },
+    ]);
+  });
+
+  it('shows the thresholds as damage boxes', async () => {
+    const { coast, vex } = world('player', {
+      minorThreshold: 3,
+      majorThreshold: 7,
+      severeThreshold: 14,
+    });
+    renderAt(sheetUrl(coast, vex));
+    const strip = within(await screen.findByRole('group', { name: 'Damage thresholds' }));
+    expect(strip.getByText('Minor damage')).toBeDefined();
+    expect(strip.getByText('Mark 3 HP')).toBeDefined();
+    expect(strip.getByLabelText('Minor threshold: 3')).toBeDefined();
+    expect(strip.getByLabelText('Major threshold: 7')).toBeDefined();
   });
 });

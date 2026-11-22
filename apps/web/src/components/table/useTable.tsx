@@ -26,6 +26,7 @@ import {
   useMoveHeldCard,
   useNotes,
   useOwnCharacterSheet,
+  useSetTracks,
 } from '@/lib/queries';
 import {
   AT_STAGE,
@@ -105,6 +106,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     : (members.data?.find((member) => member.userId === me.data?.id)?.character?.id ?? null);
   const sheet = useOwnCharacterSheet(campaign.id, characterId ?? NOTHING, characterId !== null);
   const moveCard = useMoveHeldCard(campaign.id, characterId ?? NOTHING, 'player').mutateAsync;
+  const setTracks = useSetTracks(campaign.id, characterId ?? NOTHING, 'player').mutateAsync;
   const { stage, makeRoll, freeRoll, lastFreeRoll } = live;
   const rest = stage?.rest ?? false;
   const userId = me.data?.id ?? null;
@@ -303,6 +305,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
                   onRoll={rollCall}
                   onBack={putDown}
                   tray={<DiceTray onRoll={rollFree} tone="paper" />}
+                  onTracks={canWrite ? setTracks : undefined}
                 />
               ) : null,
             cards: sideCards,
@@ -337,6 +340,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     hasSheet,
     sheet.data,
     sideCards,
+    setTracks,
     ruleset,
     call,
     rollCall,

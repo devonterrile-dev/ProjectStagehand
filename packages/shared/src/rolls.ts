@@ -164,6 +164,7 @@ export const SESSION_LOG_KINDS = [
   'free_roll',
   'rest',
   'card_recall',
+  'track_adjust',
 ] as const;
 export const sessionLogKindSchema = z.enum(SESSION_LOG_KINDS);
 export type SessionLogKind = z.infer<typeof sessionLogKindSchema>;

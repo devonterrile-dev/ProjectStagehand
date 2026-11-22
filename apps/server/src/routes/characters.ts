@@ -1,6 +1,7 @@
 import {
   addHeldCardRequestSchema,
   buildCharacterRequestSchema,
+  characterTracksRequestSchema,
   createCharacterRequestSchema,
   moveHeldCardRequestSchema,
   setNeedsGuideRequestSchema,
@@ -11,6 +12,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Auth } from '../auth/auth';
 import { buildCharacter, setNeedsGuide } from '../campaigns/character-build';
 import { addHeldCard, moveHeldCard, removeHeldCard } from '../campaigns/character-cards';
+import { setTracks } from '../campaigns/character-tracks';
 import {
   createCharacter,
   deleteCharacter,
@@ -34,6 +36,7 @@ import { sendValidationError } from '../http/errors';
  * between loadout and vault, and gets their view of the sheet back.
  * The creation guide (F4.8): the PC's own player, or the GM for them, builds a PC waiting for
  * it; the GM sends a PC through it, or takes it back.
+ * Tracks (D-67): the PC's own player, or the GM, marks Hope, HP, Stress and armor slots.
  * Every route here is campaign-scoped: see the isolation table in `campaigns.int.test.ts`.
  */
 export function registerCharacterRoutes(
@@ -150,6 +153,23 @@ export function registerCharacterRoutes(
       if (!parsed.success) return sendValidationError(reply, parsed.error);
       const change = await moveHeldCard(deps.db, scope, id, card, parsed.data);
       return afterCards(request, id, change.logged);
+    },
+  );
+
+  // Hope, HP, Stress and marked armor slots (D-67): the PC's own player, or the GM.
+  app.post(
+    '/api/campaigns/:campaignId/characters/:characterId/tracks',
+    { preHandler },
+    async (request, reply) => {
+      const scope = campaignOf(request);
+      assertWritable(scope);
+      const id = characterId(request);
+      const parsed = characterTracksRequestSchema.safeParse(request.body);
+      if (!parsed.success) return sendValidationError(reply, parsed.error);
+      const { logged } = await setTracks(deps.db, scope, id, parsed.data);
+      // The desk's party Hope follows the stage.
+      deps.live.stageChanged(scope);
+      return afterCards(request, id, logged);
     },
   );
 

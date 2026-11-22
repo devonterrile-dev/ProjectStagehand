@@ -2,6 +2,7 @@ import {
   hopeSpendBonusOf,
   signed,
   traitLabel,
+  type CharacterTracksRequest,
   type PlayerCharacterSheet,
   type RollCall,
   type Ruleset,
@@ -23,32 +24,26 @@ interface SheetPaperProps {
   onBack: () => void;
   /** The dice tray (F4.2), at the top right of the page. */
   tray?: ReactNode;
-}
-
-/** Hope as pips: one filled for each Hope held, out of the most a PC can hold. */
-function HopePips({ hope, max }: { hope: number; max: number }) {
-  return (
-    <p className="flex items-center gap-2" aria-label={`Hope: ${String(hope)} of ${String(max)}`}>
-      <span className="text-lg font-semibold">Hope</span>
-      {Array.from({ length: max }, (_, i) => (
-        <span
-          key={i}
-          aria-hidden
-          className={`inline-block size-5 rounded-full border-2 border-amber-700 ${i < hope ? 'bg-amber-400' : 'bg-transparent'}`}
-        />
-      ))}
-    </p>
-  );
+  /** The player marks their own Hope, HP, Stress and armor slots (D-67). */
+  onTracks?: (patch: CharacterTracksRequest) => Promise<unknown>;
 }
 
 /**
  * The player's sheet page on the table (F3.6, governance §12 "The sheet page"): their PC's
- * sheet as paper, with their Hope as pips at the top and, while the GM has called a roll for
- * them, the roll to make: the trait and its modifier, the difficulty unless it is hidden, Spend
+ * sheet as paper (where they mark their own Hope, HP, Stress and armor slots, D-67) and, while
+ * the GM has called a roll for them, the roll to make: the trait and its modifier, the difficulty unless it is hidden, Spend
  * Hope for the bonus, and Roll. Plain DOM with no router or query context: it is drawn inside
  * the 3D scene (drei `Html`).
  */
-export function SheetPaper({ sheet, ruleset, call, onRoll, onBack, tray }: SheetPaperProps) {
+export function SheetPaper({
+  sheet,
+  ruleset,
+  call,
+  onRoll,
+  onBack,
+  tray,
+  onTracks,
+}: SheetPaperProps) {
   const [spendHope, setSpendHope] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -91,8 +86,6 @@ export function SheetPaper({ sheet, ruleset, call, onRoll, onBack, tray }: Sheet
           {tray}
         </div>
       </div>
-
-      {sheet != null && <HopePips hope={hope} max={ruleset.hopeMax} />}
 
       {call !== null && sheet != null && (
         <div
@@ -151,7 +144,7 @@ export function SheetPaper({ sheet, ruleset, call, onRoll, onBack, tray }: Sheet
           </p>
         )}
         {sheet != null && !sheet.needsGuide && (
-          <CharacterSheetView sheet={sheet} ruleset={ruleset} />
+          <CharacterSheetView sheet={sheet} ruleset={ruleset} onTracks={onTracks} />
         )}
       </div>
     </section>

@@ -10,6 +10,8 @@ import {
   BUILD_MESSAGES,
   buildCharacterRequestSchema,
   setNeedsGuideRequestSchema,
+  characterTracksRequestSchema,
+  TRACK_KEYS,
   buildSheet,
   characterSheetPatchSchemaFor,
   LOADOUT_FULL,
@@ -830,6 +832,42 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     return Response.json(isGm ? built : playerCharacterSheetSchema.parse(built));
   };
 
+  /** Hope, HP, Stress and marked armor slots (D-67): the PC's own player, or the GM. */
+  const respondTracks = (
+    found: Campaign,
+    d: CampaignData,
+    rest: string,
+    method: string,
+    rawBody: unknown,
+  ): Response | null => {
+    const match = /^\/characters\/([^/]+)\/tracks$/.exec(rest);
+    if (match === null || method !== 'POST') return null;
+    const sheet = d.characters.find((c) => c.id === match[1]);
+    const isGm = found.role === 'gm';
+    if (found.archivedAt !== null) return refused(409, 'Campaign is archived');
+    if (sheet === undefined || (!isGm && holderOf(d, sheet.id) !== me?.id)) {
+      return notFound('Character not found');
+    }
+    const parsed = characterTracksRequestSchema.safeParse(rawBody);
+    if (!parsed.success) return invalid(parsed.error.issues);
+    const built = rebuilt(found, sheet);
+    const max = {
+      hope: rulesetFor(found.rulesetVersion).hopeMax,
+      hpCurrent: sheet.hpMax,
+      stressCurrent: sheet.stressMax,
+      armorSlotsMarked: built.built.armorSlotsMax,
+    };
+    for (const key of TRACK_KEYS) {
+      const value = parsed.data[key];
+      if (value !== undefined && value > max[key]) {
+        return refused(400, `Can't be above ${String(max[key])}`);
+      }
+    }
+    Object.assign(sheet, parsed.data);
+    const answer = { ...rebuilt(found, sheet), assignedToUserId: holderOf(d, sheet.id) };
+    return Response.json(isGm ? answer : playerCharacterSheetSchema.parse(answer));
+  };
+
   /** One PC's sheet: the GM's full sheet, or a player's own through the allow-list. */
   const respondCharacter = (
     found: Campaign,
@@ -842,6 +880,8 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
     if (cards !== null) return cards;
     const guide = respondGuide(found, d, rest, method, rawBody);
     if (guide !== null) return guide;
+    const tracks = respondTracks(found, d, rest, method, rawBody);
+    if (tracks !== null) return tracks;
     const sheetMatch = /^\/characters\/([^/]+)$/.exec(rest);
     if (sheetMatch === null) return null;
     const sheet = d.characters.find((c) => c.id === sheetMatch[1]);

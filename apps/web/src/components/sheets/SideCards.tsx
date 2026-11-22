@@ -146,9 +146,9 @@ function recallCostLabel(card: HeldCard, rest: boolean | undefined): string {
 
 /**
  * The loadout or the vault as a pile of cards (§9 "Domain card loadout"): the top card shows,
- * and clicking it (or Next card) turns to the next one. With `actions`, the top card can be put
- * in the vault, or brought back to the loadout; into a full loadout, the player first picks
- * which loadout card goes to the vault.
+ * and clicking it (or Next card) turns to the next one. With `actions`, the vault's top card can
+ * be brought back to the loadout; into a full loadout, the player first picks which loadout card
+ * goes to the vault. Loadout cards have no move of their own (D-67).
  */
 export function CardPile({
   place,
@@ -196,22 +196,9 @@ export function CardPile({
 
   const footer = (card: HeldCard): ReactNode => {
     if (actions === undefined) return undefined;
-    if (place === 'loadout') {
-      return (
-        <Button
-          size="xs"
-          variant="outline"
-          className="w-full"
-          disabled={busy}
-          onClick={(event) => {
-            event.stopPropagation();
-            void run(() => actions.onMove(card.id, 'vault'));
-          }}
-        >
-          Put {card.name} in the vault
-        </Button>
-      );
-    }
+    // A loadout card goes to the vault only to make room for one coming back (D-67): the vault's
+    // card asks which, so the loadout has no button of its own.
+    if (place === 'loadout') return undefined;
     if (makingRoom) {
       return (
         <div

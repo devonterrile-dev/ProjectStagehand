@@ -128,6 +128,7 @@ import {
   startingGearSchema,
   type ArmorRecord,
   type BuildCharacterRequest,
+  type CharacterTracksRequest,
   type StartingGear,
   type CreateArmorRequest,
   type CreateWeaponRequest,
@@ -551,6 +552,23 @@ export async function buildCharacter<V extends 'gm' | 'player'>(
   view: V,
 ): Promise<V extends 'gm' ? CharacterSheet : PlayerCharacterSheet> {
   const response = await send(`${characterPath(campaignId, characterId)}/build`, 'POST', input);
+  const body: unknown = await response.json();
+  return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
+    body,
+  ) as V extends 'gm' ? CharacterSheet : PlayerCharacterSheet;
+}
+
+/**
+ * Marks Hope, HP, Stress or armor slots (D-67): the PC's own player, or the GM. Each gets their own
+ * view of the sheet back.
+ */
+export async function setTracks<V extends 'gm' | 'player'>(
+  campaignId: string,
+  characterId: string,
+  input: CharacterTracksRequest,
+  view: V,
+): Promise<V extends 'gm' ? CharacterSheet : PlayerCharacterSheet> {
+  const response = await send(`${characterPath(campaignId, characterId)}/tracks`, 'POST', input);
   const body: unknown = await response.json();
   return (view === 'gm' ? characterSheetSchema : playerCharacterSheetSchema).parse(
     body,

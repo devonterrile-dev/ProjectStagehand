@@ -46,6 +46,7 @@ import type {
   UpdateSubclassRequest,
   UpdateWeaponRequest,
   BuildCharacterRequest,
+  CharacterTracksRequest,
   StartingGear,
 } from '@stagehand/shared';
 import {
@@ -176,6 +177,7 @@ import {
   fetchStartingGear,
   putStartingGear,
   setNeedsGuide,
+  setTracks,
 } from './api';
 import { signOut } from './auth-client';
 
@@ -582,6 +584,17 @@ export function useBuildCharacter(campaignId: string, characterId: string, view:
       queryClient.setQueryData(characterKey(campaignId, characterId, view), sheet);
       void queryClient.invalidateQueries({ queryKey: characterSheetKey(campaignId, characterId) });
       refetchLists();
+    },
+  });
+}
+
+/** Marks Hope, HP, Stress or armor slots (D-67); the sheet comes back for the caller's view. */
+export function useSetTracks(campaignId: string, characterId: string, view: SheetView) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CharacterTracksRequest) => setTracks(campaignId, characterId, input, view),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(characterKey(campaignId, characterId, view), sheet);
     },
   });
 }

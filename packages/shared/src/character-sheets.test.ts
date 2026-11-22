@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   characterSheetPatchSchemaFor,
   characterSheetSchema,
+  characterTracksRequestSchema,
   PLAYER_CHARACTER_SHEET_KEYS,
   playerCharacterSheetSchema,
   type CharacterSheet,
@@ -240,5 +241,18 @@ describe('characterSheetPatchSchemaFor', () => {
     const experiences = Array.from({ length: 51 }, (_, i) => ({ name: `E${String(i)}`, bonus: 1 }));
     expect(patch({ experiences }).success).toBe(false);
     expect(patch({ experiences: experiences.slice(0, 50) }).success).toBe(true);
+  });
+});
+
+describe('characterTracksRequestSchema (D-67)', () => {
+  it('takes any of the four tracks as whole numbers of 0 or more', () => {
+    expect(characterTracksRequestSchema.parse({ hope: 2, hpCurrent: 0 })).toEqual({
+      hope: 2,
+      hpCurrent: 0,
+    });
+    expect(characterTracksRequestSchema.safeParse({}).success).toBe(false);
+    expect(characterTracksRequestSchema.safeParse({ stressCurrent: -1 }).success).toBe(false);
+    expect(characterTracksRequestSchema.safeParse({ armorSlotsMarked: 1.5 }).success).toBe(false);
+    expect(characterTracksRequestSchema.safeParse({ hpMax: 9 }).success).toBe(false);
   });
 });

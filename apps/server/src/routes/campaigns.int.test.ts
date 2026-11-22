@@ -220,6 +220,13 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     gmOnly: false,
     payload: { to: 'vault' },
   },
+  // Tracks (D-67): the PC's player or the GM.
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/tracks',
+    gmOnly: false,
+    payload: { hope: 1 },
+  },
   // The creation guide (F4.8): the PC's player or the GM builds; the GM sends a PC through it.
   {
     method: 'POST',

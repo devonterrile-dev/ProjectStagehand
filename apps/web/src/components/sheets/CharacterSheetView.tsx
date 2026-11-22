@@ -4,6 +4,8 @@ import {
   tierOf,
   type Ability,
   type BuiltWeapon,
+  type CharacterTracksRequest,
+  type TrackKey,
   type PlayerCharacterSheet,
   type Ruleset,
 } from '@stagehand/shared';
@@ -16,6 +18,7 @@ import { enumLabel } from '@/lib/records';
 
 import { formatModifier } from './format';
 import { Group } from './layout';
+import { DefenseBadges, Pips, ThresholdStrip } from './Tracks';
 
 /**
  * A player's own sheet, read-only (D-23): the same groups as the GM's editor, shown as
@@ -27,10 +30,15 @@ import { Group } from './layout';
 export function CharacterSheetView({
   sheet,
   ruleset,
+  onTracks,
 }: {
   sheet: PlayerCharacterSheet;
   ruleset: Ruleset;
+  /** The player marks their own Hope, HP, Stress and armor slots (D-67); read-only without. */
+  onTracks?: (patch: CharacterTracksRequest) => Promise<unknown>;
 }) {
+  const track = (key: TrackKey) =>
+    onTracks === undefined ? undefined : (value: number) => onTracks({ [key]: value });
   const built = sheet.built;
   const weapons = [
     ...(built.weapons.primary === null ? [] : [{ slot: 'Primary', weapon: built.weapons.primary }]),
@@ -40,10 +48,6 @@ export function CharacterSheetView({
     ...built.weapons.spares.map((weapon) => ({ slot: 'Spare', weapon })),
   ];
   const { major, severe, minor } = built.thresholds;
-  const thresholds =
-    minor === null
-      ? `${String(major)} / ${String(severe)}`
-      : `${String(minor)} / ${String(major)} / ${String(severe)}`;
   const tier = tierOf(sheet.level, ruleset);
   const gold = sheet.gold;
   const hasGold = gold.handfuls + gold.bags + gold.chests > 0;
@@ -63,25 +67,31 @@ export function CharacterSheetView({
       <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="space-y-4">
           <Group title="Health">
-            <Stats
-              items={[
-                [minor === null ? 'Thresholds (major / severe)' : 'Thresholds', thresholds],
-                ['HP', `${String(sheet.hpCurrent)} of ${String(sheet.hpMax)}`],
-                ['Stress', `${String(sheet.stressCurrent)} of ${String(sheet.stressMax)}`],
-              ]}
+            <ThresholdStrip minor={minor} major={major} severe={severe} />
+            <Pips
+              label="HP"
+              value={sheet.hpCurrent}
+              max={sheet.hpMax}
+              tone="hp"
+              onSet={track('hpCurrent')}
+            />
+            <Pips
+              label="Stress"
+              value={sheet.stressCurrent}
+              max={sheet.stressMax}
+              tone="stress"
+              onSet={track('stressCurrent')}
             />
           </Group>
 
           <Group title="Defense">
-            <Stats
-              items={[
-                ['Evasion', built.evasion],
-                ['Armor score', built.armorScore],
-                [
-                  'Armor slots',
-                  `${String(sheet.armorSlotsMarked)} of ${String(built.armorSlotsMax)} marked`,
-                ],
-              ]}
+            <DefenseBadges
+              evasion={built.evasion}
+              armorScore={built.armorScore}
+              armorName={built.armorName}
+              slotsMarked={sheet.armorSlotsMarked}
+              slotsMax={built.armorSlotsMax}
+              onSetSlots={track('armorSlotsMarked')}
             />
           </Group>
 
@@ -109,9 +119,15 @@ export function CharacterSheetView({
           </Group>
 
           <Group title="Hope and proficiency">
+            <Pips
+              label="Hope"
+              value={sheet.hope}
+              max={ruleset.hopeMax}
+              tone="hope"
+              onSet={track('hope')}
+            />
             <Rows
               items={[
-                ['Hope', `${String(sheet.hope)} of ${String(ruleset.hopeMax)}`],
                 ['Spending Hope adds', `+${String(hopeSpendBonusOf(ruleset, sheet.hopeBonus))}`],
                 ['Proficiency', sheet.proficiency],
               ]}

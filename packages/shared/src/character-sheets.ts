@@ -189,6 +189,27 @@ export const SHEET_LINK_KEYS = [
   'spareWeaponIds',
 ] as const satisfies readonly (keyof SheetLinks)[];
 
+/**
+ * The tracks a PC's own player marks in play (D-67): Hope, HP left, Stress marked and armor slots
+ * marked. The GM may set them too.
+ */
+export const TRACK_KEYS = ['hope', 'hpCurrent', 'stressCurrent', 'armorSlotsMarked'] as const;
+export type TrackKey = (typeof TRACK_KEYS)[number];
+
+/**
+ * `POST …/characters/:characterId/tracks`: any of the tracks, each a whole number of 0 or more.
+ * The server checks each against its maximum on the sheet.
+ */
+export const characterTracksRequestSchema = z
+  .strictObject({
+    hope: z.int('Must be a whole number').min(0, 'Must be 0 or more').optional(),
+    hpCurrent: z.int('Must be a whole number').min(0, 'Must be 0 or more').optional(),
+    stressCurrent: z.int('Must be a whole number').min(0, 'Must be 0 or more').optional(),
+    armorSlotsMarked: z.int('Must be a whole number').min(0, 'Must be 0 or more').optional(),
+  })
+  .refine((request) => Object.keys(request).length > 0, 'Nothing to update');
+export type CharacterTracksRequest = z.infer<typeof characterTracksRequestSchema>;
+
 /** The refusal for the same species twice, or a mixed ancestry with no first species. */
 export const SPECIES_PAIR = 'Pick two different species, the first one first';
 

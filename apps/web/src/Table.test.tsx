@@ -868,3 +868,27 @@ describe('An unbuilt PC at the table (F4.8)', () => {
     expect(props().table?.sheet?.cards).toBeNull();
   });
 });
+
+describe('Marking tracks on the sheet page (D-67)', () => {
+  it('lets the player change their Hope at the table', async () => {
+    const coast = campaign({ name: 'Painted Coast', role: 'player' });
+    const vex = uuid();
+    const fetchMock = mockApi(MIRA, [coast], {
+      campaignData: {
+        [coast.id]: {
+          characters: [{ id: vex, name: 'Vex', hope: 2, assignedToUserId: MIRA.id }],
+        },
+      },
+    });
+    await seated(coast, playerStage());
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    const sheet = within(await screen.findByRole('region', { name: 'Your sheet' }));
+    fireEvent.click(await sheet.findByRole('button', { name: 'Raise Hope' }));
+    expect(await sheet.findByLabelText('Hope: 3 of 6')).toBeDefined();
+    const sent = fetchMock.mock.calls.filter(
+      ([input, init]) =>
+        init?.method === 'POST' && urlOf(input).endsWith(`/characters/${vex}/tracks`),
+    );
+    expect(sent.map(([, init]) => init?.body)).toEqual([JSON.stringify({ hope: 3 })]);
+  });
+});

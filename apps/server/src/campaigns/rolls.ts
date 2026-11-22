@@ -99,6 +99,34 @@ const sceneLoadEventSchema = z.object({ name: z.string() });
 /** The GM turned Rest on or off (F4.7). */
 export const restEventSchema = z.object({ on: z.boolean() });
 /** A PC brought a domain card back from the vault (F4.7). */
+/** A track a player (or the GM) marked on a sheet (D-67). */
+export const trackAdjustEventSchema = z.object({
+  characterId: z.uuid(),
+  characterName: z.string(),
+  track: z.enum(['hope', 'hp', 'stress', 'armor']),
+  from: z.int(),
+  to: z.int(),
+  max: z.int(),
+});
+
+/** "Vex lost 2 HP (4 of 6)", "Vex marked 1 Stress (3 of 6)": a track change in words. */
+export function trackText(event: z.infer<typeof trackAdjustEventSchema>): string {
+  const { characterName: who, track, from, to, max } = event;
+  const n = Math.abs(to - from);
+  const up = to > from;
+  const of = `(${String(to)} of ${String(max)})`;
+  switch (track) {
+    case 'hope':
+      return `${who} ${up ? 'gained' : 'spent'} ${String(n)} Hope ${of}`;
+    case 'hp':
+      return `${who} ${up ? 'healed' : 'lost'} ${String(n)} HP ${of}`;
+    case 'stress':
+      return `${who} ${up ? 'marked' : 'cleared'} ${String(n)} Stress ${of}`;
+    case 'armor':
+      return `${who} ${up ? 'marked' : 'cleared'} ${String(n)} armor slot${n === 1 ? '' : 's'} ${of}`;
+  }
+}
+
 export const cardRecallEventSchema = z.object({
   characterName: z.string(),
   cardName: z.string(),
@@ -699,6 +727,10 @@ function logText(
       const paid = rest ? 'free (Rest)' : stress === 0 ? 'free' : `for ${String(stress)} Stress`;
       const swap = swappedOut === null ? '' : `, putting ${swappedOut} in the vault`;
       return `${characterName} brought ${cardName} back from the vault ${paid}${swap}`;
+    }
+    case 'track_adjust': {
+      const track = trackAdjustEventSchema.safeParse(data);
+      return track.success ? trackText(track.data) : 'Changed a sheet';
     }
   }
 }
