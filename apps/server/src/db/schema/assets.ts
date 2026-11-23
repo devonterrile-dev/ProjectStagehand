@@ -12,6 +12,7 @@
  */
 import {
   ASSET_KINDS,
+  ASSET_SOURCES,
   ASSET_STATUSES,
   type ImageAspectRatio,
   type ImageQuality,
@@ -19,6 +20,7 @@ import {
 } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   doublePrecision,
   index,
@@ -37,6 +39,7 @@ import { records } from './records';
 
 export const assetKind = pgEnum('asset_kind', ASSET_KINDS);
 export const assetStatus = pgEnum('asset_status', ASSET_STATUSES);
+export const assetSource = pgEnum('asset_source', ASSET_SOURCES);
 
 export const assets = pgTable(
   'assets',
@@ -62,13 +65,23 @@ export const assets = pgTable(
     status: assetStatus('status').notNull().default('generating'),
     /** Set when `status` is `failed`. */
     errorCode: text('error_code').$type<VisualErrorCode>(),
-    /** The full text prompt sent to the image model. Private campaign text: never logged. */
-    prompt: text('prompt').notNull(),
+    /** Made by the image model, or uploaded by the GM (F2.6, D-70). */
+    source: assetSource('source').notNull().default('generated'),
+    /**
+     * An upload stored as an already finished stage image: no cut-out, no border (F2.6). Only
+     * ever true for an upload (check below).
+     */
+    finished: boolean('finished').notNull().default(false),
+    /**
+     * The full text prompt sent to the image model. Private campaign text: never logged. This
+     * and the four below are set for every generated image, and null for an upload.
+     */
+    prompt: text('prompt'),
     /** The OpenRouter model slug. */
-    model: text('model').notNull(),
-    styleBibleVersion: integer('style_bible_version').notNull(),
-    quality: text('quality').$type<ImageQuality>().notNull(),
-    aspectRatio: text('aspect_ratio').$type<ImageAspectRatio>().notNull(),
+    model: text('model'),
+    styleBibleVersion: integer('style_bible_version'),
+    quality: text('quality').$type<ImageQuality>(),
+    aspectRatio: text('aspect_ratio').$type<ImageAspectRatio>(),
     /** The GM's notes for a Regenerate with notes (F2.5). */
     revisionNotes: text('revision_notes'),
     /**
@@ -116,6 +129,14 @@ export const assets = pgTable(
     check(
       'assets_image_once_made',
       sql`${table.status} in ('generating', 'failed', 'rejected') or ${table.originalPath} is not null`,
+    ),
+    check(
+      'assets_generated_made',
+      sql`${table.source} = 'uploaded' or num_nonnulls(${table.prompt}, ${table.model}, ${table.styleBibleVersion}, ${table.quality}, ${table.aspectRatio}) = 5`,
+    ),
+    check(
+      'assets_finished_only_uploaded',
+      sql`not ${table.finished} or ${table.source} = 'uploaded'`,
     ),
     check(
       'assets_processed_complete',

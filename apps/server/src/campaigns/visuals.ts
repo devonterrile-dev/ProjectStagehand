@@ -11,13 +11,19 @@
  * crash cut short. Images made before post-processing existed, or by an older version of it,
  * are processed again at startup (`assetsToProcess` → `saveProcessed`).
  *
+ * An upload (F2.6, D-70, `uploadVisual`) skips the queue: its original and stage version are
+ * made by the route and stored here as a finished draft, under the same review rules.
+ *
  * Every function that takes a scope stays inside its campaign; the worker's functions take
  * only an asset id, which it got from a row we inserted.
  */
+import { randomUUID } from 'node:crypto';
+
 import {
   assetSummarySchema,
   isVisualSubject,
   VISUAL_LIMITS,
+  VISUAL_UPLOAD_MESSAGES,
   visualsResponseSchema,
   type AssetImageVariant,
   type AssetKind,
@@ -46,9 +52,9 @@ import {
 import type { Database } from '../db/client';
 import { assets, characters, classes, records, species } from '../db/schema';
 import { httpError } from '../http/errors';
-import { PROCESSED_MEDIA_TYPE } from '../visuals/process';
+import { PROCESSED_MEDIA_TYPE, type ProcessedImage, type ProcessMode } from '../visuals/process';
 import type { VisualSource } from '../visuals/prompt';
-import type { AssetStorage } from '../visuals/storage';
+import { originalKey, processedKey, type AssetStorage } from '../visuals/storage';
 
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
@@ -74,6 +80,9 @@ function toSummary(row: AssetRow): AssetSummary {
     status: row.status,
     errorCode: row.errorCode,
     costUsd: row.costUsd,
+    source: row.source,
+    finished: row.finished,
+    mediaType: row.mediaType,
     processed:
       row.processedPath === null ||
       row.processedWidth === null ||
@@ -352,7 +361,13 @@ export async function startVisual(
     const [recent] = await tx
       .select({ n: count() })
       .from(assets)
-      .where(and(eq(assets.createdBy, scope.userId), gt(assets.createdAt, hourAgo)));
+      .where(
+        and(
+          eq(assets.createdBy, scope.userId),
+          eq(assets.source, 'generated'),
+          gt(assets.createdAt, hourAgo),
+        ),
+      );
     if ((recent?.n ?? 0) >= VISUAL_LIMITS.jobsPerHour) {
       throw httpError(
         429,
@@ -389,6 +404,82 @@ export async function startVisual(
   });
 }
 
+export interface UploadVisualInput {
+  kind: AssetKind;
+  /** Stored as an already finished stage image (cutouts only; the caller decides). */
+  finished: boolean;
+  /** The original to store, already checked and re-encoded (`readUpload`). */
+  original: { data: Buffer; mediaType: string; extension: string };
+  /** Its stage version, already made. */
+  processed: ProcessedImage;
+  /** The post-processing version that made it. */
+  processingVersion: number;
+}
+
+/**
+ * Stores an upload as a finished draft (F2.6, D-70), under the same rules as a new image:
+ * refused (409) while one is being made or a draft waits for review, and failed tries are
+ * dismissed. It costs nothing, so it is not counted toward the hourly limit. The files are
+ * written under the GM's lock once the checks pass, and removed again if anything fails.
+ * Callers check `assertGm` and `assertWritable`.
+ */
+export async function uploadVisual(
+  db: Database,
+  storage: AssetStorage,
+  scope: CampaignScope,
+  owner: VisualOwner,
+  input: UploadVisualInput,
+): Promise<VisualsResponse> {
+  await expireLost(db, eq(assets.createdBy, scope.userId));
+  const id = randomUUID();
+  const original = originalKey(scope.campaignId, id, input.original.extension);
+  const processed = processedKey(scope.campaignId, id);
+  try {
+    await db.transaction(async (tx) => {
+      await lockGm(tx, scope.userId);
+      await visualAssetIdIn(tx, scope, owner);
+      const drafts = await draftsOf(tx, scope, owner);
+      if (drafts.some((draft) => draft.status === 'generating')) {
+        throw httpError(409, WAIT_FOR_IMAGE);
+      }
+      if (drafts.some((draft) => draft.status === 'pending')) throw httpError(409, REVIEW_FIRST);
+      await markRejected(
+        tx,
+        drafts.filter((draft) => draft.status === 'failed').map((draft) => draft.id),
+      );
+
+      await storage.put(original, input.original.data);
+      await storage.put(processed, input.processed.data);
+      const now = new Date();
+      await tx.insert(assets).values({
+        id,
+        campaignId: scope.campaignId,
+        ...('recordId' in owner
+          ? { recordId: owner.recordId }
+          : { characterId: owner.characterId }),
+        createdBy: scope.userId,
+        kind: input.kind,
+        source: 'uploaded',
+        finished: input.finished,
+        status: 'pending',
+        originalPath: original,
+        mediaType: input.original.mediaType,
+        processedPath: processed,
+        processedWidth: input.processed.width,
+        processedHeight: input.processed.height,
+        processingVersion: input.processingVersion,
+        startedAt: now,
+        finishedAt: now,
+      });
+    });
+  } catch (error) {
+    // Nothing is there unless the checks passed: the id is new.
+    await Promise.allSettled([storage.remove(original), storage.remove(processed)]);
+    throw error;
+  }
+  return listVisuals(db, scope, owner);
+}
+
 /**
  * The image a Regenerate with notes would change: one of this owner's finished images (a draft
  * or the one in use). 404 otherwise. Whether it may be changed right now is `startVisual`'s
@@ -401,7 +492,7 @@ export async function revisionBaseOf(
   assetId: string,
 ): Promise<{ kind: AssetKind }> {
   const [row] = await db
-    .select({ kind: assets.kind })
+    .select({ kind: assets.kind, finished: assets.finished })
     .from(assets)
     .where(
       and(
@@ -413,7 +504,9 @@ export async function revisionBaseOf(
       ),
     );
   if (row === undefined) throw httpError(404, ASSET_NOT_FOUND);
-  return row;
+  // Its original already has a border: the model would copy it.
+  if (row.finished) throw httpError(409, VISUAL_UPLOAD_MESSAGES.finishedNotRevisable);
+  return { kind: row.kind };
 }
 
 /** The image in use and the drafts under review (F2.5, D-44). */
@@ -690,6 +783,7 @@ export async function claimVisual(db: Database, assetId: string): Promise<Claime
       and(
         eq(assets.id, assetId),
         eq(assets.status, 'generating'),
+        eq(assets.source, 'generated'),
         sql`${assets.startedAt} is null`,
       ),
     )
@@ -705,7 +799,12 @@ export async function claimVisual(db: Database, assetId: string): Promise<Claime
       revisedFromId: assets.revisedFromId,
     });
   if (row === undefined) return null;
-  const { revisedFromId, ...claimed } = row;
+  const { revisedFromId, prompt, model, quality, aspectRatio, ...rest } = row;
+  // Always set on a generated try (check `assets_generated_made`).
+  if (prompt === null || model === null || quality === null || aspectRatio === null) {
+    throw new Error('generated asset is missing its settings');
+  }
+  const claimed = { ...rest, prompt, model, quality, aspectRatio };
   if (revisedFromId === null) return { ...claimed, revisionOf: null };
   const [base] = await db
     .select({ originalPath: assets.originalPath, mediaType: assets.mediaType })
@@ -784,17 +883,44 @@ export interface UnprocessedVisual {
   campaignId: string;
   kind: AssetKind;
   originalPath: string;
+  /** How it is processed: an upload in its own mode (F2.6). */
+  mode: ProcessMode;
+}
+
+/** The columns `UnprocessedVisual` is read from. */
+const unprocessedColumns = {
+  id: assets.id,
+  campaignId: assets.campaignId,
+  kind: assets.kind,
+  originalPath: assets.originalPath,
+  source: assets.source,
+  finished: assets.finished,
+};
+
+function unprocessedOf(row: {
+  id: string;
+  campaignId: string;
+  kind: AssetKind;
+  originalPath: string | null;
+  source: AssetRow['source'];
+  finished: boolean;
+}): UnprocessedVisual | null {
+  if (row.originalPath === null) return null;
+  const mode: ProcessMode =
+    row.source === 'generated' ? 'generated' : row.finished ? 'finished' : 'upload';
+  return {
+    id: row.id,
+    campaignId: row.campaignId,
+    kind: row.kind,
+    originalPath: row.originalPath,
+    mode,
+  };
 }
 
 /** Every finished image that still needs (re)processing; at startup they are queued. */
 export async function assetsToProcess(db: Database, version: number): Promise<UnprocessedVisual[]> {
   const rows = await db
-    .select({
-      id: assets.id,
-      campaignId: assets.campaignId,
-      kind: assets.kind,
-      originalPath: assets.originalPath,
-    })
+    .select(unprocessedColumns)
     .from(assets)
     .where(
       and(
@@ -804,9 +930,7 @@ export async function assetsToProcess(db: Database, version: number): Promise<Un
       ),
     )
     .orderBy(desc(assets.createdAt));
-  return rows.flatMap((row) =>
-    row.originalPath === null ? [] : [{ ...row, originalPath: row.originalPath }],
-  );
+  return rows.flatMap((row) => unprocessedOf(row) ?? []);
 }
 
 /** One image to (re)process, or null if it has no original (yet) or is already at `version`. */
@@ -816,12 +940,7 @@ export async function unprocessedVisual(
   version: number,
 ): Promise<UnprocessedVisual | null> {
   const [row] = await db
-    .select({
-      id: assets.id,
-      campaignId: assets.campaignId,
-      kind: assets.kind,
-      originalPath: assets.originalPath,
-    })
+    .select(unprocessedColumns)
     .from(assets)
     .where(
       and(
@@ -830,8 +949,7 @@ export async function unprocessedVisual(
         or(isNull(assets.processingVersion), lt(assets.processingVersion, version)),
       ),
     );
-  if (row?.originalPath === null || row?.originalPath === undefined) return null;
-  return { ...row, originalPath: row.originalPath };
+  return row === undefined ? null : unprocessedOf(row);
 }
 
 /**

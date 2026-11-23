@@ -353,6 +353,18 @@ const CAMPAIGN_ROUTES: CampaignRoute[] = [
     payload: {},
   },
   {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/records/:recordId/visuals/upload',
+    gmOnly: true,
+    payload: {},
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:campaignId/characters/:characterId/visuals/upload',
+    gmOnly: true,
+    payload: {},
+  },
+  {
     method: 'PUT',
     path: '/api/campaigns/:campaignId/records/:recordId/visual',
     gmOnly: true,

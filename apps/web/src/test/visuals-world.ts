@@ -2,13 +2,19 @@
  * The visuals part of the fake API (F2.3, F2.5): tries that start `generating` and finish on
  * the next poll (pending, or failed for a subject whose name contains `FAIL_VISUAL_WORD`), and
  * review: use, discard and regenerate with notes, following the server's rules and messages
- * (`apps/server/src/campaigns/visuals.ts`, D-44).
+ * (`apps/server/src/campaigns/visuals.ts`, D-44). Uploads (F2.6) become finished drafts at once;
+ * an empty file is refused as not an image.
  */
 import {
   generateVisualRequestSchema,
+  isCutoutKind,
   isVisualSubject,
   reviseVisualRequestSchema,
+  uploadVisualQuerySchema,
   useVisualRequestSchema,
+  VISUAL_UPLOAD_MAX_BYTES,
+  VISUAL_UPLOAD_MESSAGES,
+  VISUAL_UPLOAD_TYPES,
   visualKindsFor,
   type AssetKind,
   type AssetSummary,
@@ -27,6 +33,8 @@ export const VISUAL_COST = 0.0612;
 export const UNPROCESSED_VISUAL_WORD = 'Raw';
 /** The stage version every other finished try gets (F2.4). */
 export const PROCESSED_VISUAL = { width: 683, height: 1024, version: 1 } as const;
+/** The stage version a finished upload keeps (F2.6): its own size. */
+export const FINISHED_UPLOAD = { width: 300, height: 400, version: 1 } as const;
 
 export const WAIT_MESSAGE = 'An image for this is already being made. Wait for it to finish.';
 export const REVIEW_FIRST_MESSAGE = 'Use or discard the new image first.';
@@ -60,6 +68,9 @@ export function assetSummary(overrides: Partial<AssetSummary> = {}): AssetSummar
     status: 'pending',
     errorCode: null,
     costUsd: VISUAL_COST,
+    source: 'generated',
+    finished: false,
+    mediaType: 'image/png',
     processed: { ...PROCESSED_VISUAL },
     revisedFromId: null,
     revisionNotes: null,
@@ -101,6 +112,80 @@ export function visualsWorld(options: VisualsWorldOptions, ctx: Ctx) {
     }
   }
 
+  function upload(
+    found: Campaign,
+    data: { records: CampaignRecord[]; characters: CharacterSheet[] },
+    [, table, ownerId = '', queryString = '']: RegExpExecArray,
+    sentBody: unknown,
+  ): Response {
+    if (found.role !== 'gm') return ctx.refused(403, 'Only the GM can do that');
+    const owner: (CampaignRecord | CharacterSheet) | undefined =
+      table === 'records'
+        ? data.records.find((r) => r.id === ownerId)
+        : data.characters.find((c) => c.id === ownerId);
+    if (owner === undefined) {
+      return ctx.notFound(table === 'records' ? 'Record not found' : 'Character not found');
+    }
+    const subject: string = 'type' in owner ? owner.type : 'pc';
+    if (!isVisualSubject(subject)) {
+      return ctx.refused(400, 'Only NPCs, Props, Items and Spots have a visual');
+    }
+    if (found.archivedAt !== null) return ctx.refused(409, 'Campaign is archived');
+    const query = uploadVisualQuerySchema.safeParse(
+      Object.fromEntries(new URLSearchParams(queryString)),
+    );
+    if (!query.success) return ctx.refused(400, 'Invalid request');
+    const kinds = visualKindsFor(subject);
+    const kind = query.data.kind ?? (kinds.length === 1 ? kinds[0] : undefined);
+    if (kind === undefined || !kinds.includes(kind)) {
+      return ctx.refused(400, 'Choose whether this is a humanoid or a monster');
+    }
+    if (
+      !(sentBody instanceof Blob) ||
+      !(VISUAL_UPLOAD_TYPES as readonly string[]).includes(sentBody.type)
+    ) {
+      return ctx.refused(415, VISUAL_UPLOAD_MESSAGES.notImage);
+    }
+    if (sentBody.size > VISUAL_UPLOAD_MAX_BYTES) {
+      return ctx.refused(413, VISUAL_UPLOAD_MESSAGES.tooBig);
+    }
+    if (sentBody.size === 0) return ctx.refused(400, VISUAL_UPLOAD_MESSAGES.notImage);
+
+    const list = tries.get(ownerId) ?? [];
+    tries.set(ownerId, list);
+    if (list.some((asset) => asset.status === 'generating')) {
+      return ctx.refused(409, WAIT_MESSAGE);
+    }
+    if (list.some((asset) => asset.status === 'pending')) {
+      return ctx.refused(409, REVIEW_FIRST_MESSAGE);
+    }
+    for (const [index, asset] of list.entries()) {
+      if (asset.status === 'failed')
+        list[index] = { ...asset, status: 'rejected', errorCode: null };
+    }
+    const finished = query.data.finished && isCutoutKind(kind);
+    const now = new Date().toISOString();
+    list.push(
+      assetSummary({
+        kind,
+        source: 'uploaded',
+        finished,
+        costUsd: null,
+        processed: finished ? { ...FINISHED_UPLOAD } : { ...PROCESSED_VISUAL },
+        createdAt: now,
+        finishedAt: now,
+      }),
+    );
+    return json(
+      {
+        visualAssetId: owner.visualAssetId,
+        inUse: list.find((asset) => asset.id === owner.visualAssetId) ?? null,
+        drafts: list.filter((asset) => DRAFT_STATUSES.includes(asset.status)),
+      },
+      201,
+    );
+  }
+
   return {
     respond(
       found: Campaign,
@@ -108,7 +193,16 @@ export function visualsWorld(options: VisualsWorldOptions, ctx: Ctx) {
       rest: string,
       method: string,
       rawBody: unknown,
+      /** The request body as sent, for an upload's file. */
+      sentBody?: unknown,
     ): Response | null {
+      const uploadMatch = /^\/(records|characters)\/([^/]+)\/visuals\/upload(?:\?(.*))?$/.exec(
+        rest,
+      );
+      if (uploadMatch !== null) {
+        if (method !== 'POST') return null;
+        return upload(found, data, uploadMatch, sentBody);
+      }
       const match =
         /^\/(records|characters)\/([^/]+)\/(visuals|visual)(?:\/([^/]+)(\/revise)?)?$/.exec(rest);
       if (match === null) return null;

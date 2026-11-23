@@ -6,10 +6,12 @@
  * GET    …/records/:recordId/visuals                  the image in use and the drafts
  * POST   …/records/:recordId/visuals                  a new image → 202 `generating`
  * POST   …/records/:recordId/visuals/:assetId/revise  Regenerate with notes → 202 (F2.5)
+ * POST   …/records/:recordId/visuals/upload           the GM's own image as the body → 201
+ *        ?kind=…&finished=true                        with the visuals, a draft (F2.6, D-70)
  * PUT    …/records/:recordId/visual                   "Use this" / "Replace"
  * DELETE …/records/:recordId/visuals/:assetId         "Discard", "Keep current", "Keep new",
  *                                                     "Go back", dismiss a failed try (F2.5)
- * (the same five under …/characters/:characterId for a PC; … is /api/campaigns/:campaignId)
+ * (the same six under …/characters/:characterId for a PC; … is /api/campaigns/:campaignId)
  * GET    /api/campaigns/:campaignId/assets/:assetId/image  the stage's version (F2.4), or the
  *        ?v=original for the model's own                    original until it is made
  *        A player may load only the stage's version of an image the live stage is showing them
@@ -23,8 +25,13 @@ import {
   assetImageQuerySchema,
   generateVisualRequestSchema,
   IMAGE_MODEL,
+  isCutoutKind,
   reviseVisualRequestSchema,
+  uploadVisualQuerySchema,
   useVisualRequestSchema,
+  VISUAL_UPLOAD_MAX_BYTES,
+  VISUAL_UPLOAD_MESSAGES,
+  VISUAL_UPLOAD_TYPES,
   visualKindsFor,
   type AssetKind,
   type VisualSubject,
@@ -44,6 +51,7 @@ import {
   loadVisualSource,
   revisionBaseOf,
   startVisual,
+  uploadVisual,
   useVisual,
   type StartVisualInput,
   type VisualOwner,
@@ -51,10 +59,13 @@ import {
 import { CredentialUnreadableError } from '../credentials/crypto';
 import { getProviderKey } from '../credentials/store';
 import type { Database } from '../db/client';
-import { sendValidationError } from '../http/errors';
+import { httpError, sendValidationError } from '../http/errors';
+import { defaultImageProcessor } from '../visuals/job';
+import { PROCESSING_VERSION, ProcessingError } from '../visuals/process';
 import { revisionPrompt, visualPrompt } from '../visuals/prompt';
 import type { VisualQueue } from '../visuals/queue';
-import type { AssetStorage } from '../visuals/storage';
+import { extensionOf, type AssetStorage } from '../visuals/storage';
+import { readUpload, UPLOAD_MEDIA_TYPE, UploadError } from '../visuals/upload';
 
 export interface VisualDeps {
   queue: VisualQueue;
@@ -64,6 +75,12 @@ export interface VisualDeps {
 }
 
 export const NO_OPENROUTER_KEY = 'Add your OpenRouter API key in Settings before making images.';
+/**
+ * The body limit of an upload route: a little over the real limit, so an image just over it
+ * gets our own message rather than Fastify's.
+ */
+const UPLOAD_BODY_LIMIT = VISUAL_UPLOAD_MAX_BYTES + 1024 * 1024;
+
 const UNREADABLE_KEY =
   "Your stored OpenRouter key can't be read any more. Enter it again in Settings.";
 
@@ -211,12 +228,91 @@ export function registerVisualRoutes(
     });
   }
 
-  ownerRoutes('/api/campaigns/:campaignId/records/:recordId', (request) => ({
-    recordId: uuidParam(request, 'recordId', 'Record not found'),
-  }));
-  ownerRoutes('/api/campaigns/:campaignId/characters/:characterId', (request) => ({
-    characterId: uuidParam(request, 'characterId', 'Character not found'),
-  }));
+  const owners: [string, (request: FastifyRequest) => VisualOwner][] = [
+    [
+      '/api/campaigns/:campaignId/records/:recordId',
+      (request) => ({ recordId: uuidParam(request, 'recordId', 'Record not found') }),
+    ],
+    [
+      '/api/campaigns/:campaignId/characters/:characterId',
+      (request) => ({ characterId: uuidParam(request, 'characterId', 'Character not found') }),
+    ],
+  ];
+  for (const [path, ownerOf] of owners) ownerRoutes(path, ownerOf);
+
+  // Uploads (F2.6) take the image itself as the body. The parser for image bodies lives in
+  // this child plugin only, so no other route accepts one.
+  void app.register((uploads, _options, done) => {
+    uploads.addContentTypeParser(
+      [...VISUAL_UPLOAD_TYPES],
+      { parseAs: 'buffer', bodyLimit: UPLOAD_BODY_LIMIT },
+      (_request, body, done) => {
+        done(null, body);
+      },
+    );
+    for (const [path, ownerOf] of owners) {
+      uploads.post(
+        `${path}/visuals/upload`,
+        { preHandler, bodyLimit: UPLOAD_BODY_LIMIT },
+        async (request, reply) => {
+          const scope = campaignOf(request);
+          assertGm(scope);
+          assertWritable(scope);
+          const owner = ownerOf(request);
+
+          const query = uploadVisualQuerySchema.safeParse(request.query);
+          if (!query.success) return sendValidationError(reply, query.error);
+          const { source } = await loadVisualSource(db, scope, owner);
+          const chosen = kindFor(source.subject, query.data.kind);
+          if ('problem' in chosen) {
+            return reply
+              .code(400)
+              .send({ error: 'Bad Request', issues: [{ path: 'kind', message: chosen.problem }] });
+          }
+          const { kind } = chosen;
+
+          const body: unknown = request.body;
+          if (!Buffer.isBuffer(body)) throw httpError(415, VISUAL_UPLOAD_MESSAGES.notImage);
+          if (body.length > VISUAL_UPLOAD_MAX_BYTES) {
+            throw httpError(413, VISUAL_UPLOAD_MESSAGES.tooBig);
+          }
+          // A backdrop is only cropped and sized, so "finished" changes nothing for it.
+          const finished = query.data.finished && isCutoutKind(kind);
+
+          let original: Buffer;
+          let processed;
+          try {
+            original = await readUpload(body);
+            processed = await defaultImageProcessor(
+              original,
+              kind,
+              finished ? 'finished' : 'upload',
+            );
+          } catch (error) {
+            if (error instanceof UploadError) throw httpError(400, error.message);
+            if (error instanceof ProcessingError) {
+              throw httpError(400, VISUAL_UPLOAD_MESSAGES.empty);
+            }
+            throw error;
+          }
+
+          const visualsNow = await uploadVisual(db, visuals.storage, scope, owner, {
+            kind,
+            finished,
+            original: {
+              data: original,
+              mediaType: UPLOAD_MEDIA_TYPE,
+              extension: extensionOf(UPLOAD_MEDIA_TYPE),
+            },
+            processed,
+            processingVersion: PROCESSING_VERSION,
+          });
+          return reply.code(201).send(visualsNow);
+        },
+      );
+    }
+    done();
+  });
 
   app.get(
     '/api/campaigns/:campaignId/assets/:assetId/image',

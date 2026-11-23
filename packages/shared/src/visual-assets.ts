@@ -47,6 +47,14 @@ export const assetStatusSchema = z.enum(ASSET_STATUSES);
 export type AssetStatus = z.infer<typeof assetStatusSchema>;
 
 /**
+ * Where an asset came from (F2.6, D-70): made by the image model, or uploaded by the GM. An
+ * upload has no prompt, model or cost, and doesn't count toward the hourly limit.
+ */
+export const ASSET_SOURCES = ['generated', 'uploaded'] as const;
+export const assetSourceSchema = z.enum(ASSET_SOURCES);
+export type AssetSource = z.infer<typeof assetSourceSchema>;
+
+/**
  * What a visual can be made for (F2.3): four record types, and PC sheets (`pc`). Stat blocks
  * have no Generate visual button (yet).
  */
@@ -160,6 +168,15 @@ export const assetSummarySchema = z.object({
       version: z.int().positive(),
     })
     .nullable(),
+  /** Made by the image model or uploaded by the GM (F2.6). */
+  source: assetSourceSchema,
+  /**
+   * Uploaded as an already finished stage image (F2.6): stored as it is, with no cut-out or
+   * border added, so it can't be changed with notes.
+   */
+  finished: z.boolean(),
+  /** The original's media type (for a download's file name); null until there is one. */
+  mediaType: z.string().nullable(),
   /** The image this one changes, for a Regenerate with notes (F2.5); null for a fresh one. */
   revisedFromId: z.uuid().nullable(),
   /** The GM's notes for that change. */
@@ -213,6 +230,34 @@ export const reviseVisualRequestSchema = z.strictObject({
     .max(VISUAL_LIMITS.notesMax, `At most ${String(VISUAL_LIMITS.notesMax)} characters`),
 });
 export type ReviseVisualRequest = z.infer<typeof reviseVisualRequestSchema>;
+
+/** The largest image the GM may upload (F2.6, §14). */
+export const VISUAL_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
+/** The image types an upload may be. The server checks the bytes, not the stated type. */
+export const VISUAL_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
+/**
+ * `POST …/visuals/upload`, with the image itself as the body (F2.6). `kind` as for
+ * `POST …/visuals`. `finished`: the image is already a finished stage image (say one
+ * downloaded from another campaign), so it is stored as it is instead of being cut out and
+ * bordered again. Ignored for backdrops, which are only cropped and sized either way.
+ */
+export const uploadVisualQuerySchema = z.strictObject({
+  kind: assetKindSchema.optional(),
+  finished: z.stringbool().default(false),
+});
+export type UploadVisualQuery = z.input<typeof uploadVisualQuerySchema>;
+
+/** What the GM is told when an upload is refused. */
+export const VISUAL_UPLOAD_MESSAGES = {
+  notImage: "That file isn't a PNG, JPEG or WebP image.",
+  tooBig: 'Images can be at most 10 MB.',
+  tooManyPixels: 'That image is too large. Use one under 50 megapixels.',
+  empty: 'Nothing was left of that image once its background was cleared.',
+  finishedNotRevisable:
+    "An image uploaded as finished can't be changed with notes. Upload or generate a new one instead.",
+} as const;
 
 /** Which file of an asset: the stage's version (the default) or the model's original. */
 export const ASSET_IMAGE_VARIANTS = ['processed', 'original'] as const;

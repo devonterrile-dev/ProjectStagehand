@@ -18,6 +18,12 @@
  * Everything is saved as WebP at quality 90, with the transparency stored exactly.
  *
  * The bottom center of a cutout is where the stage fixes its stick or stand.
+ *
+ * Uploads (F2.6, D-70) go through the same pipeline, except that the key color is only cleared
+ * when the image really is drawn on it (`upload`): an upload with transparency of its own keeps
+ * every color it has. An upload the GM says is already finished (`finished`, say a stage image
+ * downloaded from another campaign) gets no cut-out and no border: its transparency is made
+ * all or nothing and it is shrunk to fit, nothing more.
  */
 import { isCutoutKind, type AssetKind } from '@stagehand/shared';
 import sharp from 'sharp';
@@ -76,6 +82,13 @@ export interface ProcessedImage {
   mediaType: typeof PROCESSED_MEDIA_TYPE;
 }
 
+/**
+ * How an image is processed: one the model made (`generated`), an upload (`upload`), or an
+ * upload that is already a finished stage image (`finished`). Backdrops are processed the same
+ * way whatever the mode.
+ */
+export type ProcessMode = 'generated' | 'upload' | 'finished';
+
 /** The image can't be made into a cutout: nothing was left once the key color was cleared. */
 export class ProcessingError extends Error {
   override name = 'ProcessingError';
@@ -92,10 +105,16 @@ function rgbOf(hex: string): Rgb {
 
 /**
  * The image's own key color: the per-channel median of the edge pixels that are close to the
- * style bible's key color (the model's magenta drifts, e.g. 236,3,233). Falls back to the
- * key color itself when the edges hold too little of it.
+ * style bible's key color (the model's magenta drifts, e.g. 236,3,233). When the edges hold
+ * too little of it, the key color itself (`fallback`), or null: an upload not drawn on it.
  */
-function sampleKey(rgb: Buffer, width: number, height: number, key: Rgb): Rgb {
+function sampleKey(
+  rgb: Buffer,
+  width: number,
+  height: number,
+  key: Rgb,
+  fallback: boolean,
+): Rgb | null {
   const reds: number[] = [];
   const greens: number[] = [];
   const blues: number[] = [];
@@ -119,7 +138,7 @@ function sampleKey(rgb: Buffer, width: number, height: number, key: Rgb): Rgb {
     visit(0, y);
     visit(width - 1, y);
   }
-  if (reds.length < total / 4) return key;
+  if (reds.length < total / 4) return fallback ? key : null;
   const median = (values: number[]) => values.sort((a, b) => a - b)[values.length >> 1] ?? 0;
   return [median(reds), median(greens), median(blues)];
 }
@@ -135,17 +154,31 @@ const NEIGHBOURS_8 = [
   [1, 1],
 ] as const;
 
-/** 1 where the pixel stays (the subject), 0 where it is cleared. */
+/**
+ * 1 where the pixel stays (the subject), 0 where it is cleared. A generated image always has
+ * its key color cleared. An upload only when it has no transparency of its own and its edges
+ * really hold the key color; otherwise only its own transparent pixels (and specks) go.
+ */
 function cutoutMask(
   rgb: Buffer,
   alpha: Buffer | null,
   width: number,
   height: number,
   settings: ProcessingSettings,
+  mode: 'generated' | 'upload',
 ): Uint8Array {
   const n = width * height;
   const keep = new Uint8Array(n);
-  const key = sampleKey(rgb, width, height, rgbOf(settings.keyColor));
+  const ownTransparency = alpha?.some((value) => value < 128) === true;
+  const key =
+    mode === 'upload' && ownTransparency
+      ? null
+      : sampleKey(rgb, width, height, rgbOf(settings.keyColor), mode === 'generated');
+  if (key === null) {
+    for (let p = 0; p < n; p += 1) keep[p] = alpha === null || (alpha[p] ?? 0) >= 128 ? 1 : 0;
+    dropSpecks(keep, width, height, settings.speckMaxPixels);
+    return keep;
+  }
   const tolerance = settings.keyTolerance ** 2;
   for (let p = 0; p < n; p += 1) {
     if (alpha !== null && (alpha[p] ?? 0) < 128) continue;
@@ -283,7 +316,11 @@ async function encode(
   return { data: out, width, height, mediaType: PROCESSED_MEDIA_TYPE };
 }
 
-async function processCutout(input: Buffer, settings: ProcessingSettings): Promise<ProcessedImage> {
+async function processCutout(
+  input: Buffer,
+  settings: ProcessingSettings,
+  mode: 'generated' | 'upload',
+): Promise<ProcessedImage> {
   const decoded = sharp(input).rotate();
   const { hasAlpha } = await decoded.metadata();
   const { data: rgba, info } = await decoded
@@ -302,7 +339,7 @@ async function processCutout(input: Buffer, settings: ProcessingSettings): Promi
     if (alpha !== null) alpha[p] = rgba[p * 4 + 3] ?? 0;
   }
 
-  const keep = cutoutMask(rgb, alpha, width, height, settings);
+  const keep = cutoutMask(rgb, alpha, width, height, settings, mode);
 
   // Trim to what is kept.
   let left = width;
@@ -399,11 +436,44 @@ async function processBackdrop(
   return encode(data, width, height, 3, settings.webpQuality);
 }
 
+/**
+ * A finished cutout (F2.6): kept as it is, only made all or nothing in its transparency (the
+ * stage sorts cutouts without blending, D-43) and shrunk to fit `CUTOUT_MAX_SIDE`, never
+ * enlarged. Nothing is trimmed and no border is added: it already has one.
+ */
+async function processFinished(
+  input: Buffer,
+  settings: ProcessingSettings,
+): Promise<ProcessedImage> {
+  const { data, info } = await sharp(input)
+    .rotate()
+    .ensureAlpha()
+    .resize(CUTOUT_MAX_SIDE, CUTOUT_MAX_SIDE, {
+      fit: 'inside',
+      withoutEnlargement: true,
+      kernel: 'lanczos3',
+    })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let opaque = 0;
+  for (let i = 3; i < data.length; i += 4) {
+    const solid = (data[i] ?? 0) >= 128;
+    data[i] = solid ? 255 : 0;
+    if (solid) opaque += 1;
+  }
+  if (opaque === 0) throw new ProcessingError('The image is fully transparent');
+  return encode(data, info.width, info.height, 4, settings.webpQuality);
+}
+
 /** Makes the stage's version of an image (§11 step 4). Throws `ProcessingError` when it can't. */
 export async function processImage(
   input: Buffer,
   kind: AssetKind,
   settings: ProcessingSettings = DEFAULT_PROCESSING,
+  mode: ProcessMode = 'generated',
 ): Promise<ProcessedImage> {
-  return isCutoutKind(kind) ? processCutout(input, settings) : processBackdrop(input, settings);
+  if (!isCutoutKind(kind)) return processBackdrop(input, settings);
+  return mode === 'finished'
+    ? processFinished(input, settings)
+    : processCutout(input, settings, mode);
 }

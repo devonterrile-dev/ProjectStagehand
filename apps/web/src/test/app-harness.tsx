@@ -1373,7 +1373,7 @@ export function mockApi(me: MeResponse | null, campaigns: Campaign[] = [], world
 
       const played = gameplay.respond(found, rest, method, rawBody);
       if (played !== null) return played;
-      const visual = visuals.respond(found, d, rest, method, rawBody);
+      const visual = visuals.respond(found, d, rest, method, rawBody, init?.body);
       if (visual !== null) return visual;
       const written = journal.respond(found, d.records, rest, method, rawBody);
       if (written !== null) return written;

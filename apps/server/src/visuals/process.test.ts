@@ -183,3 +183,118 @@ describe('processImage, backdrops', () => {
     expect([out.width, out.height]).toEqual([BACKDROP_SIZE.width, BACKDROP_SIZE.height]);
   });
 });
+
+/** A `size`×`size` transparent image with an opaque `inner` square in the middle. */
+function transparentSquare(size: number, inner: number, color: Rgb): Buffer {
+  const data = Buffer.alloc(size * size * 4);
+  const from = (size - inner) / 2;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const i = (y * size + x) * 4;
+      const inside = x >= from && x < from + inner && y >= from && y < from + inner;
+      data[i] = color[0];
+      data[i + 1] = color[1];
+      data[i + 2] = color[2];
+      data[i + 3] = inside ? 255 : 0;
+    }
+  }
+  return data;
+}
+
+describe('processImage, uploads (F2.6)', () => {
+  it('keeps magenta in an upload that has its own transparency', async () => {
+    // Pure key color is cleared from a generated image; an upload keeps it.
+    const data = transparentSquare(64, 32, [255, 0, 255]);
+    const input = await png({ data, width: 64, height: 64 }, 4);
+    await expect(processImage(input, 'prop')).rejects.toBeInstanceOf(ProcessingError);
+
+    const out = await processImage(input, 'prop', DEFAULT_PROCESSING, 'upload');
+    const { at } = await pixelsOf(out.data);
+    expect(out.width).toBe(CUTOUT_MAX_SIDE);
+    expect(near(at(out.width / 2, out.height / 2).rgb, '#FF00FF')).toBe(true);
+    expect(at(0, 0).alpha).toBe(0);
+  });
+
+  it('keys out an upload drawn on the key color, as a generated image', async () => {
+    const input = await png(cutoutSource());
+    const generated = await processImage(input, 'prop');
+    const uploaded = await processImage(input, 'prop', DEFAULT_PROCESSING, 'upload');
+    expect(uploaded.width).toBe(generated.width);
+    expect(uploaded.height).toBe(generated.height);
+    expect(uploaded.data.equals(generated.data)).toBe(true);
+  });
+
+  it('keeps an opaque upload with no key color whole, inside a border', async () => {
+    const data = Buffer.alloc(40 * 20 * 3, 200);
+    const out = await processImage(
+      await png({ data, width: 40, height: 20 }),
+      'character',
+      DEFAULT_PROCESSING,
+      'upload',
+    );
+    expect(out.width).toBe(CUTOUT_MAX_SIDE);
+    const { at } = await pixelsOf(out.data);
+    expect(near(at(out.width / 2, out.height / 2).rgb, '#C8C8C8')).toBe(true);
+    expect(near(at(out.width / 2, 0).rgb, DEFAULT_PROCESSING.border.edgeColor)).toBe(true);
+  });
+});
+
+describe('processImage, finished uploads (F2.6)', () => {
+  it('keeps a finished cutout as it is: same size, no second border', async () => {
+    const stage = await processImage(await png(cutoutSource()), 'prop');
+    const again = await processImage(stage.data, 'prop', DEFAULT_PROCESSING, 'finished');
+    expect(again.width).toBe(stage.width);
+    expect(again.height).toBe(stage.height);
+    const before = await pixelsOf(stage.data);
+    const after = await pixelsOf(again.data);
+    const middle = Math.round(stage.width / 2);
+    for (const y of [0, 5, Math.round(stage.height / 2), stage.height - 1]) {
+      expect(after.at(middle, y).alpha).toBe(before.at(middle, y).alpha);
+    }
+    // The cut edge is still the outermost ring: no second border around it.
+    expect(near(after.at(middle, 0).rgb, DEFAULT_PROCESSING.border.edgeColor, 24)).toBe(true);
+  });
+
+  it('makes transparency all or nothing and shrinks an oversized image, never enlarging', async () => {
+    const data = transparentSquare(64, 32, ORANGE);
+    // A half-transparent pixel in the opaque square.
+    data[(32 * 64 + 32) * 4 + 3] = 100;
+    const small = await processImage(
+      await png({ data, width: 64, height: 64 }, 4),
+      'character',
+      DEFAULT_PROCESSING,
+      'finished',
+    );
+    expect(small.width).toBe(64);
+    const { data: pixels } = await pixelsOf(small.data);
+    for (let i = 3; i < pixels.length; i += 4) expect([0, 255]).toContain(pixels[i]);
+
+    const big = await processImage(
+      await png({ data: transparentSquare(2000, 1600, ORANGE), width: 2000, height: 2000 }, 4),
+      'character',
+      DEFAULT_PROCESSING,
+      'finished',
+    );
+    expect(big.width).toBe(CUTOUT_MAX_SIDE);
+    expect(big.height).toBe(CUTOUT_MAX_SIDE);
+  });
+
+  it('refuses a fully transparent finished image', async () => {
+    const data = Buffer.alloc(16 * 16 * 4);
+    const input = await png({ data, width: 16, height: 16 }, 4);
+    await expect(
+      processImage(input, 'prop', DEFAULT_PROCESSING, 'finished'),
+    ).rejects.toBeInstanceOf(ProcessingError);
+  });
+
+  it('treats a finished backdrop like any backdrop', async () => {
+    const data = Buffer.alloc(800 * 600 * 3, 90);
+    const out = await processImage(
+      await png({ data, width: 800, height: 600 }),
+      'backdrop',
+      DEFAULT_PROCESSING,
+      'finished',
+    );
+    expect([out.width, out.height]).toEqual([BACKDROP_SIZE.width, BACKDROP_SIZE.height]);
+  });
+});

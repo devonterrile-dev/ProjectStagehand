@@ -218,6 +218,13 @@
       "when": 1795319708265,
       "tag": "0030_multiclassing",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795473615258,
+      "tag": "0031_visual_uploads",
+      "breakpoints": true
     }
   ]
 }

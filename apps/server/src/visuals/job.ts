@@ -9,7 +9,8 @@
  * whose cut-out background and border the model would copy).
  *
  * Also the backfill job (`processStoredVisual`): images made before post-processing existed,
- * or by an older version of it, are processed again from their stored original.
+ * or by an older version of it, are processed again from their stored original, uploads
+ * (F2.6) in their own mode, so a finished upload never gets a second border.
  *
  * Never throws: every way it can end is written to the asset. Only an error's kind is
  * reported; the prompt (private campaign text) and the key never reach a log.
@@ -36,13 +37,27 @@ import type {
   ReferenceImage,
 } from '../providers/openrouter';
 
-import { PROCESSING_VERSION, processImage, type ProcessedImage } from './process';
+import {
+  DEFAULT_PROCESSING,
+  PROCESSING_VERSION,
+  processImage,
+  type ProcessedImage,
+  type ProcessMode,
+} from './process';
 import type { VisualQueue } from './queue';
 import type { ReferencesByKind } from './references';
 import { extensionOf, originalKey, processedKey, type AssetStorage } from './storage';
 
 /** Makes the stage's version of an image; `processImage` unless a test swaps it. */
-export type ImageProcessor = (input: Buffer, kind: AssetKind) => Promise<ProcessedImage>;
+export type ImageProcessor = (
+  input: Buffer,
+  kind: AssetKind,
+  mode: ProcessMode,
+) => Promise<ProcessedImage>;
+
+/** The real post-processing, with the default settings. */
+export const defaultImageProcessor: ImageProcessor = (input, kind, mode) =>
+  processImage(input, kind, DEFAULT_PROCESSING, mode);
 
 /** Which part of a job an error came from, for the log. */
 export type VisualJobStage = 'generate' | 'process';
@@ -75,11 +90,15 @@ function errorNameOf(error: unknown): string {
  */
 async function storeProcessed(
   deps: ProcessJobDeps,
-  asset: { id: string; campaignId: string; kind: AssetKind },
+  asset: { id: string; campaignId: string; kind: AssetKind; mode: ProcessMode },
   original: Buffer,
 ): Promise<ProcessedFile | null> {
   try {
-    const processed = await (deps.processImage ?? processImage)(original, asset.kind);
+    const processed = await (deps.processImage ?? defaultImageProcessor)(
+      original,
+      asset.kind,
+      asset.mode,
+    );
     const key = processedKey(asset.campaignId, asset.id);
     await deps.storage.put(key, processed.data);
     return {
@@ -161,7 +180,7 @@ async function makeImage(
 
   const key = originalKey(claimed.campaignId, claimed.id, extensionOf(call.mediaType));
   await deps.storage.put(key, call.image);
-  const processed = await storeProcessed(deps, claimed, call.image);
+  const processed = await storeProcessed(deps, { ...claimed, mode: 'generated' }, call.image);
   return { ok: true, key, mediaType: call.mediaType, costUsd: call.costUsd, processed };
 }
 

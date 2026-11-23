@@ -3,7 +3,7 @@
  * and the queue run inline: the prompt and anchors per record type and kind, the image file
  * and its route, post-processing and its startup backfill (F2.4, D-43), review (F2.5, D-44: use,
  * replace, discard, regenerate with notes, the startup sweep of discarded files), every
- * failure, the cost guardrails, archived campaigns, and
+ * failure, the cost guardrails, archived campaigns, uploads (F2.6, D-70), and
  * the two §14 checks (no prompt or key in logs, no key in responses). Route-level isolation
  * (outsiders 404, players 403) is in the table in `campaigns.int.test.ts`.
  */
@@ -18,7 +18,12 @@ import type {
   CharacterSheet,
   VisualsResponse,
 } from '@stagehand/shared';
-import { IMAGE_MODEL, VISUAL_LIMITS } from '@stagehand/shared';
+import {
+  IMAGE_MODEL,
+  VISUAL_LIMITS,
+  VISUAL_UPLOAD_MAX_BYTES,
+  VISUAL_UPLOAD_MESSAGES,
+} from '@stagehand/shared';
 import { anchorsFor, loadStyleBible } from '@stagehand/style-bible';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -39,7 +44,12 @@ import type { DbHandle } from '../db/client';
 import { assets, campaignMembers, users } from '../db/schema';
 import type { ImageCallInput, ImageCallResult } from '../providers/openrouter';
 import { processStoredVisual, processVisualJob, queueStaleProcessing } from '../visuals/job';
-import { BACKDROP_SIZE, PROCESSING_VERSION, processImage } from '../visuals/process';
+import {
+  BACKDROP_SIZE,
+  CUTOUT_MAX_SIDE,
+  PROCESSING_VERSION,
+  processImage,
+} from '../visuals/process';
 import type { VisualQueue } from '../visuals/queue';
 import { loadReferences } from '../visuals/references';
 import type { AssetStorage } from '../visuals/storage';
@@ -60,6 +70,21 @@ const NOTES_MARK = 'QUIZZICALMARMALADE';
 const APPEARANCE_MARK = 'PERIWINKLEGANTRY';
 /** Not an image at all: the call "succeeds" but post-processing can't read it. */
 const IMAGE = Buffer.from('not really a png, but bytes all the same');
+
+/** The GM's own art: an orange box on a transparent background. */
+async function transparentPng(width = 200, height = 300): Promise<Buffer> {
+  const box = await sharp({
+    create: { width: width / 2, height: height / 2, channels: 4, background: '#EB7814FF' },
+  })
+    .png()
+    .toBuffer();
+  return sharp({
+    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite([{ input: box, left: width / 4, top: height / 4 }])
+    .png()
+    .toBuffer();
+}
 
 /** A real cutout as the model draws one: an orange box on its magenta key color. */
 async function keyedPng(): Promise<Buffer> {
@@ -1124,6 +1149,272 @@ describe('Visuals API', () => {
       );
       expect(await storage.read(processed ?? '')).toBeNull();
       expect((await rowOf(draft.id))?.processedPath).toBeNull();
+    });
+  });
+
+  describe('uploads (F2.6)', () => {
+    async function upload(
+      base: string,
+      body: Buffer | string,
+      options: { query?: string; type?: string; who?: Person } = {},
+    ) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `${base}/visuals/upload${options.query === undefined ? '' : `?${options.query}`}`,
+        headers: {
+          ...SAME_ORIGIN,
+          cookie: (options.who ?? gm).cookie,
+          'content-type': options.type ?? 'image/png',
+        },
+        payload: body,
+      });
+      responseBodies.push(response.body);
+      return response;
+    }
+
+    async function uploaded(
+      base: string,
+      body: Buffer,
+      options: { query?: string; type?: string } = {},
+    ): Promise<AssetSummary> {
+      const response = await upload(base, body, options);
+      expect(response.statusCode, response.body).toBe(201);
+      const draft = response.json<VisualsResponse>().drafts.at(-1);
+      if (draft === undefined) throw new Error('the upload left no draft');
+      return draft;
+    }
+
+    it('stores an upload as a draft with a cut-out stage version, without the model', async () => {
+      const prop = await aProp('Uploaded Bell');
+      const draft = await uploaded(recordBase(prop), await transparentPng());
+
+      expect(calls).toHaveLength(0);
+      expect(draft).toMatchObject({
+        kind: 'prop',
+        status: 'pending',
+        source: 'uploaded',
+        finished: false,
+        mediaType: 'image/png',
+        costUsd: null,
+        revisedFromId: null,
+      });
+      // The 100×150 box is cut out of its transparency and bordered at the stage size.
+      expect(draft.processed?.height).toBe(CUTOUT_MAX_SIDE);
+      expect(draft.processed?.version).toBe(PROCESSING_VERSION);
+
+      const row = await rowOf(draft.id);
+      expect(row).toMatchObject({
+        source: 'uploaded',
+        prompt: null,
+        model: null,
+        styleBibleVersion: null,
+        createdBy: gm.id,
+        originalPath: `campaigns/${campaign.id}/${draft.id}.png`,
+        processedPath: `campaigns/${campaign.id}/processed/${draft.id}.webp`,
+      });
+      const original = await call('GET', `${imageUrl(draft.id)}?v=original`, gm);
+      expect(original.headers['content-type']).toBe('image/png');
+      expect((await sharp(original.rawPayload).metadata()).width).toBe(200);
+      const stage = await call('GET', imageUrl(draft.id), gm);
+      expect(stage.headers['content-type']).toBe('image/webp');
+
+      // Use this, as for a generated image.
+      expect((await use(recordBase(prop), draft.id)).statusCode).toBe(200);
+      expect((await visuals(recordBase(prop))).visualAssetId).toBe(draft.id);
+    });
+
+    it('stores a finished stage image as it is, with no second border', async () => {
+      const stage = await processImage(await keyedPng(), 'prop');
+      const prop = await aProp('Copied Bell');
+      const draft = await uploaded(recordBase(prop), stage.data, {
+        query: 'finished=true',
+        type: 'image/webp',
+      });
+      expect(draft.finished).toBe(true);
+      expect(draft.processed).toMatchObject({ width: stage.width, height: stage.height });
+
+      // Remade at startup in the same mode: still no second border.
+      await handle.db
+        .update(assets)
+        .set({
+          processedPath: null,
+          processedWidth: null,
+          processedHeight: null,
+          processingVersion: null,
+        })
+        .where(eq(assets.id, draft.id));
+      await processStoredVisual({ db: handle.db, storage }, draft.id);
+      expect((await visuals(recordBase(prop))).drafts.at(-1)?.processed).toMatchObject({
+        width: stage.width,
+        height: stage.height,
+      });
+
+      // Its original already has a border, so it can't go back to the model.
+      const revision = await revise(recordBase(prop), draft.id, 'bigger');
+      expect(revision.statusCode).toBe(409);
+      expect(revision.json()).toMatchObject({
+        message: VISUAL_UPLOAD_MESSAGES.finishedNotRevisable,
+      });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("processes a downloaded original exactly as the model's own image", async () => {
+      const prop = await aProp('Twin Bell');
+      const draft = await uploaded(recordBase(prop), await keyedPng());
+      const expected = await processImage(await keyedPng(), 'prop');
+      expect(draft.processed).toMatchObject({ width: expected.width, height: expected.height });
+
+      // An ordinary upload can be changed with notes: its original goes to the model.
+      const response = await revise(recordBase(prop), draft.id, 'a rope on the bell');
+      expect(response.statusCode, response.body).toBe(202);
+      await settled();
+      expect(calls).toHaveLength(1);
+      const sent = calls[0]?.references[0]?.data;
+      expect(sent).toEqual(await storage.read((await rowOf(draft.id))?.originalPath ?? ''));
+    });
+
+    it('ignores finished for a backdrop, and takes a JPEG', async () => {
+      const area = await makeRecord({ type: 'area', name: 'Upload Point' });
+      const spot = await makeRecord({ type: 'spot', name: 'Uploaded Cove', parentId: area.id });
+      const jpeg = await sharp({
+        create: { width: 800, height: 600, channels: 3, background: '#336699' },
+      })
+        .jpeg()
+        .toBuffer();
+      const draft = await uploaded(recordBase(spot), jpeg, {
+        query: 'finished=true',
+        type: 'image/jpeg',
+      });
+      expect(draft).toMatchObject({ kind: 'backdrop', finished: false, mediaType: 'image/png' });
+      expect(draft.processed).toMatchObject(BACKDROP_SIZE);
+      expect((await rowOf(draft.id))?.originalPath).toBe(
+        `campaigns/${campaign.id}/${draft.id}.png`,
+      );
+    });
+
+    it('asks an NPC whether it is a humanoid or a monster, and uploads for a PC', async () => {
+      const npc = await makeRecord({ type: 'npc', name: 'Uploaded Goblin' });
+      const unasked = await upload(recordBase(npc), await transparentPng());
+      expect(unasked.statusCode).toBe(400);
+      expect(
+        (await uploaded(recordBase(npc), await transparentPng(), { query: 'kind=monster' })).kind,
+      ).toBe('monster');
+
+      const pc = await makePc('Uploaded Hero');
+      expect((await uploaded(pcBase(pc), await transparentPng())).kind).toBe('character');
+      const wrong = await upload(recordBase(await aProp('Wrong Kind')), await transparentPng(), {
+        query: 'kind=backdrop',
+      });
+      expect(wrong.statusCode).toBe(400);
+    });
+
+    it('refuses files that are not usable images, saving nothing', async () => {
+      const prop = await aProp('Refused Bell');
+      const notImage = await upload(recordBase(prop), Buffer.from('plain words, not a picture'));
+      expect(notImage.statusCode).toBe(400);
+      expect(notImage.json()).toMatchObject({ message: VISUAL_UPLOAD_MESSAGES.notImage });
+
+      const gif = await sharp({
+        create: { width: 10, height: 10, channels: 3, background: '#000000' },
+      })
+        .gif()
+        .toBuffer();
+      expect((await upload(recordBase(prop), gif)).statusCode).toBe(400);
+      expect((await upload(recordBase(prop), 'words', { type: 'text/plain' })).statusCode).toBe(
+        415,
+      );
+      expect(
+        (await upload(recordBase(prop), '{"a":1}', { type: 'application/json' })).statusCode,
+      ).toBe(415);
+
+      const tooBig = await upload(recordBase(prop), Buffer.alloc(VISUAL_UPLOAD_MAX_BYTES + 1));
+      expect(tooBig.statusCode).toBe(413);
+      expect(tooBig.json()).toMatchObject({ message: VISUAL_UPLOAD_MESSAGES.tooBig });
+      const wayTooBig = await upload(recordBase(prop), Buffer.alloc(VISUAL_UPLOAD_MAX_BYTES * 2));
+      expect(wayTooBig.statusCode).toBe(413);
+
+      // Nothing left once the background is cleared.
+      const empty = await sharp({
+        create: { width: 20, height: 20, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+      })
+        .png()
+        .toBuffer();
+      const blank = await upload(recordBase(prop), empty, { query: 'finished=true' });
+      expect(blank.statusCode).toBe(400);
+      expect(blank.json()).toMatchObject({ message: VISUAL_UPLOAD_MESSAGES.empty });
+
+      const rows = await handle.db.select().from(assets).where(eq(assets.recordId, prop.id));
+      expect(rows).toEqual([]);
+    });
+
+    it('follows the review rules: not while a draft waits or an image is being made', async () => {
+      const prop = await aProp('Busy Bell');
+      const { release } = hold();
+      await started(recordBase(prop));
+      const whileMaking = await upload(recordBase(prop), await transparentPng());
+      expect(whileMaking.statusCode).toBe(409);
+      release();
+      await settled();
+
+      const waiting = await upload(recordBase(prop), await transparentPng());
+      expect(waiting.statusCode).toBe(409);
+      expect(waiting.json()).toMatchObject({ message: 'Use or discard the new image first.' });
+      const [generated] = (await visuals(recordBase(prop))).drafts;
+      await use(recordBase(prop), generated?.id ?? '');
+
+      // Beside the image in use, an upload is a draft to Replace with or discard.
+      const draft = await uploaded(recordBase(prop), await transparentPng());
+      const shown = await visuals(recordBase(prop));
+      expect(shown.inUse?.id).toBe(generated?.id);
+      expect(shown.drafts.map((d) => d.id)).toEqual([draft.id]);
+      const after = await discard(recordBase(prop), draft.id);
+      expect(after.drafts).toEqual([]);
+      expect(await storage.read((await rowOf(draft.id))?.originalPath ?? 'x.png')).toBeNull();
+    });
+
+    it('needs no OpenRouter key and does not count toward the hourly limit', async () => {
+      const own = await newCampaign('Upload Coast', keyless);
+      const prop = await makeRecord({ type: 'prop', name: 'Free Bell' }, own, keyless);
+      const response = await upload(recordBase(prop, own), await transparentPng(), {
+        who: keyless,
+      });
+      expect(response.statusCode, response.body).toBe(201);
+
+      // Thirty uploads an hour leave room for a generated image.
+      await handle.db.insert(assets).values(
+        Array.from({ length: VISUAL_LIMITS.jobsPerHour }, () => ({
+          campaignId: campaign.id,
+          createdBy: gm.id,
+          kind: 'prop' as const,
+          status: 'rejected' as const,
+          source: 'uploaded' as const,
+        })),
+      );
+      expect((await generate(recordBase(await aProp('Still Allowed')), {})).statusCode).toBe(202);
+      await settled();
+    });
+
+    it('keeps players out and refuses on an archived campaign', async () => {
+      const table = await newCampaign('Upload Table');
+      await handle.db
+        .insert(campaignMembers)
+        .values({ campaignId: table.id, userId: player.id, role: 'player' });
+      const prop = await makeRecord({ type: 'prop', name: 'Player Bell' }, table);
+      const response = await upload(recordBase(prop, table), await transparentPng(), {
+        who: player,
+      });
+      expect(response.statusCode).toBe(403);
+
+      expect((await call('POST', `/api/campaigns/${table.id}/archive`, gm)).statusCode).toBe(200);
+      const archived = await upload(recordBase(prop, table), await transparentPng());
+      expect(archived.json()).toMatchObject({ statusCode: 409, message: 'Campaign is archived' });
+    });
+
+    it("answers 404 for another campaign's record", async () => {
+      const other = await newCampaign('Other Upload Coast');
+      const prop = await aProp('Home Bell');
+      const response = await upload(recordBase(prop, other), await transparentPng());
+      expect(response.statusCode).toBe(404);
     });
   });
 
