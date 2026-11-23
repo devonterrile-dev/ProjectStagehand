@@ -40,6 +40,7 @@ import {
   statBlockListResponseSchema,
   statBlockSchema,
   visualsResponseSchema,
+  type AssetKind,
   type AssetSummary,
   type BacklinksResponse,
   type GenerateVisualRequest,
@@ -1114,6 +1115,30 @@ export async function reviseVisual(
     { notes } satisfies ReviseVisualRequest,
   );
   return assetSummarySchema.parse(await response.json());
+}
+
+/**
+ * Uploads the GM's own image (F2.6) as the request body. It comes back as a finished draft,
+ * cut out and bordered like a generated one, or stored as it is when `finished` (an image
+ * that already is a stage image, say one downloaded from another campaign).
+ */
+export async function uploadVisual(
+  campaignId: string,
+  owner: VisualOwnerRef,
+  file: Blob,
+  options: { kind?: AssetKind; finished: boolean },
+): Promise<VisualsResponse> {
+  const query = new URLSearchParams();
+  if (options.kind !== undefined) query.set('kind', options.kind);
+  if (options.finished) query.set('finished', 'true');
+  const search = query.size === 0 ? '' : `?${query.toString()}`;
+  const response = await request(`${visualOwnerPath(campaignId, owner)}/visuals/upload${search}`, {
+    method: 'POST',
+    headers: { 'content-type': file.type },
+    body: file,
+  });
+  if (!response.ok) throw await errorFrom(response);
+  return visualsResponseSchema.parse(await response.json());
 }
 
 /** "Use this" / "Replace": makes a draft the record's or PC's visual. */

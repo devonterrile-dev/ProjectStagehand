@@ -10,7 +10,7 @@ import {
   type AssetSummary,
   type VisualSubject,
 } from '@stagehand/shared';
-import { ImageIcon, PencilIcon } from 'lucide-react';
+import { DownloadIcon, ImageIcon, PencilIcon, UploadIcon } from 'lucide-react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
@@ -27,11 +27,13 @@ import {
   useGenerateVisual,
   useProviderCredentials,
   useReviseVisual,
+  useUploadVisual,
   useVisuals,
 } from '@/lib/queries';
 
 import { ImageViewer, type ViewerItem } from './ImageViewer';
 import { CHECKERBOARD, KIND_LABELS, visualAlt } from './visual-style';
+import { UploadVisualDialog } from './UploadVisualDialog';
 import { VisualKindDialog } from './VisualKindDialog';
 
 /** A 409 that the GM fixes in Settings (no key, or one that can't be read any more). */
@@ -76,6 +78,10 @@ function reviewOf(drafts: readonly AssetSummary[]): Review {
  *   the two versions are compared until the GM keeps the new one or goes back.
  * Images are shown as the stage will use them (F2.4: cutouts on a checkerboard), with the
  * model's original a click away.
+ *
+ * Upload image (F2.6, D-70) adds the GM's own picture as a draft under the same rules; it needs
+ * no OpenRouter key. Each image can be downloaded, as the stage's version or the original, to
+ * upload it to another campaign.
  */
 export function VisualCard({
   campaignId,
@@ -91,7 +97,9 @@ export function VisualCard({
   const revise = useReviseVisual(campaignId, owner);
   const choose = useChooseVisual(campaignId, owner);
   const discard = useDiscardVisual(campaignId, owner);
+  const upload = useUploadVisual(campaignId, owner);
   const [asking, setAsking] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [revising, setRevising] = useState<string | null>(null);
   /** The kind last asked for here, for the next question once its image was discarded. */
   const [chosenKind, setChosenKind] = useState<AssetKind | null>(null);
@@ -111,7 +119,12 @@ export function VisualCard({
       ?.kind ??
     chosenKind ??
     defaultKind;
-  const pending = generate.isPending || revise.isPending || choose.isPending || discard.isPending;
+  const pending =
+    generate.isPending ||
+    revise.isPending ||
+    choose.isPending ||
+    discard.isPending ||
+    upload.isPending;
   const locked = working !== null || pending;
 
   function resetErrors() {
@@ -119,6 +132,7 @@ export function VisualCard({
     revise.reset();
     choose.reset();
     discard.reset();
+    upload.reset();
   }
 
   function start(kind?: AssetKind) {
@@ -170,8 +184,12 @@ export function VisualCard({
     );
   };
 
-  /** The image a Regenerate with notes would change now, if any. */
-  const revisable = review.mode === 'draft' ? review.draft : review.mode === 'idle' ? inUse : null;
+  /**
+   * The image a Regenerate with notes would change now, if any. A finished upload can't be:
+   * its original already has its border.
+   */
+  const candidate = review.mode === 'draft' ? review.draft : review.mode === 'idle' ? inUse : null;
+  const revisable = candidate?.finished === true ? null : candidate;
 
   let images: ReactNode;
   if (review.mode === 'compare') {
@@ -196,7 +214,8 @@ export function VisualCard({
     images = (
       <p className="text-sm text-muted-foreground">
         No visual yet. Generate one from this {subject === 'pc' ? 'sheet' : 'record'}&apos;s
-        {subject === 'spot' ? ' backdrop notes' : ' appearance'} and description.
+        {subject === 'spot' ? ' backdrop notes' : ' appearance'} and description, or upload your
+        own.
       </p>
     );
   }
@@ -311,12 +330,25 @@ export function VisualCard({
             )}
 
             {!hasKey ? (
-              <p className="text-sm text-muted-foreground">
-                Add your OpenRouter key in Settings to make images.{' '}
-                <Link to="/settings" className="underline">
-                  Open Settings
-                </Link>
-              </p>
+              <>
+                {review.mode === 'idle' && (
+                  <Actions>
+                    <UploadButton
+                      disabled={locked}
+                      onClick={() => {
+                        resetErrors();
+                        setUploading(true);
+                      }}
+                    />
+                  </Actions>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Add your OpenRouter key in Settings to make images.{' '}
+                  <Link to="/settings" className="underline">
+                    Open Settings
+                  </Link>
+                </p>
+              </>
             ) : revisable !== null && revising === revisable.id ? (
               <NotesForm
                 busy={locked}
@@ -360,6 +392,15 @@ export function VisualCard({
                       {inUse === null ? 'Generate visual' : 'Generate new'}
                     </Button>
                   )}
+                  {review.mode === 'idle' && (
+                    <UploadButton
+                      disabled={locked}
+                      onClick={() => {
+                        resetErrors();
+                        setUploading(true);
+                      }}
+                    />
+                  )}
                 </Actions>
                 {review.mode === 'idle' && (
                   <p className="text-xs text-muted-foreground">
@@ -386,6 +427,27 @@ export function VisualCard({
           }}
         />
 
+        <UploadVisualDialog
+          name={name}
+          kinds={kinds}
+          initialKind={lastKind}
+          open={uploading}
+          onOpenChange={(open) => {
+            setUploading(open);
+            if (!open) upload.reset();
+          }}
+          busy={upload.isPending}
+          error={upload.error?.message ?? null}
+          onUpload={(choice) => {
+            if (choice.kind !== undefined) setChosenKind(choice.kind);
+            upload.mutate(choice, {
+              onSuccess: () => {
+                setUploading(false);
+              },
+            });
+          }}
+        />
+
         {kinds.length > 1 && (
           <VisualKindDialog
             name={name}
@@ -406,6 +468,71 @@ function Pair({ children }: { children: ReactNode }) {
 
 function Actions({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap gap-2">{children}</div>;
+}
+
+function UploadButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onClick}>
+      <UploadIcon aria-hidden />
+      Upload image
+    </Button>
+  );
+}
+
+/** A file name from the record's or PC's name: `Harbour Bell` → `harbour-bell`. */
+function fileStem(name: string): string {
+  const stem = name
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return stem === '' ? 'visual' : stem;
+}
+
+function extensionOf(mediaType: string | null): string {
+  if (mediaType === 'image/webp') return 'webp';
+  if (mediaType === 'image/jpeg') return 'jpg';
+  return 'png';
+}
+
+/**
+ * Download links for one image (F2.6): the stage's version, to upload to another campaign as
+ * already finished, and the original, to upload and have it processed again.
+ */
+function Downloads({
+  campaignId,
+  asset,
+  name,
+}: {
+  campaignId: string;
+  asset: AssetSummary;
+  name: string;
+}) {
+  const stem = fileStem(name);
+  const link = 'inline-flex items-center gap-1 underline-offset-4 hover:underline';
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {asset.processed !== null && (
+        <a
+          className={link}
+          href={assetImagePath(campaignId, asset.id, { processed: asset.processed })}
+          download={`${stem}-stage.webp`}
+        >
+          <DownloadIcon aria-hidden className="size-3" />
+          Download
+        </a>
+      )}
+      <a
+        className={link}
+        href={assetImagePath(campaignId, asset.id, { variant: 'original' })}
+        download={`${stem}-original.${extensionOf(asset.mediaType)}`}
+      >
+        <DownloadIcon aria-hidden className="size-3" />
+        Download original
+      </a>
+    </div>
+  );
 }
 
 /**
@@ -456,7 +583,11 @@ function Shot({
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">{KIND_LABELS[asset.kind]}</Badge>
           {inUse && <Badge>In use</Badge>}
-          <span>Cost {formatUsd(asset.costUsd)}</span>
+          {asset.source === 'uploaded' ? (
+            <span>{asset.finished ? 'Uploaded as finished' : 'Uploaded'}</span>
+          ) : (
+            <span>Cost {formatUsd(asset.costUsd)}</span>
+          )}
           {asset.processed === null ? (
             <span>Not ready for the stage yet: this is the model&apos;s original.</span>
           ) : !cutout ? null : (
@@ -475,6 +606,7 @@ function Shot({
           )}
         </div>
         {asset.revisionNotes !== null && <p>Notes: {asset.revisionNotes}</p>}
+        <Downloads campaignId={campaignId} asset={asset} name={name} />
       </figcaption>
     </figure>
   );

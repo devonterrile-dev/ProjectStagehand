@@ -1,6 +1,7 @@
 import type {
   AddHeldCardRequest,
   MoveHeldCardRequest,
+  AssetKind,
   AssetSummary,
   Campaign,
   CampaignRecord,
@@ -87,6 +88,7 @@ import {
   fetchVisuals,
   generateVisual,
   reviseVisual,
+  uploadVisual,
   chooseVisual,
   discardVisual,
   type VisualOwnerRef,
@@ -1434,6 +1436,26 @@ export function useDiscardVisual(campaignId: string, owner: VisualOwnerRef) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (assetId: string) => discardVisual(campaignId, owner, assetId),
+    onSuccess: (visuals) => {
+      queryClient.setQueryData(visualsKey(campaignId, owner), visuals);
+    },
+  });
+}
+
+/** Uploads the GM's own image (F2.6); the answer, with the new draft, replaces the cached visuals. */
+export function useUploadVisual(campaignId: string, owner: VisualOwnerRef) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      file,
+      kind,
+      finished,
+    }: {
+      file: File;
+      kind?: AssetKind | undefined;
+      finished: boolean;
+    }) =>
+      uploadVisual(campaignId, owner, file, { ...(kind === undefined ? {} : { kind }), finished }),
     onSuccess: (visuals) => {
       queryClient.setQueryData(visualsKey(campaignId, owner), visuals);
     },

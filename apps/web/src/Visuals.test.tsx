@@ -1,4 +1,9 @@
-import type { Campaign, CampaignRecord } from '@stagehand/shared';
+import {
+  VISUAL_UPLOAD_MAX_BYTES,
+  VISUAL_UPLOAD_MESSAGES,
+  type Campaign,
+  type CampaignRecord,
+} from '@stagehand/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -460,5 +465,169 @@ describe('Generate visual', () => {
     for (const name of ['Use this', 'Discard', /Generate/, 'Regenerate with notes']) {
       expect(within(card).queryByRole('button', { name })).toBeNull();
     }
+  });
+});
+
+describe('Upload image (F2.6)', () => {
+  /** Every upload request: its URL and the file it sent. */
+  function uploadsOf(fetchMock: FetchMock): { url: string; body: unknown; type: string | null }[] {
+    return fetchMock.mock.calls
+      .filter(([input]) => urlOf(input).includes('/visuals/upload'))
+      .map(([input, init]) => ({
+        url: urlOf(input),
+        body: init?.body,
+        type: new Headers(init?.headers).get('content-type'),
+      }));
+  }
+
+  const png = (name = 'bell.png', bytes = 64) =>
+    new File([new Uint8Array(bytes)], name, { type: 'image/png' });
+
+  async function openUpload(card: HTMLElement) {
+    fireEvent.click(await within(card).findByRole('button', { name: 'Upload image' }));
+    return screen.findByRole('dialog');
+  }
+
+  function choose(dialog: HTMLElement, file: File) {
+    fireEvent.change(within(dialog).getByLabelText('Image file'), { target: { files: [file] } });
+  }
+
+  it("uploads the GM's own image as a draft to review", async () => {
+    const bell = record({ type: 'prop', name: 'Harbour Bell' });
+    const { coast, fetchMock } = world([bell]);
+    renderAt(recordPath(coast, bell));
+
+    const card = await visualCard();
+    expect(await within(card).findByText(/or upload your own/)).toBeDefined();
+    const dialog = await openUpload(card);
+    expect(
+      within(dialog).getByRole('heading', { name: 'Upload an image for Harbour Bell' }),
+    ).toBeDefined();
+    const upload = within(dialog).getByRole('button', { name: 'Upload' });
+    expect(upload.hasAttribute('disabled')).toBe(true);
+    const file = png();
+    choose(dialog, file);
+    fireEvent.click(upload);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    const [sent] = uploadsOf(fetchMock);
+    expect(sent?.url).toMatch(new RegExp(`/records/${bell.id}/visuals/upload$`));
+    expect(sent?.body).toBe(file);
+    expect(sent?.type).toBe('image/png');
+
+    expect(await within(card).findByText('Uploaded')).toBeDefined();
+    expect(within(card).queryByText(/Cost/)).toBeNull();
+    // An ordinary upload can still be changed with notes.
+    expect(within(card).getByRole('button', { name: 'Regenerate with notes' })).toBeDefined();
+    fireEvent.click(within(card).getByRole('button', { name: 'Use this' }));
+    expect(await within(card).findByText('In use')).toBeDefined();
+  });
+
+  it('stores an image as finished when ticked, and offers no notes for it', async () => {
+    const bell = record({ type: 'prop', name: 'Copied Bell' });
+    const { coast, fetchMock } = world([bell]);
+    renderAt(recordPath(coast, bell));
+
+    const card = await visualCard();
+    const dialog = await openUpload(card);
+    choose(dialog, png('copied-bell-stage.webp'));
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Already a finished Stagehand image/ }),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Upload' }));
+
+    expect(await within(card).findByText('Uploaded as finished')).toBeDefined();
+    expect(uploadsOf(fetchMock)[0]?.url).toMatch(/\/visuals\/upload\?finished=true$/);
+    expect(within(card).queryByRole('button', { name: 'Regenerate with notes' })).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'Use this' }));
+    expect(await within(card).findByText('In use')).toBeDefined();
+    expect(within(card).queryByRole('button', { name: 'Regenerate with notes' })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Upload image' })).toBeDefined();
+  });
+
+  it('asks an NPC humanoid or monster, and a Spot nothing about finished', async () => {
+    const goblin = record({ type: 'npc', name: 'Gnasher' });
+    const area = record({ type: 'area', name: 'Saltreach' });
+    const dock = record({ type: 'spot', name: 'Fish Market', parentId: area.id });
+    const { coast, fetchMock } = world([goblin, area, dock]);
+    const view = renderAt(recordPath(coast, goblin));
+
+    let dialog = await openUpload(await visualCard());
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Monster' }));
+    choose(dialog, png());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Upload' }));
+    await waitFor(() => {
+      expect(uploadsOf(fetchMock)[0]?.url).toMatch(/\/visuals\/upload\?kind=monster$/);
+    });
+    view.unmount();
+
+    renderAt(recordPath(coast, dock));
+    dialog = await openUpload(await visualCard());
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    expect(within(dialog).queryByRole('radio')).toBeNull();
+  });
+
+  it('refuses a file that is not an image or too large before sending, and shows the server refusing', async () => {
+    const bell = record({ type: 'prop', name: 'Refused Bell' });
+    const { coast, fetchMock } = world([bell]);
+    renderAt(recordPath(coast, bell));
+
+    const dialog = await openUpload(await visualCard());
+    const upload = within(dialog).getByRole('button', { name: 'Upload' });
+    choose(dialog, new File(['words'], 'notes.txt', { type: 'text/plain' }));
+    expect(within(dialog).getByRole('alert').textContent).toBe(VISUAL_UPLOAD_MESSAGES.notImage);
+    expect(upload.hasAttribute('disabled')).toBe(true);
+    choose(dialog, png('huge.png', VISUAL_UPLOAD_MAX_BYTES + 1));
+    expect(within(dialog).getByRole('alert').textContent).toBe(VISUAL_UPLOAD_MESSAGES.tooBig);
+    expect(upload.hasAttribute('disabled')).toBe(true);
+    expect(uploadsOf(fetchMock)).toEqual([]);
+
+    // An empty file passes here, and the (fake) server refuses it.
+    choose(dialog, png('empty.png', 0));
+    fireEvent.click(upload);
+    expect((await within(dialog).findByRole('alert')).textContent).toBe(
+      VISUAL_UPLOAD_MESSAGES.notImage,
+    );
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
+
+  it('lets a GM without an OpenRouter key upload', async () => {
+    const bell = record({ type: 'prop', name: 'Unpaid Bell' });
+    const { coast } = world([bell], { credentials: [] });
+    renderAt(recordPath(coast, bell));
+
+    const card = await visualCard();
+    expect(await within(card).findByText(/Add your OpenRouter key in Settings/)).toBeDefined();
+    const dialog = await openUpload(card);
+    choose(dialog, png());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Upload' }));
+    expect(await within(card).findByText('Uploaded')).toBeDefined();
+  });
+
+  it('downloads the stage version and the original under the name', async () => {
+    const current = assetSummary({ status: 'approved' });
+    const bell = record({ type: 'prop', name: "Harbour's Bell", visualAssetId: current.id });
+    const { coast } = world([bell], { visuals: { [bell.id]: [current] } });
+    renderAt(recordPath(coast, bell));
+
+    const card = await visualCard();
+    const stage = await within(card).findByRole('link', { name: 'Download' });
+    expect(stage.getAttribute('href')).toMatch(new RegExp(`/assets/${current.id}/image\\?p=1$`));
+    expect(stage.getAttribute('download')).toBe('harbour-s-bell-stage.webp');
+    const original = within(card).getByRole('link', { name: 'Download original' });
+    expect(original.getAttribute('href')).toMatch(/\/image\?v=original$/);
+    expect(original.getAttribute('download')).toBe('harbour-s-bell-original.png');
+  });
+
+  it('offers no upload on an archived campaign', async () => {
+    const bell = record({ type: 'prop', name: 'Shelved Bell' });
+    const { coast } = world([bell], {}, { archivedAt: '2026-11-13T10:00:00.000Z' });
+    renderAt(recordPath(coast, bell));
+
+    const card = await visualCard();
+    await within(card).findByText(/No visual yet/);
+    expect(within(card).queryByRole('button', { name: 'Upload image' })).toBeNull();
   });
 });
