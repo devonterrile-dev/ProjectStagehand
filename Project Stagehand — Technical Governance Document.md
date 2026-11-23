@@ -94,7 +94,7 @@ Feature IDs (F1.3, etc.) are referenced from issues, commits and the rest of thi
 - [x] F2.3 "Generate visual" button on records, Props included; background job queue
 - [x] F2.4 Post-processing: transparency, cardboard border, palette, sizing. Puppet sticks and prop stands are stage geometry, never part of the image (section 11)
 - [x] F2.5 Review: use or discard, regenerate with notes, keep current or replace (D-44)
-- [ ] F2.6 Manual upload as a fallback, through the same post-processing, with an "already finished" option and downloads to move an image between campaigns (D-70). Deferred until after the Phase 3 MVP (D-45), built after Phase 4
+- [x] F2.6 Manual upload as a fallback, through the same post-processing, with an "already finished" option and downloads to move an image between campaigns (D-70). Deferred until after the Phase 3 MVP (D-45), built after Phase 4
 - [ ] F2.7 Asset library per campaign: the images in use, including those of deleted records (only these are kept, D-44). Deferred until after the Phase 3 MVP (D-45)
 
 **Exit:** at least 20 assets across characters, props, monsters and backdrops look like one set when placed side by side.
