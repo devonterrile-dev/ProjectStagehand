@@ -7,7 +7,7 @@ Nov 7, 2026 · @Devon T
 This document is the single source of truth for what Stagehand is, which features it has, and which technologies build them. When code and this document disagree, one of them is wrong and gets fixed the same day.
 
 - **Scope:** features, data model, rules engine, AI and image pipelines, the stage, live sessions, security, infrastructure, budget and risks.
-- **Status:** approved baseline, v1.0. All decisions below were agreed on 2026-11-07 unless marked otherwise. The Phase 3 stage was redesigned on 2026-11-13 as a tabletop puppet theater (D-36, D-37). Phase 4 was re-planned on 2026-11-20 as gameplay records and characters; the old Phase 4 became Phase 5, stretch goals (D-58).
+- **Status:** approved baseline, v1.0. All decisions below were agreed on 2026-11-07 unless marked otherwise. The Phase 3 stage was redesigned on 2026-11-13 as a tabletop puppet theater (D-36, D-37). Phase 4 was re-planned on 2026-11-20 as gameplay records and characters; the old Phase 4 became Phase 5, stretch goals (D-58). Phase 5 was re-planned on 2026-11-26 around transition scenes and battle mode; the remaining stretch goals became Phase 6 (D-71).
 - **Changing it:** any change to a decision adds a row to the Decision log (section 18) with the date, the change and why. Superseded decisions stay in the log, marked superseded.
 - **Open items:** anything not yet decided lives in Open questions (section 19). Building on an open item is fine if the build notes the assumption it used.
 - **Terminology:** *GM* = game master (campaign owner). *Player* = a person in the campaign. *PC* = player character. *Record* = any campaign entry (NPC, location, faction…). *Session* = one live play night.
@@ -55,7 +55,7 @@ These are fixed. A design that breaks one needs a Decision log entry first.
 
 ## 4. Scope and roadmap
 
-The build runs in five phases. The first playtest with a real group is the exit of Phase 3, around month 8. The workshop comes first so the stage is built on real records. Month 12 is held as buffer. Phase 5 holds stretch goals, built after Phase 4 when time allows (D-58).
+The build runs in six phases. The first playtest with a real group is the exit of Phase 3, around month 8. The workshop comes first so the stage is built on real records. Month 12 is held as buffer. Phase 5 brings richer scenes and battle mode, built after Phase 4 (D-71); Phase 6 holds the remaining stretch goals, built when time allows (D-58, D-71).
 
 &#91;embedded content: Roadmap · 5 phases and a buffer month, 4 exit gates\]
 
@@ -130,15 +130,28 @@ Players get real characters: built from classes, species, gear and domain cards 
 
 **Exit:** each player in your group builds their character with the creation guide, at least one PC levels up through the level-up guide, and a session is played with the dice tray and feature cards.
 
-### Phase 5: Stretch goals, richer scenes and polish (after Phase 4)
+### Phase 5: Richer scenes and battle mode (after Phase 4)
 
-These were Phase 4 until D-58 (old F4.1 to F4.5, same order). They are built after Phase 4 when time allows.
+Re-planned on 2026-11-26 from the designer's brief (D-71). Two small additions to play come first, then transition Spots and scenes, then battle mode. Battles are not a scene type: battle mode lays a mat on the table during any scene. Open questions 19.28 to 19.35 hold the working assumptions.
 
-- [ ] F5.1 Transition scenes: looping backdrop, puppets bobbing on their sticks as if walking
-- [ ] F5.2 Battle scenes: combat options picked from the sheet, HP and Stress tracking, GM stat block panel
-- [ ] F5.3 Session recap tools (session notes plus the session's roll and reveal log)
-- [ ] F5.4 Onboarding for other GMs: setup guide, key setup help, invite flow polish
-- [ ] F5.5 Move to a VPS if other groups join
+- [ ] F5.1 Advantage and disadvantage on called rolls: beside **Hidden roll** on the desk's roll call, None, **Roll with advantage** or **Roll with disadvantage**. The server rolls a d6 with the d12s and adds or subtracts it; the dice tray's white d6 is tossed with the Hope and Fear dice (section 9)
+- [ ] F5.2 Likely next scenes: a scene lists the scenes likely to follow it, set in the scene builder; while it is loaded, the desk's Scenes list shows them first, under "Likely next"
+- [ ] F5.3 Transition Spots: a Spot's type, static (every existing Spot) or transition (a hallway between rooms, a stretch of beach between two places). A transition Spot's backdrop is drawn as a continuous stretch and loops by mirror tiling (sections 8 and 11)
+- [ ] F5.4 Transition scenes: a scene from a transition Spot. The GM's **Play** and **Pause**: while playing, the backdrop scrolls right to left in a loop and walking puppets step up and down instead of swaying; props start hidden and, once revealed, come in at the right, slide left (stopping while paused) and are pulled down at the left edge. NPCs are set walking (they travel with the party) or stationary (they are passed, like a prop) (section 12)
+- [ ] F5.5 Battle mode, the mat and tokens: **Battle** on the desk, Small (6 × 6), Medium (12 × 12) or Large (18 × 18). The curtain closes, the sheet page slides back, a tan grid mat is laid out in the middle of the table and the camera turns to it. Every puppet on stage becomes a token: its picture on a plastic clip with a round base, one color per side, mirrored on the back. The GM places tokens, which snap to the squares. **End battle** rolls the mat up and turns the camera back to the stage (section 12)
+- [ ] F5.6 Battle mode, painting the mat: a GM side menu with a few colors and brushes, an eraser and Clear, to mark landmarks and items on the mat for everyone
+
+**Exit:** a session is played with a transition scene and a battle on the mat.
+
+### Phase 6: Stretch goals (after Phase 5)
+
+These were Phase 5 until D-71 (old F5.2 to F5.5, same order; the old F5.1, transition scenes, became F5.3 and F5.4). They were Phase 4 until D-58. They are built after Phase 5 when time allows.
+
+- [ ] F6.1 Combat options picked from the sheet page during a battle
+- [ ] F6.2 Monster HP and Stress tracked per token on the battle mat, with a GM stat block panel
+- [ ] F6.3 Session recap tools (session notes plus the session's roll and reveal log)
+- [ ] F6.4 Onboarding for other GMs: setup guide, key setup help, invite flow polish
+- [ ] F6.5 Move to a VPS if other groups join
 
 **Exit:** a second group runs a session without your help.
 
@@ -210,7 +223,7 @@ Every person has one account and signs in with Discord. Their role is set per ca
 | Write a player entry | No (the GM keeps records) | Yes |
 | Edit or delete a player entry | Delete any entry | Own entries only |
 | View own PC sheet | Yes (all sheets) | Own sheet only |
-| Edit own PC sheet | Yes | Not in Phase 1: view only (D-23). Spends Hope on a called roll from the sheet page at the table (F3.6, D-54). Builds a PC waiting for it with the creation guide (F4.8, D-66), moves domain cards between loadout and vault (F4.7), and marks their own Hope, HP, Stress and armor slots (D-67). Levels up once the GM grants a level (F4.9, D-68). Combat option picks arrive with battle scenes (F5.2); all other edits by the GM, who also corrects Hope from the desk |
+| Edit own PC sheet | Yes | Not in Phase 1: view only (D-23). Spends Hope on a called roll from the sheet page at the table (F3.6, D-54). Builds a PC waiting for it with the creation guide (F4.8, D-66), moves domain cards between loadout and vault (F4.7), and marks their own Hope, HP, Stress and armor slots (D-67). Levels up once the GM grants a level (F4.9, D-68). Combat option picks arrive after battle mode (F6.1); all other edits by the GM, who also corrects Hope from the desk |
 | Create, edit and delete gameplay records | Yes | No. Reads every gameplay record except stat blocks (F4.3, 19.15) |
 | Free rolls from the dice tray | Yes | Yes. Planned (F4.2, 19.20) |
 | Start a session, load scenes, call rolls, spend Fear | Yes | No |
@@ -298,7 +311,7 @@ Fields appear in this order on every record of the type, so the GM always knows 
 | --- | --- | --- |
 | NPC | Anyone the party might talk to | Appearance (for visuals); personality; voice and mannerisms; wants and motivations; what they know; secrets; role in the story; status (alive, dead, missing, unknown); home spot (link); factions (links) |
 | Area | A general place: city, town, beach, forest | Kind of place; overview; atmosphere (sights, sounds, smells); notable features; factions present (links); hooks; secrets |
-| Spot | Where the party actually stands: the market, the crashed boat, an NPC's house. Always belongs to one Area | Description for the GM to read out; props here (shown from each Prop's Spot link, never stored on the Spot, D-41); NPCs usually here (links); items here (links); hidden details; backdrop notes (for visuals) |
+| Spot | Where the party actually stands: the market, the crashed boat, an NPC's house. Always belongs to one Area. A Spot is **static** (a place the party stands in; every Spot made before F5.3) or **transition** (a stretch the party moves along: a hallway between rooms, a beach between two places), and its scenes follow its type (F5.3, D-71) | Type (static or transition; static by default); description for the GM to read out; props here (shown from each Prop's Spot link, never stored on the Spot, D-41); NPCs usually here (links); items here (links); hidden details; backdrop notes (for visuals) |
 | Prop | Something to see at a Spot that stays where it is: the well, the statue, the notice board. Shown on stage as a cardboard cutout that players click to inspect; its public description is the text the inspect stage shows (F1.10, D-37) | Appearance (for visuals); hidden details (what a closer look or a roll could turn up); Spot (link, one: the only stored side of the Spot's "props here", D-41) |
 | Faction | Any organized group | Goals; leaders (NPC links); members (NPC links); resources; allies and enemies (faction links); public reputation; secrets |
 | Lore | History, legends, religion, magic, anything world-level | Category; summary; full details; who knows it (links); what's true vs. what people believe |
@@ -370,7 +383,7 @@ Standalone records. Monsters are stat blocks with a visual; an NPC can link one 
 | Features | List of: name, kind (passive, action, reaction), cost (e.g. mark a Stress, spend Fear), description |
 | Health | Damage thresholds (major, severe); HP max; Stress max |
 
-A stat block is a template: it holds HP and Stress maximums only. In a battle, each copy of a monster on stage tracks its own current HP and Stress (F5.2, open question 19.9). Deleting a stat block unlinks the NPCs that used it (D-23).
+A stat block is a template: it holds HP and Stress maximums only. In a battle, each monster's token on the mat will track its own current HP and Stress (F6.2, open question 19.9). Deleting a stat block unlinks the NPCs that used it (D-23).
 
 ### Domains and domain cards (F4.3)
 
@@ -472,6 +485,20 @@ As built (F4.8, D-66): **Default is every campaign's mode until the GM changes i
 | characters (new columns) | `needs_guide` and `built_at`. Built with F4.8 |
 | play\_sessions (new column) | Rest: while on, PCs move domain cards between loadout and vault for free. Built with F4.7 |
 
+### Planned tables (Phase 5)
+
+Shapes are settled in each feature's plan (D-71).
+
+| Table | Holds |
+| --- | --- |
+| records (Spot) | The Spot's type, static or transition; every existing Spot is static (F5.3) |
+| scene\_next | Scene, a likely next scene, position; a scene lists another at most once, never itself; deleting either scene removes the row (F5.2) |
+| scene\_objects, play\_session\_objects (new column) | For an NPC puppet: walking (travels with the party) or stationary (passed like a prop). Read only in a transition scene (F5.4) |
+| play\_roll\_calls (new column) | The call's edge: none, advantage or disadvantage (F5.1). The roll's `session_events` details gain the d6 and its sign |
+| play\_sessions (new columns) | Whether a transition scene is playing (F5.4); the battle mat's size (small, medium, large) or none (F5.5) |
+| play\_battle\_tokens | Play session, campaign, the live object (a PC or NPC puppet) it stands for, its square (column, row) or off the mat. One token per square. Deleted when the battle ends, with its object, and when the session ends (F5.5) |
+| play\_battle\_strokes | Play session, campaign, color, brush size, the points of the stroke, or an erase; in drawing order. Cleared by Clear, when the battle ends and when the session ends (F5.6) |
+
 ### Supporting tables
 
 | Table | Holds |
@@ -484,7 +511,7 @@ As built (F4.8, D-66): **Default is every campaign's mode until the GM changes i
 | player\_notes | Campaign, the revealed record or the player entry it is on (exactly one), author (cleared if the account is deleted), body (plain text, 1 to 500 characters), timestamps (F3.5, D-53) |
 | player\_entries | Campaign, author (cleared if the account is deleted), title (1 to 120 characters), description (plain text, up to 4,000), timestamps (F3.5, D-53) |
 | assets | Campaign, the record or PC it was made for (kept when that is deleted), the GM who asked, kind (character, monster, prop, backdrop), status (generating, failed, pending, approved, rejected) and error code, source (generated or uploaded) and whether an upload was stored as finished (F2.6, D-70), prompt used, model, style bible version, quality and aspect ratio (set for a generated image, empty for an upload), file paths (original, processed), media type, the processed image's width and height and the post-processing version that made it (D-43), for a Regenerate with notes the asset it changes and the GM's notes, cost, created, started and finished times (D-42). A record or PC keeps its image in use and its drafts under review; a discarded try stays as `rejected` with its files deleted (D-44) |
-| scenes | Campaign, name, type (static, transition, battle; only static is made until Phase 5), linked Spot. The backdrop is not stored: it is the Spot's image in use when the scene is read. A scene with no Spot, or whose Spot was deleted, has a bare back wall (D-49) |
+| scenes | Campaign, name, type (static, transition, battle; only static is made so far), linked Spot. The backdrop is not stored: it is the Spot's image in use when the scene is read. A scene with no Spot, or whose Spot was deleted, has a bare back wall (D-49). Planned (D-71): a scene's type becomes its Spot's type, read with it like the backdrop (static or transition, F5.4); battles are not scenes but a mode of the live session (F5.5), so the stored `battle` value goes. Whether the column is dropped or kept is F5.4's call |
 | scene\_objects | Scene, campaign, kind (prop, puppet), linked record (a Prop or Item for a prop; an NPC for a puppet), left/right and up/down position inside the theater opening (each 0 to 1, for the bottom center of the cutout), depth tick (0 = front to 9 = back), scale (0.25 to 2.5), flipped, shown flag (props), mount (props: stand or hang), place in the scene's list. A saved scene holds props and, optionally, NPC puppets. A puppet is always saved lowered, at the place it will rise to, so its shown flag stays false. At most 24 objects per saved scene: the 30 of the §12 budget less 6 PCs, which are added live and have no column here yet (D-36, D-49). The kind comes from the record's type. An NPC is in a scene once; a prop record can be placed several times. Deleting a record removes it from every scene |
 | play\_sessions | Campaign, number (1, 2, 3… in the campaign), started\_at, ended\_at, the scene loaded last, the Spot copied from that scene (its image in use is the backdrop), how many scenes have been loaded, curtain open or closed, current Fear. One running session per campaign. Not `sessions`: Better Auth owns that table name (D-50) |
 | play\_session\_objects | The live theater of a running session: a copy of the loaded scene's objects, each with the id it has in the scene, and the same columns as `scene_objects`. Here the shown flag means a prop in sight or a puppet raised, and players are sent only what is shown. The copy changes on its own during play; the saved scene is untouched. An object is a record or, added live by the GM, a PC (its puppet); an NPC or a PC is on the stage once. Deleting the record or the PC takes the object along. Deleted when the session ends (D-50, D-52) |
@@ -518,6 +545,7 @@ Version 2 came with F4.1 (D-58, D-59). Migration 0020 moved every campaign to it
 | Creation trait spread | — | One trait +2 ("great at"), two +1 ("good at"), one −1 ("bad at"), the other two 0 |
 | Starting Hope and Stress | — | 0 Hope (of 6), and 6 Stress slots with none marked (19.17) |
 | Domain cards | — | Two level-1 cards at creation; at most five in the loadout |
+| Advantage die | — | Planned (F5.1, D-71): a d6, added with advantage and subtracted with disadvantage. A new v2 field (D-59) |
 
 As built (F4.1, D-59):
 
@@ -529,12 +557,12 @@ As built (F4.1, D-59):
 ### Resolving an action roll
 
 ```latex
-\text{total} = d_{\text{hope}} + d_{\text{fear}} + \text{trait modifier} + (\text{Hope bonus if Hope spent})
+\text{total} = d_{\text{hope}} + d_{\text{fear}} + \text{trait modifier} + (\text{Hope bonus if Hope spent}) \pm (d_6 \text{ with advantage or disadvantage})
 ```
 
-1. **GM calls the roll.** Picks the player, the trait, enters the difficulty, and marks the difficulty public or hidden. An optional label says what it's for ("Climb the wall").
+1. **GM calls the roll.** Picks the player, the trait, enters the difficulty, and marks the difficulty public or hidden. An optional label says what it's for ("Climb the wall"). Planned (F5.1, D-71): the GM can also grant advantage or impose disadvantage, one or the other, beside **Hidden roll**.
 2. **Player sees the prompt.** Trait, modifier and difficulty (if public). They can spend Hope for the Hope bonus before rolling: +3 in v1; +2 plus the PC's own bonus in v2.
-3. **Server rolls** both d12s with a cryptographically secure random generator.
+3. **Server rolls** both d12s with a cryptographically secure random generator, and the d6 too for a call with advantage or disadvantage (F5.1). Only the d12s decide a critical and whether Hope or Fear is gained; the d6 only changes the total. It is tossed on the table with the d12s, as the dice tray's white d6.
 4. **Critical check.** If both dice match, it is a **critical success**: automatic success, and the player gains 1 Hope.
 5. **Success check** (non-critical). Success if the total meets or beats the difficulty (open question 19.2).
 6. **Hope or Fear** (non-critical). Hope die higher: player gains 1 Hope (capped at 6). Fear die higher: GM gains 1 Fear (capped at 12). This happens on success or failure.
@@ -723,7 +751,7 @@ Each visual is one image, generated on request from a record, pushed through a f
 - **Look:** Paper Mario cardboard cutouts × Dexter's Lab. Flat colors, bold dark outlines, simple shapes, a limited bright palette, light 90s cartoon exaggeration.
 - **Characters and monsters (puppets):** full body, standing, facing the viewer, neutral pose, centered, no background, with a clean bottom edge: the stage fixes the puppet's stick at the bottom center. One image per character for now. Emotion comes from how the puppet moves (section 12).
 - **Props (Prop and Item records):** a single object, centered, no background, drawn to stand up as a cardboard standee in the theater and to read clearly on the inspect stage.
-- **Backdrops:** wide 16:9 painted flat, like theater scenery, no characters in it. It fills the theater's back wall only; the side walls and roof are part of the fixed theater. The walls, roof and the front edge of the stage frame it, so keep important detail away from the edges.
+- **Backdrops:** wide 16:9 painted flat, like theater scenery, no characters in it. It fills the theater's back wall only; the side walls and roof are part of the fixed theater. The walls, roof and the front edge of the stage frame it, so keep important detail away from the edges. A transition Spot's backdrop (F5.3, D-71) is a long continuous stretch, the ground and horizon level from edge to edge, with no single centerpiece and nothing that looks wrong flipped: it loops on the back wall with every second copy mirrored.
 - **Never:** photorealism, heavy gradients, text in the image, multiple characters in one image.
 
 ### Style bible (versioned files)
@@ -747,6 +775,7 @@ Every asset records the style bible version that made it. Changing the style bib
 5. The image appears as a **draft** with its cost. A record or PC has one image in use, always shown first, and at most one draft under review; tries are not all kept (D-44).
 6. GM reviews (D-44): with no image in use, **Use this** (it becomes the record's visual) or **Discard**; beside an image in use, **Replace** or **Keep current**, shown side by side. **Regenerate with notes** (e.g. "bigger hat, angrier eyebrows") sends the draft, or the image in use, back to the model as its only reference image, the untouched original and never the processed version, with the notes added to the prompt. A changed draft is shown **Before** and **After** until the GM picks **Keep new** or **Go back**. Whatever is discarded or replaced loses its files; its row stays for the hourly limit and its cost.
 7. **Upload instead (F2.6, D-70):** the GM can upload their own image (PNG, JPEG or WebP, up to 10 MB) with **Upload image** on the Visual card, with or without an OpenRouter key. It becomes a draft under the same review rules (Use this / Discard, or Replace / Keep current) and goes through the same post-processing so it matches, except that the key color is only cleared when the image is really drawn on it: an upload with its own transparency keeps every color it has. Ticking **Already a finished Stagehand image** stores it as it is (transparency made all or nothing, shrunk to 1024 px if larger, no cut-out, no second border); such an upload can't be regenerated with notes. Backdrops are cropped and sized either way. Every image on the card has **Download** (the stage version) and **Download original**. To move an image to another campaign, download the original and upload it normally (the same stage image comes out, and Regenerate with notes still works), or download the stage version and upload it as finished.
+8. **Transition Spots (planned, F5.3, D-71):** a transition Spot's backdrop prompt asks for a continuous stretch the party moves along, as in Art direction above. The size (1536 × 864) and the post-processing are the same as any backdrop's, and nothing is blended at the seams: the stage loops the image by mirror tiling (each second copy flipped left to right), so the edges always meet, for uploads too. Whether this is a new template, and so style bible v2, is F5.3's call.
 
 ### Model choice and swapping
 
@@ -771,7 +800,7 @@ The stage is a stick-puppet theater at the far end of a tabletop, rendered in th
 | Room | A plain room around the table, out of focus: a blurred picture on a large sphere (D-46) | Fixed; never in focus |
 | Table | The tabletop the players sit at, low-poly, built once | Fixed; holds the theater, the inspect stage, the binder and each player's sheet |
 | Theater box | A puppet theater on the far side of the table: a back wall, two side walls and a roof, open at the front and at the bottom | Fixed geometry; walls and roof can be tinted per scene |
-| Backdrop | The Spot's backdrop image, 16:9, filling the back wall | Swapped when a scene loads; scrolls in a loop in transition scenes (Phase 5) |
+| Backdrop | The Spot's backdrop image, 16:9, filling the back wall | Swapped when a scene loads; scrolls right to left in a mirrored loop while a transition scene plays (F5.4) |
 | Front curtain | A curtain across the front of the theater, facing the table | Closes and opens on scene changes; the GM can also close and open it by hand |
 | The void | Black, open space below the scene | Puppets wait here, out of sight, and are raised up through it |
 | Props | Cardboard cutouts of Prop and Item records on small stands, placed inside the box | Placed by the GM; clickable by players to inspect |
@@ -781,6 +810,7 @@ The stage is a stick-puppet theater at the far end of a tabletop, rendered in th
 | Sheet page | The player's character sheet, drawn as a sheet of paper on the table in front of them | Read and pressed directly; its edge glows while a roll waits; see "The sheet page" below (F3.6, D-53, D-54) |
 | Dice | A Hope die (gold) and a Fear die (purple), d12s, on the strip of table in front of the theater | Tossed in when a roll lands, the same throw for everyone, and left lying until the next (F3.6, D-54) |
 | Fear bowl | A bowl beside the dice, with a bead for each Fear and no number on it: players judge Fear by the beads, and the GM's desk has the count | A gain drops a bead in; a spend tosses beads out (F3.6, D-54) |
+| Battle mat | Planned (F5.5, D-71): a tan sheet with a square grid, 6, 12 or 18 squares a side, every square the same size | Laid out in the middle of the table in battle mode and rolled up after; holds the tokens and the GM's paint; see "Battle mode" below |
 
 ### Placing things in the scene
 
@@ -801,6 +831,7 @@ The theater is the same for everyone and always in sync. Where a player is looki
 | Inspect | The camera turns to the inspect stage | Clicking a revealed prop, item or NPC |
 | Note | The camera looks down a little, at the sticky pad in front of the inspect stage | **Post note** on the inspect stage |
 | Binder | The camera looks down at the open binder and the sticky pad beside it | Clicking the binder, or the **Journal** button in the corner |
+| Battle | Planned (F5.5, D-71): the camera looks down at the battle mat, pulled back far enough to fit its size | Everyone goes there when the GM starts a battle, and back to Stage when it ends: the one view the GM moves for everyone. The Sheet view still works meanwhile, with the sheet page a little further back |
 
 - The camera moves smoothly between views and is otherwise locked: no orbit, no zoom, no leaving the table.
 - While a player is on the sheet, the inspect stage or the binder, the theater keeps playing; they can turn back at any time. Escape, a click away, or the **Back** button in the corner steps back one view at a time (F3.5b).
@@ -829,7 +860,7 @@ The journal at the table is a three-ring binder (F3.5b, D-53, answering 19.13). 
 ### The sheet page
 
 - The player's PC sheet is a page on the table in front of them. It is drawn as HTML placed on a plane in the scene (drei `Html` with `transform`), so the text stays sharp and the F1.4 sheet components are reused.
-- Options are pressed right on the page where they apply: spend Hope before a called roll (F3.6), and later pick combat options (F5.2).
+- Options are pressed right on the page where they apply: spend Hope before a called roll (F3.6), and later pick combat options (F6.1).
 - As built (F3.6, D-54): the page has the PC's name, level and class, their Hope as six pips, and below them the whole sheet as the site shows it, scrolling. While a roll is called for the PC, a panel at the top shows the trait and its modifier, the difficulty (or "Difficulty hidden") and the label, with **Spend 1 Hope for +N**, N being the ruleset's bonus plus the PC's own (unavailable at 0 Hope) and **Roll**. Rolling turns the camera back to the theater, to watch the dice land with everyone. The page is read again whenever the server says the sheet changed (`sheet:changed`, §13).
 - When a roll is called for a player's PC, a notice over the theater says so, with **Go to sheet**, and the page's edge glows; the camera doesn't move by itself (the designer's choice). Other players see who is rolling what. When the dice have landed everyone is told the result in words for a while ("Vex rolled Agility (Climb the wall): 9 + 4 + 2 + 3 = 18 vs 12: success with Hope"), and a Fear spend is told with its reason. These notices are over the theater rather than on paper on the table: on the strip the Stage view shows, writing small enough to fit could not be read.
 - The GM has no PC and no sheet page. The journal is the binder on the table (see above).
@@ -845,7 +876,7 @@ All motion is procedural transforms on the puppet and its stick, so any new char
 - **Talking:** while a voice is detected (section 13), the puppet rises a little and brightens; it settles and dims when the voice stops
 - **Raise and lower:** up from the void into the scene, and back down
 - **Emotes** (preset, picked from a list): look around (turns a little left, then right), hop, nod, shake (angry), shiver (scared), lean in (curious), bow, spin, droop (faint), wave
-- **Walking:** bobbing on the stick, used in transition scenes (Phase 5)
+- **Walking:** an up-and-down step on the stick, in place of the idle sway, for PCs and walking NPCs while a transition scene plays (F5.4, D-71)
 
 **Player emotes.** Clicking their own puppet opens a small emote menu on the stage, next to the puppet. Players can't emote anyone else's puppet and can't move their own (open question 19.6).
 
@@ -858,19 +889,23 @@ All motion is procedural transforms on the puppet and its stick, so any new char
 3. Select an object in the theater or in the panel's list, then place it across and up: drag it in the theater (it stays on its depth tick), nudge it with the arrow keys, or use the panel's sliders. **Step forward** and **Step back** (or the `[` and `]` keys) move it between depth ticks; lines across the theater mark the 10 ticks, with the selected object's lit. Set its size (25% to 250%) and flip it as needed; Delete removes it. A prop can be marked hidden at first (placed but not shown yet; drawn see-through while building) and can hang from the roof instead of standing.
 4. NPC puppets saved in a scene start lowered, waiting in the void. While building, a puppet stands where it will rise to; **Preview** shows the scene as players first see it, with hidden props gone and puppets below. PCs are not saved in scenes; the GM raises them live.
 5. A scene has a name and saves by itself as it is changed (D-49). It holds at most 24 props and puppets, which leaves room in the budget for 6 PCs. Scenes are built ahead of time; changing one on the fly during a session arrives with the control desk (F3.4).
+6. Planned (F5.2, D-71): **Likely next scenes**, the scenes this one probably leads to, picked from the campaign's scenes and kept in order. The desk lists them first while this scene is loaded.
+7. Planned (F5.4, D-71): in a transition scene, props are saved hidden (they come into view as the party passes them), and each NPC puppet is set **Walking** or **Stationary**.
 
 ### GM control desk (live)
 
 The control desk is a 2D panel beside the theater, for the GM only. It holds everything the GM needs during play:
 
-- **Scenes:** the campaign's scenes; loading one while the curtain is open closes it, swaps the scene and opens it again; loading one while it is closed keeps it closed, so the GM can set the stage first (D-52). A manual curtain open and close.
+- **Scenes:** the campaign's scenes; loading one while the curtain is open closes it, swaps the scene and opens it again; loading one while it is closed keeps it closed, so the GM can set the stage first (D-52). A manual curtain open and close. Planned (F5.2): the loaded scene's likely next scenes first, under "Likely next", then all of them.
+- **Transition** (planned, F5.4): **Play** and **Pause** while a transition scene is loaded.
+- **Battle** (planned, F5.5, F5.6): **Battle** with Small, Medium or Large; during a battle, the tokens and **End battle**, and the paint menu beside the mat.
 - **Puppets:** every PC and NPC puppet in or near the scene. Select one, then raise or lower it, move it across, up or to another depth tick, flip it, or play an emote.
 - **Add players' characters** (under the curtain's button, 2026-11-22): puts the PC of every player at the table on the stage at once, waiting below it, skipping those already there. A PC needs a picture in use to be a puppet, as in Add to stage; one without is named on the desk, with Generate visual on its sheet to make one.
 - **Props:** show or hide placed props; add one from the tray.
 - **Reveal:** reveal or un-reveal records (section 7).
 - Any puppet or prop can also be selected by clicking it in the theater.
 
-The first part of the desk shipped with live sessions (F3.3, D-50): load a scene, open and close the curtain, a read-only list of what the stage holds, who is here, and End session. The rest shipped with F3.4 (D-52): the list of what is on stage raises, lowers, shows and hides each object, and picking one there or in the theater opens its controls (the scene builder's: across, up, depth, size, flip, hang), Reveal or Un-reveal, Open record and Remove from stage. The GM drags a picked cutout in the theater and moves it with the builder's keys. **Add to stage** offers the PCs, then every Prop, Item and NPC with an image; what is added arrives out of sight (a prop hidden, a puppet below) so it can be placed first. **Reveal** finds any record to reveal or un-reveal. In the GM's theater hidden props are drawn see-through, as in the builder, unless **As players see it** is on; puppets waiting below are only on the desk. Everything the desk changes is the live stage only; the saved scene is untouched. F3.7 added (D-55) an **Emote** block for a picked raised puppet: the ten emotes, played for everyone. F3.6 added (D-54): **Rolls** (call a roll for one PC, several or All: trait, difficulty, hidden or not, a label; the calls waiting, each with Cancel; the last roll in words, with **Reveal result** while it is hidden), **Fear** (the count, − and + to correct it, Spend with an optional reason), **Hope** (each PC's, with − and +) and the session's **Log** (newest first). Planned for Phase 4: the dice tray in the desk's left panel (F4.2) and the **Rest** switch for free domain card swaps (F4.7).
+The first part of the desk shipped with live sessions (F3.3, D-50): load a scene, open and close the curtain, a read-only list of what the stage holds, who is here, and End session. The rest shipped with F3.4 (D-52): the list of what is on stage raises, lowers, shows and hides each object, and picking one there or in the theater opens its controls (the scene builder's: across, up, depth, size, flip, hang), Reveal or Un-reveal, Open record and Remove from stage. The GM drags a picked cutout in the theater and moves it with the builder's keys. **Add to stage** offers the PCs, then every Prop, Item and NPC with an image; what is added arrives out of sight (a prop hidden, a puppet below) so it can be placed first. **Reveal** finds any record to reveal or un-reveal. In the GM's theater hidden props are drawn see-through, as in the builder, unless **As players see it** is on; puppets waiting below are only on the desk. Everything the desk changes is the live stage only; the saved scene is untouched. F3.7 added (D-55) an **Emote** block for a picked raised puppet: the ten emotes, played for everyone. F3.6 added (D-54): **Rolls** (call a roll for one PC, several or All: trait, difficulty, hidden or not, a label, and from F5.1 advantage or disadvantage; the calls waiting, each with Cancel; the last roll in words, with **Reveal result** while it is hidden), **Fear** (the count, − and + to correct it, Spend with an optional reason), **Hope** (each PC's, with − and +) and the session's **Log** (newest first). Planned for Phase 4: the dice tray in the desk's left panel (F4.2) and the **Rest** switch for free domain card swaps (F4.7).
 
 ### Live editing and NPC takeover
 
@@ -880,18 +915,40 @@ The first part of the desk shipped with live sessions (F3.3, D-50): load a scene
 - **Take over an NPC:** the GM selects an NPC puppet; while active, the GM's voice makes that puppet rise and brighten instead of the GM's own presence, and the NPC's name shows as the speaker. Switch NPCs with one click; release to return to normal.
 - **As built (F3.8, D-56).** A raised NPC on the desk has **Voice this NPC** once picked, and a mic button in the **On stage** list; pressing another NPC's switches in one click. While one is voiced, a **Voicing** strip with **Release** sits at the top of the desk, and the GM's line in its list of who is here reads "as Old Marta" and rings while the GM talks. Players see only the puppet talk: their list never names the NPC, and doesn't ring the GM's picture meanwhile. PCs and props can't be voiced, nor an NPC waiting below; lowering, removing or loading a scene over the voiced NPC gives the voice back by itself.
 
+### Transition scenes (planned, F5.3, F5.4)
+
+For talking while traveling: the party walks along a hallway, a beach, a road (D-71).
+
+- **From a transition Spot.** A Spot is static or transition (section 8). A scene built from a transition Spot is a transition scene; its backdrop is drawn to loop (section 11).
+- **Play and Pause.** A transition scene loads paused. While the GM has it playing, the backdrop scrolls right to left in a loop, each second copy mirrored so the edges always meet. Pause stops everything where it is.
+- **Walking.** While playing, raised PCs and walking NPCs step up and down on their sticks in place of the idle sway; paused, they sway again. Talking and emotes play over either.
+- **Props pass by.** A transition scene's props start hidden. Revealed while playing, a prop comes in at the right edge of the stage and slides left with the backdrop, stopping while paused. At the left edge, if the scene is still playing, it is pulled down out of sight and goes back to hidden, still in the scene, so the GM can reveal it again to pass another one. Revealing still reveals its record, as anywhere (section 7).
+- **NPCs.** A walking NPC travels with the party: raised, it stays in place and walks. A stationary NPC is passed like a prop: raised while playing, it comes in at the right, slides left and is lowered again at the left edge.
+
+### Battle mode (planned, F5.5, F5.6)
+
+Battles are not scenes of their own: a battle happens where the party already is, at any Spot, on a mat laid on the table (D-71).
+
+1. **Start.** The GM presses **Battle** and picks Small (6 × 6), Medium (12 × 12) or Large (18 × 18). The curtain closes, each player's sheet page slides back a little, a tan battle mat with a square grid is laid out in the middle of the table, and everyone's camera turns to it (the Battle view). Every square is the same size, so a larger mat covers more of the table and the camera pulls back to fit it.
+2. **Tokens.** Every PC and NPC puppet on the stage, raised or waiting below, becomes a token beside the mat. A token is the puppet's picture on a small plastic clip: a round base, and clips rounded up both sides of the picture. The picture is mirrored on the back, not white like a puppet's. The clip is one plain color by side: PCs blue, NPCs green, monsters red (a monster is an NPC whose picture was made as one).
+3. **Placing.** The GM drags tokens onto the mat, where they snap to the squares, one token per square, and moves them as the fight goes. Players watch; they don't move tokens, their own included. Tokens beside the mat are the GM's alone, so a monster waiting to ambush stays secret; placing an NPC's token on the mat reveals its record, like raising its puppet.
+4. **Painting** (F5.6). A GM side menu beside the mat: a few colors, a few brush sizes, an eraser and Clear, to mark landmarks and items. Everyone sees the strokes as they are drawn.
+5. **During the battle.** Rolls, the dice tray, Hope and Fear work as usual; the Sheet view still works. Puppets added to the stage meanwhile get a token beside the mat; a removed puppet loses its token.
+6. **End.** **End battle** rolls the mat up, with its tokens and paint, and the camera moves back up to the stage. The curtain stays closed, so the GM can tidy the stage (lower the defeated) before opening it.
+
 ### Scene types
 
 | Type | Phase | What's special |
 | --- | --- | --- |
 | Static location | 3 (MVP) | Investigation and NPC conversation; props to inspect are the focus |
-| Transition | 4 | Backdrop scrolls in a loop, puppets bob on their sticks as if walking; for talking while traveling |
-| Battle | 4 | Players pick combat options on their sheet page; monsters show HP/Stress to the GM; Fear spending is prominent |
+| Transition | 5 (F5.3, F5.4) | From a transition Spot. Backdrop scrolls in a mirrored loop while playing, puppets walk, props and stationary NPCs pass by; for talking while traveling |
+
+Battles are not a scene type: battle mode lays a mat on the table during any scene (F5.5, D-71). Combat options on the sheet page and monster HP and Stress on the tokens come after it (F6.1, F6.2).
 
 ### Performance budget
 
 - Target: 60 fps on a mid-range laptop with integrated graphics, in Chrome, Firefox, Edge and the Discord client.
-- At most 30 objects in the theater; cutout textures 1024 px, backdrop 1536 × 864 (D-43), all sent as WebP. The room, the table, the inspect stage, the sheet page, the dice (two draws each) and the Fear bowl (one for the bowl, one for all its beads) count towards the budget, and so does each puppet's white back (one more draw per puppet, F3.7).
+- At most 30 objects in the theater; cutout textures 1024 px, backdrop 1536 × 864 (D-43), all sent as WebP. The room, the table, the inspect stage, the sheet page, the dice (two draws each) and the Fear bowl (one for the bowl, one for all its beads) count towards the budget, and so does each puppet's white back (one more draw per puppet, F3.7). Battle tokens (F5.5) are counted too, a picture on both sides and a clip each; they stand in for the stage behind the closed curtain rather than adding to it, which is to be measured in F5.5.
 - No real-time shadows: a cutout's shadow is a dark copy of it drawn just behind it (D-46). One directional light and an ambient one on the table and theater; art is unlit. The talking brighten is a material change, not an extra light.
 - Drawn at no more than 1.5 device pixels per CSS pixel (D-46).
 - Measured with the stage test page (`/stage-test`, D-46) before the first playtest: 30 cutouts, each with its own texture, for 30 seconds.
@@ -934,6 +991,11 @@ A live session is a Socket.IO room per campaign, with the server holding the aut
 | sheet:changed | Server | A PC's sheet changed (a roll, a correction, the GM's edit on the site, a domain card moved); its player reads it again (F3.6) |
 | log:changed | Server, to the GM | The session's log grew; the desk reads it again (F3.6) |
 | roll:free | Anyone at the table | The server rolls the dice of a free roll, logs it, and sends it once to everyone, or to the GM alone when the GM rolls privately (F4.2) |
+| roll:call (edge) | GM | Planned (F5.1): a call carries none, advantage or disadvantage, and the roll's result the d6 |
+| transition:play / pause | GM | Planned (F5.4): starts or stops a transition scene's motion for everyone; props and stationary NPCs in motion are sent with where they started, so every browser draws them in the same place |
+| battle:start / end | GM | Planned (F5.5): lays out the mat at a size, with a token for every puppet on stage, or rolls it up |
+| battle:token.move | GM | Planned (F5.5): puts a token on a square or back beside the mat; placing an NPC's reveals its record |
+| battle:paint / erase / clear | GM | Planned (F5.6): a stroke on the mat, an erase, or Clear |
 
 Built so far (F3.3, D-50): `scene:load`, `scene:curtain.open` and `scene:curtain.close`, on one Socket.IO namespace, `/play`. Around them: a browser sends `session:join` with its campaign and is answered with the stage and who is here, or with why not (no session, full, not a member); the server sends `stage` (the whole stage for that browser's role, after every change), `presence` (who is connected), `session:started` and `session:ended`. F3.4 added the desk's events (D-52): `scene:object.add` (a record or a PC, made by the browser with its own id), `scene:object.move` (any of across, up, depth tick, size, flip, a prop's mount), `scene:object.remove`, `scene:object.show` and `.hide` for props, and `puppet:raise` and `.lower`, each answered like `scene:load`. `record:reveal` and `unreveal` are plain requests instead (`POST …/records/:recordId/reveal` and `/unreveal`), since the record page uses them too and a player has no journal to update until F3.5; during a session the server sends the stage again after one. A browser sends one object's moves at most every 300 ms, together, so a drag stays well inside the live room's limit. `emote` and `speaking` arrived with F3.7; the rest of the table arrives with F3.5 to F3.9. F3.5a added `journal:changed` (D-53): the server sends it to everyone in the session after a reveal or un-reveal, a scene load, an open curtain, an object added, shown or raised (any of which may reveal something), a note or entry written, changed or deleted, a revealed record's edit and a record's delete. Notes and entries are plain requests (`…/journal/…` and `…/notes/:noteId`), like reveals, since the site and the table share them. Each object a player's stage holds now carries `recordId`: the record it shows while players have it, so they can inspect it; null for a PC or an un-revealed record. F3.6 added rolls, Hope and Fear (D-54): the GM's `roll:call`, `roll:cancel`, `roll:reveal`, `fear:spend`, `fear:adjust` and `hope:adjust`, and the player's `roll:make` (only for the call on their own PC; a GM's is refused), each answered like `scene:load`. There is no `roll:result` event: the stage itself carries the GM's Fear and its cap, the calls waiting, the last roll and the last Fear spend, and the GM's copy adds each PC with a player and their Hope. A player's copy leaves out a hidden difficulty and the result it decides until the GM reveals it. A browser plays the dice and the bowl when the last roll or the last spend it holds changes, so a join or a reconnect shows them at rest. The server sends `sheet:changed` (with the PC) after a roll, a Hope correction or the GM's edit of a sheet on the site, and `log:changed`, to the GM only, whenever the log may have grown; the log itself is a plain request (`GET …/play-session/log`, GM only). F3.7 added puppet motion (D-55): `emote` (a preset on a raised puppet: the GM on any, a player on their own PC's; answered like the rest, at most one a connection every 800 ms, and sent to everyone as `emote` with an id of its own, without the stage), and `speaking` (`true` or `false`, sent by a browser when its person starts or stops talking, never answered or stored). Who is talking travels in presence, which now gives each person's PC id and whether they are talking; a player's stage objects now carry `characterId` for a PC's puppet. F3.8 added NPC takeover (D-56): the GM's `npc:takeover` (a raised NPC's puppet, by its live object id) and `npc:release` (`{}`), answered like the rest without the stage; presence now gives each person `voicing`, the object id of the NPC the GM voices (null for everyone else), and the server gives it back whenever a stage goes out without that NPC raised. F3.9 changed no event (D-57): the mic and Discord's speaking events send the same `speaking`. F4.7 added the GM's `rest:set` (`{rest}`, answered like the rest; D-65): the stage carries `rest` to both roles. Moving a domain card is a plain request (`POST …/characters/:characterId/domain-cards/:cardId/move`), since the site uses it too; the server sends `sheet:changed` after it, and `log:changed` for a player's recall during a session.
 
@@ -1069,7 +1131,7 @@ The biggest risks are scope creep and art consistency; both are handled by phase
 | AI import quality is uneven | Medium | Medium | Strict schemas, retries, review screen, eval suite | GM edits more than half of proposals |
 | Claude Sonnet 5.5 or gpt-image-2 retired | Medium | Medium | Pinned versions, provider interfaces, eval suite and image test set | Provider deprecation notice |
 | OpenRouter drops gpt-image-2 or changes pricing | Low | Medium | Image model is one config value; test set re-run on a new model | Pricing or model-list change |
-| Home PC offline during someone's session | Medium | Medium | Acceptable for one group; move to a VPS before onboarding other groups (F5.5) | Any missed session |
+| Home PC offline during someone's session | Medium | Medium | Acceptable for one group; move to a VPS before onboarding other groups (F6.5) | Any missed session |
 | Data loss | Low | High | Verified, encrypted backups on every shutdown, on a second disk. No off-site copy yet, an accepted risk until hosted (D-19) | A failed restore drill; a session ended with `--skip-backup` or without `stack:shutdown` |
 | Private field leaks to players | Low | High | Allow-list responses; per-type tests | Any failing visibility test |
 | Licensing: using Daggerheart's official text or layouts | Low | Medium | Homebrew field names and own layouts; the 2d12 mechanic itself isn't copied text. Gameplay content (classes, cards, gear) is entered by each GM. Stagehand ships only the ten default domains, from the SRD 2.0, under the Darrington Press Community Gaming License with its attribution on the gameplay page (19.26, D-61); the attribution's wording is checked against the license | Any copied wording beyond the SRD, or an attribution that doesn't match the license |
@@ -1081,6 +1143,7 @@ The 16 baseline decisions were made on 2026-11-07. New decisions go at the top w
 
 | ID | Date | Decision | Why | Rejected options |
 | --- | --- | --- | --- | --- |
+| D-71 | 2026-11-26 | **Phase 5 re-planned** from the designer's brief: F5.1 advantage and disadvantage on called rolls, F5.2 likely next scenes, F5.3 transition Spots, F5.4 transition scenes, F5.5 battle mode (the mat and tokens), F5.6 painting the mat. The old F5.2 to F5.5 (combat options, monster HP and Stress with a stat block panel, recap, onboarding, a VPS) become **Phase 6**, F6.1 to F6.5, with the "second group" exit; the old F5.1 is replaced by F5.3 and F5.4. **Battles are a mode, not a scene type**: the GM lays a 6 × 6, 12 × 12 or 18 × 18 mat on the table during any scene, every square the same size. **Tokens** are made from every PC and NPC puppet on the stage, raised or below; only the GM moves them, and they snap to squares; clips are colored by side (PCs, NPCs, monsters). **Transition is a Spot type** (static or transition; existing Spots static) and a scene follows its Spot's type. **The backdrop loops by mirror tiling**, every second copy flipped. A passed prop goes back to hidden. **Advantage and disadvantage** add or subtract a d6 on a called roll, one or the other. Working assumptions in 19.28 to 19.35 | The designer's brief. A battle happens where the party already is, so it belongs on the table at that scene, not in a separate one. Mirror tiling loops any image, uploads included, with nothing to blend and no regenerating for a bad seam. Equal squares keep tokens one size and easy to read | Battle scenes as their own Spot or scene type; a prompt-only or edge-blended seamless backdrop; players moving their own tokens; a GM-picked clip color per token; one mat size with smaller squares; advantage only; moving the leftovers to the Deferred list |
 | D-70 | 2026-11-23 | F2.6 as built, back from its D-45 deferral, in two parts: F2.6a (shared and server: `assets.source` and `assets.finished`, the generation columns empty for an upload, migration 0031; `POST …/visuals/upload` with the image as the body) and F2.6b (web: Upload image and the downloads on the Visual card). **An upload is a draft under the D-44 review rules**, refused while an image is being made or a draft waits, and it costs nothing, so it doesn't count toward the hourly limit and needs no OpenRouter key. **The server trusts only the bytes**: sharp reads them, and only a PNG, JPEG or WebP of at most 10 MB and 50 megapixels is taken; the stored original is sharp's PNG of it, upright, at most 2048 px, without metadata. **Uploads are processed in their own mode**: the key color is cleared only when the image has no transparency of its own and its edges really hold it (a generated image still falls back to pure magenta), so a downloaded original comes out exactly as the model's image did, and the GM's transparent art keeps its purples. **"Already a finished Stagehand image"** (a checkbox, cut-outs only) stores the upload as it is: transparency made all or nothing, shrunk to 1024 px if larger, nothing trimmed, no border added; its original already has a border, so it can't be regenerated with notes. The startup backfill remakes each upload in its own mode. **Every image can be downloaded** as the stage version or the original, named after the record or PC. Moving an image to another campaign is download and upload; copying assets between campaigns directly is left for F2.7 or 19.19 | The GM wanted to move images between campaigns without a second border. Reviewing an upload like any draft means nothing in use changes by surprise. Re-encoding drops anything hidden in the file and keeps the original's format known. Keying an upload only when it is really keyed stops the pipeline punching holes in the GM's own art. A checkbox is a choice the GM makes knowingly; guessing from the border could be wrong either way | An upload used at once; detecting a finished image from its border; keeping the uploaded file's own bytes and format; multipart form uploads (a new dependency for one file); a stage-image-only download; copying an asset from another campaign by picking it |
 | D-69 | 2026-11-22 | F4.10 as built, in two parts: F4.10a (shared and server: the multiclass links and records, the level-up rules for multiclassing covered to 100%, migration 0030) and F4.10b (web: the guide's second class, the GM's Multiclass row, the sheet and cards). **The second class gives one of its domains, the foundation of one of its subclasses, and its class features** (not its Hope feature, evasion or HP). **Multiclass-domain cards go up to half the level, rounded up.** **Taking Multiclass crosses out the same tier's unused subclass upgrade and the other tier's Multiclass.** **A subclass upgrade upgrades whichever subclass the player picks.** Two marks work as D-68 left them, so level 5 at the earliest. Completes Phase 4 | The designer's choices, following the Daggerheart sheet | Domain and foundation only; upgrades only for the first subclass; keeping the subclass upgrade in the multiclass tier |
 | D-68 | 2026-11-22 | F4.9 as built, in two parts: F4.9a (shared and server: the level-up options as a v2 ruleset field, `level-ups.ts` rules covered to 100%, `characters.level_up_granted` and `character_level_ups`, migration 0029; grant, level-up and undo) and F4.9b (web: the GM's grant and undo, the player's level-up guide). **The GM grants one level at a time**; **the player levels up, or the GM for them**; **the GM can undo the latest level-up exactly**, from the values kept with it. **A two-mark option needs both marks in the same tier**: both picks of one level-up, or one at each of two level-ups (the designer's choice after testing, answering 19.22). **No experiences at level-ups**: the designer's table lets Hope be spent on any roll. **A PC needs a linked class to level up with the guide.** Answers 19.21 to 19.23 for levelling | The designer's choices. Undo needs the values before, since options change several numbers and cards at once | Two-mark options only across two level-ups; Experiences at a new tier; levelling unlinked PCs without card and subclass steps; the GM raising levels only by hand |
@@ -1164,9 +1227,9 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.4 | Teamwork: who pays the 3 Hope, and does the unused roll give Hope or Fear? | The player asking for help pays; only the chosen roll gives Hope or Fear. Not built in F3.6 (D-54) | After the first playtest |
 | 19.5 | Do any rolls other than action rolls (e.g. reaction rolls) give Hope or Fear? | Answered by D-54: no, action rolls only (the only rolls so far) | Phase 3 |
 | 19.6 | Can players move their own puppet on stage? | No in the MVP; the GM places, raises and lowers puppets, and players only emote their own (D-36). Revisit after the first playtest. | Phase 3 |
-| 19.7 | What can players edit on their own sheet? | Answered for Phase 1 by D-23: nothing; players view their own sheet only. Later: spend Hope (F3.6); build and level up through the guides and swap domain cards (F4.7 to F4.9, D-58); pick combat options (F5.2); everything else edited by the GM. | Phase 1 |
+| 19.7 | What can players edit on their own sheet? | Answered for Phase 1 by D-23: nothing; players view their own sheet only. Later: spend Hope (F3.6); build and level up through the guides and swap domain cards (F4.7 to F4.9, D-58); pick combat options (F6.1); everything else edited by the GM. | Phase 1 |
 | 19.8 | How is leveling up handled? | Answered by D-58: the GM grants a level and the player runs the level-up guide (F4.9, section 9) | Phase 4 |
-| 19.9 | Are monster HP and Stress tracked before battle scenes exist? | No; tracking arrives with battle scenes in Phase 5 (F5.2) | Phase 5 |
+| 19.9 | Are monster HP and Stress tracked before battle scenes exist? | No; tracking arrives after battle mode, per token on the mat, in Phase 6 (F6.2, D-71) | Phase 6 |
 | 19.10 | Do other players see when someone is inspecting a prop? | No; the inspect stage is private to the player who opened it | Phase 3 |
 | 19.11 | Can inspecting a prop show more than its public description (hidden details, a roll to notice more)? | No; it shows the public description only. The GM shares more by editing that description or by calling a roll | Phase 3 |
 | 19.12 | Where do dice appear when a roll is made? | Answered by D-54: two 3D d12s tossed onto the table in front of the theater, the same throw for everyone, with no physics engine | Phase 3 |
@@ -1185,6 +1248,14 @@ None of these block Phase 0–2. Each needs an answer before the phase shown; un
 | 19.25 | Do gear features that change a number (−1 evasion, +1 armor) apply themselves? | Answered by D-62: yes for evasion, armor score, the major and severe thresholds and the six traits, entered as numbers beside the feature text and applied while equipped (F4.7); everything else is text only | F4.4 |
 | 19.26 | Is shipping the ten default domain names fine under the Darrington Press Community Gaming License? | Answered by D-61: the ten domains are in the Daggerheart SRD 2.0, free to use under the license. Their SRD descriptions are seeded too, with the license's attribution on the gameplay page | F4.3 |
 | 19.27 | What happens to the PCs that exist today? | Answered by D-65: the GM links them a part at a time on the sheet form, with no reset; each unlinked part stays typed | F4.7 |
+| 19.28 | How do likely next scenes work? | Kept in order, up to 6 per scene, any of the campaign's scenes but itself; deleting a scene drops it from every list | F5.2 |
+| 19.29 | How fast does a transition scene move, and in which direction? | One fixed speed (a config value), right to left; a transition scene loads paused; paused puppets sway as usual | F5.4 |
+| 19.30 | What happens when a Spot's type changes? | Its image is kept (mirror tiling loops any image), and its scenes follow the new type; the GM can regenerate the backdrop for a better loop. AI import leaves Spots static | F5.3 |
+| 19.31 | Who sees tokens that aren't on the mat yet, and does placing one reveal? | Only the GM sees tokens beside the mat, so a monster waiting below stays secret. Placing an NPC's token on the mat reveals its record. Puppets added to the stage during a battle get a token beside the mat; removing a puppet removes its token | F5.5 |
+| 19.32 | Does the curtain open when a battle ends? | No; it stays closed so the GM can tidy the stage, then opens it by hand | F5.5 |
+| 19.33 | What can be painted on the mat, and how long does it last? | GM only: about 6 colors, 3 brush sizes, an eraser and Clear. Kept for the battle, so a reconnect shows it; gone when the mat rolls up | F5.6 |
+| 19.34 | Do rolls and the Fear bowl work during a battle? | Yes, as usual; where the dice land with the mat out is settled in F5.5 | F5.5 |
+| 19.35 | Do advantage and disadvantage apply to the dice tray too? | No; called rolls only. The d6 is the tray's white die either way | F5.1 |
 
 ## Sources
 
