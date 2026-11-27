@@ -96,6 +96,39 @@ describe('theaterView', () => {
     expect(view.cutouts[0]).toMatchObject({ across: 0.9, depthTick: 1, flipped: true, up: 0 });
   });
 
+  it('passes a passer on with where it began, and walks the puppets that travel (F5.4)', () => {
+    const view = theaterView(
+      CAMPAIGN,
+      playerStage({
+        travel: { playing: true, distance: 2 },
+        objects: [
+          playerObject(1, { passFrom: 1.5 }),
+          playerObject(2, { kind: 'puppet', mount: null }),
+          playerObject(3, { kind: 'puppet', mount: null, passFrom: 1.75 }),
+        ],
+      }),
+    );
+
+    expect(view.cutouts.map((cutout) => [cutout.passFrom, cutout.walking])).toEqual([
+      [1.5, false],
+      [null, true],
+      // A stationary NPC passes by; it doesn't walk.
+      [1.75, false],
+    ]);
+    // A static scene's puppets never walk.
+    expect(theaterView(CAMPAIGN, playerStage()).cutouts.every((cutout) => !cutout.walking)).toBe(
+      true,
+    );
+  });
+
+  it('draws no hidden prop see-through in a transition scene: it comes in from the right (F5.4)', () => {
+    const view = theaterView(CAMPAIGN, gmStage({ travel: { playing: false, distance: 0 } }), {
+      hiddenProps: true,
+    });
+
+    expect(view.cutouts.map((cutout) => cutout.url)).toEqual([urlOf(1)]);
+  });
+
   it('leaves the back wall bare without a backdrop', () => {
     const view = theaterView(CAMPAIGN, playerStage({ backdrop: null, objects: [] }));
 

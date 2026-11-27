@@ -51,6 +51,7 @@ export type DeskRoom = Pick<
   | 'emote'
   | 'takeOverNpc'
   | 'releaseNpc'
+  | 'setTravel'
 > &
   RollRoom;
 
@@ -81,9 +82,13 @@ interface GmDeskProps {
 /** Where an object on the live stage is, in the GM's words. */
 function whereabouts(object: GmStageObject): string {
   if (object.image === null) return 'No image';
+  if (object.passFrom !== null) return 'Passing by';
   if (object.kind === 'puppet') return object.shown ? 'Raised' : 'Waiting below';
   return object.shown ? 'In sight' : 'Hidden';
 }
+
+/** An NPC puppet's travel in a transition scene (F5.4), in the GM's words. */
+const TRAVEL_LABELS = { walking: 'Walking', stationary: 'Stationary' } as const;
 
 /** An NPC's puppet, raised: one the GM may voice (F3.8). */
 function voiceable(object: GmStageObject): boolean {
@@ -527,6 +532,29 @@ export function GmDesk({
         </Toggle>
       </Section>
 
+      {stage.travel !== null && (
+        // A transition scene (F5.4): the GM plays and pauses the travel for everyone.
+        <Section title="Transition">
+          <Button
+            size="sm"
+            className="w-full"
+            aria-pressed={stage.travel.playing}
+            disabled={!idle}
+            onClick={() => {
+              const playing = stage.travel?.playing === true;
+              void send(() => room.setTravel(!playing));
+            }}
+          >
+            {stage.travel.playing ? 'Pause' : 'Play'}
+          </Button>
+          <p role="status" className="text-xs text-muted-foreground">
+            {stage.travel.playing
+              ? 'Playing: the backdrop scrolls and the party walks. Props you show and stationary NPCs you raise pass by and go back below at the left edge.'
+              : 'Paused. Props you show and stationary NPCs you raise wait behind the right wall until you play.'}
+          </p>
+        </Section>
+      )}
+
       <RollsSection {...rolls} />
       <FearSection {...rolls} />
       <HopeSection {...rolls} />
@@ -634,13 +662,41 @@ export function GmDesk({
             </div>
           )}
 
+          {stage.travel !== null && selected.travelMode !== null && (
+            // How an NPC travels (F5.4): set while it waits below.
+            <div role="group" aria-label="Travels" className="space-y-1">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase">Travels</h3>
+              <div className="flex gap-1.5">
+                {(['walking', 'stationary'] as const).map((mode) => (
+                  <Toggle
+                    key={mode}
+                    pressed={selected.travelMode === mode}
+                    disabled={!connected || stageObject.shown}
+                    onChange={() => {
+                      move(selected.id, { travelMode: mode });
+                    }}
+                  >
+                    {TRAVEL_LABELS[mode]}
+                  </Toggle>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {stageObject.shown
+                  ? 'Lower it to change how it travels.'
+                  : 'Walking travels with the party; stationary is passed by, like a prop.'}
+              </p>
+            </div>
+          )}
+
           <p className="text-xs text-muted-foreground">
-            Drag it in the theater, or use the arrow keys (Shift for bigger steps). [ and ] step it
-            forward and back.
+            {selected.passFrom === null
+              ? 'Drag it in the theater, or use the arrow keys (Shift for bigger steps). [ and ] step it forward and back.'
+              : 'It is passing by: its place across follows the travel. [ and ] still step it forward and back.'}
           </p>
           <PlacementControls
             placement={selected}
             disabled={!connected}
+            acrossLocked={selected.passFrom !== null}
             onChange={({ mount, ...change }) => {
               // A puppet has no mount to change; a prop's is a stand or a string.
               move(selected.id, mount == null ? change : { ...change, mount });

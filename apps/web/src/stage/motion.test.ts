@@ -1,7 +1,17 @@
 import { EMOTES } from '@stagehand/shared';
 import { describe, expect, it } from 'vitest';
 
-import { EMOTE_SECONDS, emotePose, phaseOf, REST, SWAY, swayAngle, type Pose } from './motion';
+import {
+  EMOTE_SECONDS,
+  emotePose,
+  phaseOf,
+  REST,
+  SWAY,
+  swayAngle,
+  WALK,
+  walkLift,
+  type Pose,
+} from './motion';
 
 const TAU = 2 * Math.PI;
 
@@ -58,6 +68,23 @@ describe('emotes', () => {
     expect(droop.y).toBeLessThan(0);
     expect(emotePose('hop', 0.3).y).toBeCloseTo(0.14);
     expect(emotePose('spin', 0.45).ry).toBeCloseTo(TAU / 2);
+  });
+});
+
+describe('walking (F5.4)', () => {
+  it('steps up and down between the floor and the lift, touching down each step', () => {
+    for (let t = 0; t < 3; t += 0.05) {
+      const lift = walkLift(t, 0.4);
+      expect(lift).toBeGreaterThanOrEqual(0);
+      expect(lift).toBeLessThanOrEqual(WALK.lift);
+    }
+    expect(walkLift(0, 0)).toBeCloseTo(0);
+    expect(walkLift(1 / WALK.steps, 0)).toBeCloseTo(0);
+    expect(walkLift(0.5 / WALK.steps, 0)).toBeCloseTo(WALK.lift);
+  });
+
+  it('keeps puppets with different phases out of step', () => {
+    expect(walkLift(0.2, 0)).not.toBeCloseTo(walkLift(0.2, Math.PI / 2), 3);
   });
 });
 

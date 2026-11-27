@@ -2,6 +2,7 @@ import type { SceneSummary } from '@stagehand/shared';
 import { MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react';
 import { Link } from 'react-router';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -41,6 +42,7 @@ export function SceneList({ campaignId, scenes, editable, onRename, onDelete }: 
             className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
           >
             <span className="font-medium">{scene.name}</span>
+            {scene.type === 'transition' && <Badge variant="outline">Transition</Badge>}
             <span className="text-sm text-muted-foreground">
               {scene.spot === null ? 'No backdrop' : scene.spot.name}
             </span>

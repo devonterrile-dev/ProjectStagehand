@@ -97,11 +97,17 @@ export interface Placement {
 export function PlacementControls({
   placement,
   disabled,
+  acrossLocked = false,
   onChange,
   children,
 }: {
   placement: Placement;
   disabled: boolean;
+  /**
+   * A passer in a transition scene (F5.4): its place across follows the travel, so it can't be
+   * set here; everything else can.
+   */
+  acrossLocked?: boolean;
   onChange: (change: Partial<Placement>) => void;
   /** More toggles, beside Flipped. */
   children?: ReactNode;
@@ -115,8 +121,8 @@ export function PlacementControls({
         min={0}
         max={1}
         step={0.01}
-        shown={percent(placement.across)}
-        disabled={disabled}
+        shown={acrossLocked ? 'Passing by' : percent(placement.across)}
+        disabled={disabled || acrossLocked}
         onChange={(across) => {
           onChange({ across });
         }}

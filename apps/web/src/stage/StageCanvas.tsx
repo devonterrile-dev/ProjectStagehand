@@ -10,6 +10,7 @@ import { Room } from './Room';
 import { StageCamera } from './StageCamera';
 import { Table } from './Table';
 import { TheaterBox } from './TheaterBox';
+import { NO_TRAVEL, TravelContext, type TravelRef } from './travel';
 
 /** Where the camera starts before the canvas knows its own shape. */
 const INITIAL_CAMERA = fitStageCamera(16 / 9);
@@ -33,6 +34,11 @@ export interface StageCanvasProps {
   view?: StageView;
   /** The locked camera has arrived at `view` (F3.5b). */
   onCameraSettle?: (view: StageView) => void;
+  /**
+   * A transition scene's travel (F5.4): the backdrop scrolls, and the cutouts inside read it to
+   * pass by and walk. Null or left out for a static scene.
+   */
+  travel?: TravelRef;
 }
 
 /** Shown instead of the stage when the browser can't start WebGL, or the scene crashes. */
@@ -72,6 +78,7 @@ export function StageCanvas({
   cameraRig,
   view = 'stage',
   onCameraSettle,
+  travel = NO_TRAVEL,
 }: StageCanvasProps) {
   return (
     <StageErrorBoundary>
@@ -107,13 +114,16 @@ export function StageCanvas({
         <Suspense fallback={null}>
           <TheaterBox />
         </Suspense>
-        {backdropUrl !== null && (
-          // Its own boundary: swapping the backdrop must not blank the rest of the theater.
-          <Suspense fallback={null}>
-            <Backdrop url={backdropUrl} />
-          </Suspense>
-        )}
-        <Suspense fallback={null}>{children}</Suspense>
+        {/* Inside the canvas, so everything drawn in it reads the same travel (F5.4). */}
+        <TravelContext value={travel}>
+          {backdropUrl !== null && (
+            // Its own boundary: swapping the backdrop must not blank the rest of the theater.
+            <Suspense fallback={null}>
+              <Backdrop url={backdropUrl} />
+            </Suspense>
+          )}
+          <Suspense fallback={null}>{children}</Suspense>
+        </TravelContext>
         <Curtain open={curtainOpen} />
       </Canvas>
     </StageErrorBoundary>

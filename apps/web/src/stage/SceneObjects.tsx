@@ -3,12 +3,24 @@ import { Component, Suspense, useEffect, useRef, type ReactNode } from 'react';
 
 import type { StageCutout } from '@/lib/scenes';
 
-import { Cutout, type EmoteCue } from './Cutout';
+import { Cutout, type CutoutPass, type EmoteCue } from './Cutout';
 import type { Point3 } from './dimensions';
 import { dragPlace, isDrag, rayAtDepth, type Place } from './placement';
 import { screenRay, toPointerRay } from './pointer-ray';
 import { phaseOf } from './motion';
 import { cutoutPosition } from './scene-layout';
+import { halfWidthOf, leavingY } from './travel';
+
+/** How a live cutout passes by in a transition scene (F5.4), or null when it doesn't. */
+function passOf(object: StageCutout): CutoutPass | null {
+  if (object.passFrom === undefined || object.passFrom === null) return null;
+  return {
+    from: object.passFrom,
+    halfWidth: halfWidthOf(object),
+    leaveY: leavingY(object),
+    gone: object.lowered,
+  };
+}
 
 /** Puppet motion in a live session (F3.7), by object id. */
 export interface StageMotion {
@@ -139,9 +151,15 @@ export function SceneObjects({
   return (
     <>
       {objects.map((object, index) => {
-        const position = cutoutPosition(object, index);
+        const pass = glide ? passOf(object) : null;
+        // A passer that has gone still slides on as it leaves (F5.4), from where it was.
+        const position = cutoutPosition(
+          pass === null ? object : { ...object, lowered: false },
+          index,
+        );
         const glides = glide && object.id !== snapId;
-        const rises = glides && object.mount === 'stick';
+        // A passer comes in from behind the right wall instead of rising out of the void.
+        const rises = glides && object.mount === 'stick' && pass === null;
         const live = glide && object.mount === 'stick';
         return (
           // Keyed by the image too: a boundary that gave up tries again with a new image.
@@ -159,6 +177,8 @@ export function SceneObjects({
                 selected={object.id === selectedId}
                 pressOn={pressOn}
                 glide={glides}
+                pass={glides ? pass : null}
+                walking={live && object.walking === true}
                 {...(live
                   ? {
                       sway: true,

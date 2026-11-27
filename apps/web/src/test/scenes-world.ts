@@ -8,6 +8,7 @@ import {
   createSceneRequestSchema,
   sceneObjectKindFor,
   setSceneObjectsRequestSchema,
+  spotTypeOf,
   updateSceneRequestSchema,
   type Campaign,
   type CampaignRecord,
@@ -147,7 +148,8 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
       return {
         id: scene.id,
         name: scene.name,
-        type: 'static',
+        // Like the server: a scene is of its Spot's type (F5.4).
+        type: spot === null ? 'static' : spotTypeOf(spot.fields),
         spot: spot === null ? null : toSpot(spot),
         objects: scene.objects.flatMap((object): SceneObject[] => {
           const record = recordOf(object.recordId);

@@ -277,6 +277,9 @@ function Table({ campaign }: { campaign: Campaign }) {
 
   const onMove = useCallback(
     (id: string, place: Place) => {
+      // A passer's place across follows the travel (F5.4): it can't be dragged.
+      const moved = room.store.getState().stage?.objects.find((object) => object.id === id);
+      if (moved !== undefined && moved.passFrom !== null) return;
       void room.moveObject(id, place);
     },
     [room],
@@ -307,7 +310,11 @@ function Table({ campaign }: { campaign: Campaign }) {
         setSelectedId(null);
         return;
       }
-      void room.moveObject(id, insideStage(action.change));
+      // A passer's place across follows the travel (F5.4): the arrows leave it alone.
+      const change = { ...action.change };
+      if (placed.passFrom !== null) delete change.across;
+      if (Object.keys(change).length === 0) return;
+      void room.moveObject(id, insideStage(change));
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -425,6 +432,7 @@ function Table({ campaign }: { campaign: Campaign }) {
           backdropUrl={theater.backdropUrl}
           objects={theater.cutouts}
           curtainOpen={view?.curtainOpen ?? false}
+          travel={view?.stage.travel ?? null}
           {...(isGm
             ? { selectedId: picked, onSelect: setSelectedId, onMove }
             : { onInspect: table.inspect })}

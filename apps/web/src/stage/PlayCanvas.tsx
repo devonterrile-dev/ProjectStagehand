@@ -1,4 +1,5 @@
-import { memo, Suspense, useEffect, useState, type ReactNode } from 'react';
+import type { StageTravel } from '@stagehand/shared';
+import { memo, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { StageCutout } from '@/lib/scenes';
 
@@ -18,6 +19,7 @@ import {
 } from './RollPieces';
 import { BINDER_PAD, INSPECT_PAD } from './table-layout';
 import { Binder, InspectStage, StickyPad, type InspectImage } from './TablePieces';
+import { anchorTravel, type TravelAnchor } from './travel';
 
 /**
  * The table around the theater (F3.5b): where the camera rests, and what is out on it. The
@@ -76,6 +78,11 @@ export interface PlayCanvasProps {
   motion?: StageMotion;
   /** A player's own puppet (F3.7): pressing it opens their emote card beside it. */
   own?: OwnPuppet;
+  /**
+   * The loaded transition scene's travel (F5.4), as the stage last sent it: the backdrop scrolls
+   * and passers move by from it. Null or left out for a static scene.
+   */
+  travel?: StageTravel | null;
 }
 
 /** A player's own PC's puppet and its emote card (F3.7). */
@@ -94,7 +101,8 @@ export const LEAVING_MS = 700;
 
 /**
  * Puppets that have just left `objects` (lowered, or taken off the stage), kept a moment longer
- * and drawn lowered, so they sink out of sight instead of vanishing. Props simply go.
+ * and drawn lowered, so they sink out of sight instead of vanishing. Props simply go, except a
+ * passer in a transition scene (F5.4), which leaves the same way, down or up, as it slides on.
  */
 function useLeaving(objects: readonly StageCutout[]): readonly StageCutout[] {
   const [previous, setPrevious] = useState(objects);
@@ -104,7 +112,10 @@ function useLeaving(objects: readonly StageCutout[]): readonly StageCutout[] {
   if (objects !== previous) {
     const present = new Set(objects.map((object) => object.id));
     const gone = previous.filter(
-      (object) => !present.has(object.id) && object.mount === 'stick' && !object.lowered,
+      (object) =>
+        !present.has(object.id) &&
+        !object.lowered &&
+        (object.mount === 'stick' || (object.passFrom ?? null) !== null),
     );
     setPrevious(objects);
     setLeaving((current) => [
@@ -149,9 +160,16 @@ export const PlayCanvas = memo(function PlayCanvas({
   table,
   motion,
   own,
+  travel = null,
 }: PlayCanvasProps) {
   const drawn = useLeaving(objects);
   const [dragging, setDragging] = useState(false);
+
+  // The travel anchored to when this stage arrived (F5.4); the canvas reads it each frame.
+  const anchor = useRef<TravelAnchor | null>(null);
+  useEffect(() => {
+    anchor.current = anchorTravel(travel, performance.now());
+  }, [travel]);
 
   // The papers on the table are laid out once the camera has arrived where they are: HTML on
   // the table flickers while the camera moves past it.
@@ -195,6 +213,7 @@ export const PlayCanvas = memo(function PlayCanvas({
       backdropUrl={backdropUrl}
       curtainOpen={curtainOpen}
       view={view}
+      travel={anchor}
       onCameraSettle={setArrivedAt}
       onPointerMissed={() => {
         onSelect?.(null);

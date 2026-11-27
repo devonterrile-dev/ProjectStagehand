@@ -507,6 +507,105 @@ describe('The table, for the GM', () => {
     expect(socket.last(PLAY_SOCKET.openCurtain)).toBeDefined();
   });
 
+  describe('travel in a transition scene (F5.4)', () => {
+    const travelling = (playing: boolean, overrides: Parameters<typeof gmStage>[0] = {}) =>
+      stageWith({ travel: { playing, distance: 0.5 }, ...overrides });
+
+    it('plays and pauses from the desk, and hands the travel to the theater', async () => {
+      await seated(coast, travelling(false), [GM_HERE]);
+      const section = within(desk().getByRole('region', { name: 'Transition' }));
+      expect(section.getByRole('status').textContent).toMatch(/^Paused\./);
+
+      fireEvent.click(section.getByRole('button', { name: 'Play' }));
+      expect(socket.last(PLAY_SOCKET.playTravel).payload).toBeUndefined();
+      await answer(PLAY_SOCKET.playTravel, { ok: true });
+
+      serverSends(PLAY_SOCKET.stage, travelling(true));
+      await waitFor(() => {
+        expect(canvasProps?.travel).toEqual({ playing: true, distance: 0.5 });
+      });
+      fireEvent.click(section.getByRole('button', { name: 'Pause' }));
+      expect(socket.last(PLAY_SOCKET.pauseTravel)).toBeDefined();
+    });
+
+    it('has no Transition section in a static scene', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      expect(desk().queryByRole('region', { name: 'Transition' })).toBeNull();
+      expect(canvasProps?.travel ?? null).toBeNull();
+    });
+
+    it('says what passes by and keeps its place across, and sets how a waiting NPC travels', async () => {
+      const [well, trapdoor, marta] = gmStage().objects;
+      if (well === undefined || trapdoor === undefined || marta === undefined) throw new Error();
+      await seated(
+        coast,
+        travelling(true, {
+          objects: [{ ...well, passFrom: 0.25 }, trapdoor, { ...marta, travelMode: 'walking' }],
+        }),
+        [GM_HERE],
+      );
+      expect(
+        within(desk().getByRole('list', { name: 'On stage' }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Stone WellPassing byHide',
+        'Secret TrapdoorHiddenShow',
+        'Old MartaWaiting belowRaise',
+      ]);
+
+      act(() => {
+        canvasProps?.onSelect?.(well.id);
+      });
+      const placing = within(desk().getByRole('region', { name: 'Selected: Stone Well' }));
+      expect(placing.getByLabelText<HTMLInputElement>('Left to right').disabled).toBe(true);
+      // Dragging a passer moves nothing: its place across follows the travel.
+      act(() => {
+        canvasProps?.onMove?.(well.id, { across: 0.1, up: 0.2 });
+      });
+      expect(socket.requests.some((request) => request.event === PLAY_SOCKET.moveObject)).toBe(
+        false,
+      );
+
+      act(() => {
+        canvasProps?.onSelect?.(marta.id);
+      });
+      const npc = within(
+        within(desk().getByRole('region', { name: 'Selected: Old Marta' })).getByRole('group', {
+          name: 'Travels',
+        }),
+      );
+      expect(npc.getByRole('button', { name: 'Walking' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+      fireEvent.click(npc.getByRole('button', { name: 'Stationary' }));
+      expect(socket.last(PLAY_SOCKET.moveObject).payload).toEqual({
+        id: marta.id,
+        travelMode: 'stationary',
+      });
+    });
+
+    it('lets the GM change how an NPC travels only while it waits below', async () => {
+      const [well, , marta] = gmStage().objects;
+      if (well === undefined || marta === undefined) throw new Error();
+      await seated(
+        coast,
+        travelling(true, {
+          objects: [well, { ...marta, shown: true, travelMode: 'walking' }],
+        }),
+        [GM_HERE],
+      );
+      act(() => {
+        canvasProps?.onSelect?.(marta.id);
+      });
+      const group = within(desk().getByRole('group', { name: 'Travels' }));
+      expect(group.getByRole<HTMLButtonElement>('button', { name: 'Stationary' }).disabled).toBe(
+        true,
+      );
+      expect(group.getByText('Lower it to change how it travels.')).toBeDefined();
+    });
+  });
+
   it('shows why an action was refused', async () => {
     await seated(coast, stageWith(), [GM_HERE]);
 

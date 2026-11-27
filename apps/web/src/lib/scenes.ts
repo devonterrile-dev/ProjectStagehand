@@ -95,10 +95,14 @@ export function changeObject(object: SceneObject, change: Partial<SceneObject>):
     scale: clamp(next.scale, SCENE_SCALE.min, SCENE_SCALE.max),
     shown: isProp ? next.shown : false,
     mount: isProp ? (next.mount ?? 'stand') : null,
+    travelMode: isProp ? null : (next.travelMode ?? 'walking'),
   };
 }
 
-/** An object as the server takes it: only a prop says whether it is shown and how it is held. */
+/**
+ * An object as the server takes it: only a prop says whether it is shown and how it is held,
+ * and only a puppet how it travels (F5.4).
+ */
 export function toObjectInput(object: SceneObject): SceneObjectInput {
   return {
     id: object.id,
@@ -108,8 +112,20 @@ export function toObjectInput(object: SceneObject): SceneObjectInput {
     depthTick: object.depthTick,
     scale: object.scale,
     flipped: object.flipped,
-    ...(object.kind === 'prop' ? { shown: object.shown, mount: object.mount ?? 'stand' } : {}),
+    ...(object.kind === 'prop'
+      ? { shown: object.shown, mount: object.mount ?? 'stand' }
+      : { travelMode: object.travelMode ?? 'walking' }),
   };
+}
+
+/**
+ * A transition scene's objects as the builder shows them (F5.4): every prop hidden, since it
+ * passes by once shown; the server saves them so. Others as they are.
+ */
+export function asTransition(objects: readonly SceneObject[]): SceneObject[] {
+  return objects.map((object) =>
+    object.kind === 'prop' && object.shown ? { ...object, shown: false } : object,
+  );
 }
 
 /** What a tray record carries while it is dragged into the theater: its record id (F3.2c). */
@@ -180,6 +196,13 @@ export interface StageCutout {
   recordId?: string | null;
   /** Live play (F3.7): the PC a puppet is, whose player emotes it and whose voice it shows. */
   characterId?: string | null;
+  /**
+   * Live play in a transition scene (F5.4): the travel distance it began to pass by at; its
+   * place across follows the travel from then on. Absent or null: it stays where it is.
+   */
+  passFrom?: number | null;
+  /** Live play in a transition scene (F5.4): a puppet that steps up and down while it plays. */
+  walking?: boolean;
 }
 
 /**

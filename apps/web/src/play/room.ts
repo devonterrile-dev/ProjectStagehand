@@ -132,6 +132,8 @@ export interface PlayRoom {
   setHope(characterId: string, hope: number): Promise<ActionResult>;
   /** The Rest switch (F4.7), GM only: while on, PCs swap domain cards free. */
   setRest(rest: boolean): Promise<ActionResult>;
+  /** Plays or pauses the loaded transition scene's travel (F5.4), GM only. */
+  setTravel(playing: boolean): Promise<ActionResult>;
   /** Puppet motion (F3.7): the GM on any raised puppet, a player on their own PC's. */
   emote(objectId: string, emote: Emote): Promise<ActionResult>;
   /** The dice tray (F4.2): anyone at the table; only the GM privately. */
@@ -562,6 +564,7 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     setFear: (fear) => act(PLAY_SOCKET.setFear, { fear }),
     setHope: (characterId, hope) => act(PLAY_SOCKET.setHope, { characterId, hope }),
     setRest: (rest) => act(PLAY_SOCKET.setRest, { rest }),
+    setTravel: (playing) => act(playing ? PLAY_SOCKET.playTravel : PLAY_SOCKET.pauseTravel),
     emote: (objectId, emote) => act(PLAY_SOCKET.emote, { id: objectId, emote }),
     freeRoll: (die, count, hidden) => act(PLAY_SOCKET.freeRoll, { die, count, private: hidden }),
     takeOverNpc: (objectId) => act(PLAY_SOCKET.takeOverNpc, { id: objectId }),

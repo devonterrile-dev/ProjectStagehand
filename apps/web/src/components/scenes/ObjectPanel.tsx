@@ -13,6 +13,11 @@ interface ObjectPanelProps {
   selectedId: string | null;
   /** False while the campaign is archived, or in preview: nothing can be changed. */
   editable: boolean;
+  /**
+   * A transition scene (F5.4): props are always hidden at first, since they pass by once shown,
+   * and each NPC puppet walks with the party or is passed like a prop.
+   */
+  transition: boolean;
   onSelect: (id: string | null) => void;
   onChange: (id: string, change: Partial<SceneObject>) => void;
   onRemove: (id: string) => void;
@@ -22,12 +27,14 @@ function Controls({
   campaignId,
   object,
   editable,
+  transition,
   onChange,
   onRemove,
 }: {
   campaignId: string;
   object: SceneObject;
   editable: boolean;
+  transition: boolean;
   onChange: (change: Partial<SceneObject>) => void;
   onRemove: () => void;
 }) {
@@ -68,7 +75,7 @@ function Controls({
         {isProp && (
           <Toggle
             pressed={!object.shown}
-            disabled={!editable}
+            disabled={!editable || transition}
             onChange={(hidden) => {
               onChange({ shown: !hidden });
             }}
@@ -77,6 +84,37 @@ function Controls({
           </Toggle>
         )}
       </PlacementControls>
+      {isProp && transition && (
+        <p className="text-xs text-muted-foreground">
+          In a transition scene, props pass by: they start hidden, and once you show one it comes in
+          at the right and slides away to the left.
+        </p>
+      )}
+
+      {!isProp && transition && (
+        // How an NPC travels in a transition scene (F5.4).
+        <div role="group" aria-label="Travels" className="space-y-1">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase">Travels</h3>
+          <div className="flex gap-1.5">
+            {(['walking', 'stationary'] as const).map((mode) => (
+              <Toggle
+                key={mode}
+                pressed={(object.travelMode ?? 'walking') === mode}
+                disabled={!editable}
+                onChange={() => {
+                  onChange({ travelMode: mode });
+                }}
+              >
+                {mode === 'walking' ? 'Walking' : 'Stationary'}
+              </Toggle>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Walking travels with the party, stepping as it goes; stationary is passed by, like a
+            prop.
+          </p>
+        </div>
+      )}
 
       <Button size="xs" variant="destructive" disabled={!editable} onClick={onRemove}>
         Remove from scene
@@ -96,6 +134,7 @@ export function ObjectPanel({
   objects,
   selectedId,
   editable,
+  transition,
   onSelect,
   onChange,
   onRemove,
@@ -118,6 +157,7 @@ export function ObjectPanel({
           campaignId={campaignId}
           object={selected}
           editable={editable}
+          transition={transition}
           onChange={(change) => {
             onChange(selected.id, change);
           }}
@@ -143,7 +183,13 @@ export function ObjectPanel({
                 >
                   <span className="truncate">{object.record.name}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {object.kind === 'puppet' ? 'puppet' : object.shown ? 'prop' : 'hidden prop'}
+                    {object.kind === 'puppet'
+                      ? transition && object.travelMode === 'stationary'
+                        ? 'stationary puppet'
+                        : 'puppet'
+                      : object.shown
+                        ? 'prop'
+                        : 'hidden prop'}
                   </span>
                 </button>
               </li>

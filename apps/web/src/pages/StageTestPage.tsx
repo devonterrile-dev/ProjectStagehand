@@ -90,6 +90,8 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
   const [curtainOpen, setCurtainOpen] = useState(true);
   const [objectCount, setObjectCount] = useState<number>(STAGE_MAX_OBJECTS);
   const [sway, setSway] = useState(true);
+  // A transition scene's travel (F5.4): scroll, walk and a prop passing by.
+  const [travel, setTravel] = useState(false);
   // Puppet motion (F3.7): every puppet talks, or plays the chosen emote, at once.
   const [talking, setTalking] = useState(false);
   const [micOn, setMicOn] = useState(false);
@@ -146,6 +148,7 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         sway={sway}
         talking={talking || micTalking}
         emote={emote}
+        travel={travel}
         maxPixelRatio={maxPixelRatio}
         measure={measurement.run}
         onLive={setLive}
@@ -201,6 +204,16 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
           }}
         >
           {sway ? 'Stop swaying' : 'Sway puppets'}
+        </Button>
+        <Button
+          size="xs"
+          variant="secondary"
+          aria-pressed={travel}
+          onClick={() => {
+            setTravel((on) => !on);
+          }}
+        >
+          {travel ? 'Stop travelling' : 'Travel'}
         </Button>
         <Button
           size="xs"

@@ -29,6 +29,21 @@ export function phaseOf(id: string): number {
 }
 
 /**
+ * Walking (F5.4): while a transition scene plays, a puppet that travels with the party steps up
+ * and down on its stick in place of the sway: `lift` world units at the top of each step,
+ * `steps` steps a second.
+ */
+export const WALK = { lift: 0.035, steps: 1.8 } as const;
+
+/**
+ * How high a walking puppet is lifted at `seconds`, from 0 (foot down) to `WALK.lift`: a bounce
+ * that touches down at each step. `phase` (radians) keeps puppets out of step.
+ */
+export function walkLift(seconds: number, phase: number): number {
+  return Math.abs(Math.sin(seconds * WALK.steps * Math.PI + phase)) * WALK.lift;
+}
+
+/**
  * Talking: the puppet rises this far (world units) and its colors brighten by this share, eased
  * in and out at `speed` (`MathUtils.damp`) as the voice starts and stops.
  */

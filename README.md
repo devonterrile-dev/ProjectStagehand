@@ -632,3 +632,12 @@ Speaking detection (governance §13 "Speaking detection", D-57). Only "talking" 
 - **In the Discord Activity**: Discord's own speaking events, each browser passing on only its own player's; no mic prompt.
 - **Hold T** works everywhere, beside either.
 - **Tuning without a session**: `/stage-test` has a **Mic** button with the same settings and level meter. The gate's numbers are in `apps/web/src/play/mic.ts` (`GATE`).
+
+## Working assumptions (F5.4)
+
+Transition scenes (governance §12 "Transition scenes", §13, D-75).
+
+- **A scene's type is its Spot's**: build a scene on a transition Spot (F5.3) and it is a transition scene, with a **Transition** badge. Its props are always saved hidden, and each NPC puppet is set **Walking** or **Stationary** under **Travels**.
+- **At the table**: such a scene loads paused; the desk's **Transition** section has **Play** and **Pause**. While it plays the backdrop scrolls right to left (every second copy mirrored), PCs and walking NPCs step instead of swaying, and a prop shown or a stationary NPC raised comes in from behind the right wall, slides left and sinks at the left edge (a hanging prop rises), then goes back to hidden, ready to pass again.
+- **One clock, kept by the server** (`play_sessions.travel_distance` and `travel_since`, in opening widths). The speed is `TRAVEL_SPEED` in `packages/shared/src/stage.ts` (one backdrop every 12 s); the walking bounce is `WALK` in `apps/web/src/stage/motion.ts`.
+- **Seeing it without a session**: `/stage-test` has **Travel**: the sample backdrop scrolls, the puppets walk and a prop passes by every 13 seconds.

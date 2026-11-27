@@ -94,6 +94,14 @@ function world(
     links: { npcsHere: [ref(keeper)], itemsHere: [ref(rope)] },
   });
   const cellar = record({ type: 'spot', name: 'Bare Cellar', parentId: area.id });
+  // A transition Spot (F5.3): its scenes are transition scenes (F5.4).
+  const road = record({
+    type: 'spot',
+    name: 'Coastal Road',
+    parentId: area.id,
+    visualAssetId: uuid(),
+    fields: { spotType: 'transition' },
+  });
   const well = record({
     type: 'prop',
     name: 'Stone Well',
@@ -102,10 +110,10 @@ function world(
   });
   const pendant = record({ type: 'item', name: 'Tide Pendant', visualAssetId: uuid() });
   const gull = record({ type: 'npc', name: 'Gull Whisperer', visualAssetId: uuid() });
-  const fixture = { coast, area, keeper, rope, market, cellar, well, pendant, gull };
+  const fixture = { coast, area, keeper, rope, market, cellar, road, well, pendant, gull };
   const fetchMock = mockApi(MIRA, [coast], {
     campaignData: {
-      [coast.id]: { records: [area, keeper, rope, market, cellar, well, pendant, gull] },
+      [coast.id]: { records: [area, keeper, rope, market, cellar, road, well, pendant, gull] },
     },
     scenes: { [coast.id]: options.scenes?.(fixture) ?? [] },
     ...options.extra,
@@ -135,7 +143,7 @@ const sceneUrl = (c: Campaign, sceneId: string) => `${scenesUrl(c)}/${sceneId}`;
 /** A world with one saved scene at the Fish Market, opened in the builder. */
 async function openBuilder(
   objects: (fixture: Fixture) => SceneObjectInput[] = () => [],
-  options: { spot?: 'market' | 'cellar' | null; overrides?: Partial<Campaign> } = {},
+  options: { spot?: 'market' | 'cellar' | 'road' | null; overrides?: Partial<Campaign> } = {},
 ) {
   const sceneId = uuid();
   const built = world({
@@ -909,6 +917,64 @@ describe('Scene builder', () => {
     expect(screen.getByRole('link', { name: 'Back to scenes' }).getAttribute('href')).toBe(
       scenesUrl(coast),
     );
+  });
+});
+
+describe('Transition scenes in the builder (F5.4)', () => {
+  it('keeps every prop hidden at first, and sets each NPC walking or stationary', async () => {
+    const { stage, fetchMock, objectsPath, well, keeper } = await openBuilder(
+      ({ well, keeper }) => [saved(well.id), saved(keeper.id)],
+      { spot: 'road' },
+    );
+    expect(screen.getByText('Transition', { selector: '[data-slot="badge"]' })).toBeDefined();
+    // Saved shown before the Spot became a transition Spot, it is drawn hidden all the same.
+    expect(drawn(stage)[0]).toMatchObject({ faded: true });
+
+    press(drawn(stage)[0]?.id ?? '');
+    const hidden = panel().getByRole<HTMLButtonElement>('button', { name: 'Hidden at first' });
+    expect(hidden.getAttribute('aria-pressed')).toBe('true');
+    expect(hidden.disabled).toBe(true);
+    expect(panel().getByText(/In a transition scene, props pass by/)).toBeDefined();
+
+    press(drawn(stage)[1]?.id ?? '');
+    const travels = within(panel().getByRole('group', { name: 'Travels' }));
+    expect(travels.getByRole('button', { name: 'Walking' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    fireEvent.click(travels.getByRole('button', { name: 'Stationary' }));
+    expect(
+      within(panel().getByRole('region', { name: 'In this scene' }))
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Stone Wellhidden prop', 'Old Keeperstationary puppet']);
+    expect(await lastSave(fetchMock, objectsPath)).toEqual([
+      expect.objectContaining({ recordId: well.id }),
+      expect.objectContaining({ recordId: keeper.id, travelMode: 'stationary' }),
+    ]);
+  });
+
+  it('has no travel settings in a static scene', async () => {
+    const { stage } = await openBuilder(({ keeper }) => [saved(keeper.id)]);
+    expect(screen.queryByText('Transition', { selector: '[data-slot="badge"]' })).toBeNull();
+    press(drawn(stage)[0]?.id ?? '');
+    expect(panel().queryByRole('group', { name: 'Travels' })).toBeNull();
+  });
+
+  it('marks a transition scene in the scenes list', async () => {
+    const { coast } = world({
+      scenes: ({ road, market }) => [
+        { id: uuid(), name: 'Along the coast', spotId: road.id },
+        { id: uuid(), name: 'Market at dawn', spotId: market.id },
+      ],
+    });
+    renderAt(`/campaigns/${coast.id}/scenes`);
+    const list = within(await screen.findByRole('list', { name: 'Scenes' }));
+    await waitFor(() => {
+      expect(list.getAllByRole('listitem')).toHaveLength(2);
+    });
+    const [road, market] = list.getAllByRole('listitem');
+    expect(road?.textContent).toContain('Transition');
+    expect(market?.textContent).not.toContain('Transition');
   });
 });
 

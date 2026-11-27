@@ -3,6 +3,10 @@
  * the same theater (governance §12 "Views and camera"), and, unless they ask to see it as
  * players do, the hidden props too, drawn see-through so they can be picked and shown. Puppets
  * waiting below are never drawn: they are listed on the desk. Pure.
+ *
+ * In a transition scene (F5.4) a passer carries where along the travel it began, and a puppet
+ * that travels with the party walks. Hidden props are not drawn there even for the GM: they
+ * come in from behind the right wall once shown, so they have no place of their own to show.
  */
 import type { LiveStage, ObjectChanges, Presence } from '@stagehand/shared';
 
@@ -34,12 +38,13 @@ export function theaterView(
   { hiddenProps = false, pending = {} }: TheaterOptions = {},
 ): TheaterView {
   const cutouts: StageCutout[] = [];
+  const travels = stage.travel !== null;
   for (const stageObject of stage.objects) {
     const object = { ...stageObject, ...pending[stageObject.id] };
     if (object.image === null) continue;
     const isProp = object.kind === 'prop';
     const shown = !('shown' in object) || object.shown;
-    if (!shown && !(isProp && hiddenProps)) continue;
+    if (!shown && !(isProp && hiddenProps && !travels)) continue;
     cutouts.push({
       id: object.id,
       url: stageImageUrl(campaignId, object.image),
@@ -53,6 +58,8 @@ export function theaterView(
       mount: isProp ? (object.mount ?? 'stand') : 'stick',
       faded: !shown,
       lowered: false,
+      passFrom: object.passFrom,
+      walking: travels && !isProp && object.passFrom === null,
       ...(stage.role === 'player' && 'recordId' in object ? { recordId: object.recordId } : {}),
       characterId:
         'subject' in object

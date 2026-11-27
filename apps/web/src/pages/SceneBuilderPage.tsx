@@ -17,6 +17,7 @@ import { SaveStatus } from '@/components/records/SaveStatus';
 import { LikelyNextDialog } from '@/components/scenes/LikelyNextDialog';
 import { ObjectPanel } from '@/components/scenes/ObjectPanel';
 import { SceneTray } from '@/components/scenes/SceneTray';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import {
@@ -34,6 +35,7 @@ import {
   placeRecord,
   scenesPath,
   spotLabel,
+  asTransition,
   stageCutouts,
   stageImageUrl,
   toObjectInput,
@@ -231,9 +233,15 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
     };
   }, [editable, renaming, selectedId, change, remove]);
 
+  // A transition scene's props pass by once shown (F5.4): the builder shows them hidden.
+  const transition = scene.type === 'transition';
+  const placed = useMemo(
+    () => (transition ? asTransition(objects) : objects),
+    [objects, transition],
+  );
   const cutouts = useMemo(
-    () => stageCutouts(campaign.id, objects, { preview }),
-    [campaign.id, objects, preview],
+    () => stageCutouts(campaign.id, placed, { preview }),
+    [campaign.id, placed, preview],
   );
   const backdrop = scene.spot?.backdrop ?? null;
   const backdropUrl = backdrop === null ? null : stageImageUrl(campaign.id, backdrop);
@@ -251,6 +259,7 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
           ← Scenes
         </Link>
         <h1 className="text-base font-semibold">{scene.name}</h1>
+        {transition && <Badge variant="outline">Transition</Badge>}
         {!archived && (
           <Button
             size="xs"
@@ -387,7 +396,8 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
         {!preview && (
           <ObjectPanel
             campaignId={campaign.id}
-            objects={objects}
+            objects={placed}
+            transition={transition}
             selectedId={selectedId}
             editable={editable}
             onSelect={setSelectedId}

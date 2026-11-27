@@ -1,7 +1,7 @@
 import { useTexture } from '@react-three/drei';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import type { Emote } from '@stagehand/shared';
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { use, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   BackSide,
   MathUtils,
@@ -14,7 +14,8 @@ import {
 import { STAGE_COLORS } from './colors';
 import { outlineOnly, outlineOnlyKey } from './cutout-back';
 import { OPENING, WORLD_UNITS_PER_PIXEL, type Point3 } from './dimensions';
-import { EMOTE_SECONDS, emotePose, REST, swayAngle, TALK } from './motion';
+import { EMOTE_SECONDS, emotePose, REST, swayAngle, TALK, walkLift } from './motion';
+import { acrossToX, distanceAt, passAcross, passEnded, TravelContext } from './travel';
 
 /** Pixels more see-through than this are not drawn: transparency is all or nothing (D-43). */
 const ALPHA_TEST = 0.5;
@@ -39,6 +40,21 @@ const STRING = { width: 0.008, tuck: 0.04 } as const;
 
 /** A swaying puppet turns about a point this far down its stick: the puppeteer's hand. */
 const SWAY = { pivotDrop: 1.2 } as const;
+
+/**
+ * Passing by in a transition scene (F5.4): where along the travel it began, and how it leaves
+ * at the left edge. Its place across comes from the travel clock each frame.
+ */
+export interface CutoutPass {
+  /** The travel distance it began to pass at, in opening widths. */
+  from: number;
+  /** Half its width, in opening widths. */
+  halfWidth: number;
+  /** The y its bottom center goes to as it leaves: below the floor, or up into the roof. */
+  leaveY: number;
+  /** It has gone from the stage: it leaves now, wherever its pass is. */
+  gone: boolean;
+}
 
 /** An emote to play (F3.7): `id` is new for each play, so the same emote twice plays twice. */
 export interface EmoteCue {
@@ -101,6 +117,13 @@ export interface CutoutProps {
    */
   emote?: EmoteCue | null;
   /**
+   * Passing by in a transition scene (F5.4): its place across follows the travel clock from
+   * the right wall to the left edge, where it leaves. Live play only, with `glide`.
+   */
+  pass?: CutoutPass | null;
+  /** Steps up and down instead of swaying while a transition scene plays (F5.4). */
+  walking?: boolean;
+  /**
    * Test only: upload a separate copy of the image to the graphics card for this cutout, as
    * if every cutout on stage showed a different image.
    */
@@ -153,8 +176,11 @@ export function Cutout({
   phase = 0,
   talking = false,
   emote = null,
+  pass = null,
+  walking = false,
   ownTexture = false,
 }: CutoutProps) {
+  const travel = use(TravelContext);
   const shared = useTexture(url, (loaded) => {
     loaded.colorSpace = SRGBColorSpace;
     loaded.anisotropy = 4;
@@ -223,7 +249,10 @@ export function Cutout({
     const group = pivot.current;
     if (group === null) return;
     const now = state.clock.elapsedTime;
-    group.rotation.z = sway ? swayAngle(now, phase) : 0;
+    // A walking puppet steps instead of swaying while the scene plays (F5.4).
+    const anchor = travel.current;
+    const stepping = walking && anchor?.playing === true;
+    group.rotation.z = sway && !stepping ? swayAngle(now, phase) : 0;
 
     const moving = body.current;
     if (moving !== null) {
@@ -238,7 +267,8 @@ export function Cutout({
         else pose = emotePose(current.emote, elapsed);
       }
       // A flipped puppet turns and leans the other way, as its picture does.
-      moving.position.set(pose.x * mirror, pose.y + TALK.lift * talk.current, pose.z);
+      const step = stepping ? walkLift(now, phase) : 0;
+      moving.position.set(pose.x * mirror, pose.y + TALK.lift * talk.current + step, pose.z);
       moving.rotation.set(pose.rx, pose.ry * mirror, pose.rz * mirror);
       solid.current?.color.setScalar(1 + TALK.brighten * talk.current);
     }
@@ -248,6 +278,23 @@ export function Cutout({
     // effect, so React running effects twice in development can't skip the entrance).
     enter.current = undefined;
     const [toX, toY, toZ] = target.current;
+    if (pass !== null && anchor !== null) {
+      // Passing by (F5.4): exactly where the travel has it across, so every browser agrees;
+      // once the pass is over (or it has gone) it sinks out of sight, or rises into the roof.
+      const distance = distanceAt(anchor, performance.now());
+      const leaving = pass.gone || passEnded(pass.from, distance);
+      group.position.set(
+        acrossToX(passAcross(pass.from, distance, pass.halfWidth)),
+        MathUtils.damp(
+          group.position.y,
+          leaving ? pass.leaveY - SWAY.pivotDrop : toY,
+          GLIDE_SPEED,
+          delta,
+        ),
+        MathUtils.damp(group.position.z, toZ, GLIDE_SPEED, delta),
+      );
+      return;
+    }
     group.position.set(
       MathUtils.damp(group.position.x, toX, GLIDE_SPEED, delta),
       MathUtils.damp(group.position.y, toY, GLIDE_SPEED, delta),
