@@ -287,6 +287,35 @@ describe('Editing a record', () => {
     });
   });
 
+  it("sets a Spot's type: static until changed, and static again clears it (F5.3)", async () => {
+    const { coast, market, fetchMock } = world();
+    renderAt(recordUrl(coast, market));
+
+    const type = await screen.findByLabelText('Type');
+    expect(type).toHaveProperty('value', 'static');
+    expect(within(type).queryByRole('option', { name: '—' })).toBeNull();
+    expect(screen.queryByText('Transition', { selector: '[data-slot="badge"]' })).toBeNull();
+
+    fireEvent.change(type, { target: { value: 'transition' } });
+    await waitFor(() => {
+      expect(bodiesOf(fetchMock, 'PATCH')).toEqual([{ fields: { spotType: 'transition' } }]);
+    });
+    expect(
+      await screen.findByText('Transition', { selector: '[data-slot="badge"]' }),
+    ).toBeDefined();
+
+    fireEvent.change(type, { target: { value: 'static' } });
+    await waitFor(() => {
+      expect(bodiesOf(fetchMock, 'PATCH')).toEqual([
+        { fields: { spotType: 'transition' } },
+        { fields: { spotType: null } },
+      ]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Transition', { selector: '[data-slot="badge"]' })).toBeNull();
+    });
+  });
+
   it('moves a Spot to another Area', async () => {
     const { coast, market, fetchMock } = world();
     const uptown = record({ type: 'area', name: 'Uptown' });

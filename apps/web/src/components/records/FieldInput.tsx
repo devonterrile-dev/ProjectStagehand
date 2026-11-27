@@ -91,19 +91,23 @@ export function FieldInput({
         />
       );
       break;
-    case 'enum':
+    case 'enum': {
+      // A field with a default option shows it while empty, and picking it clears the field
+      // (a Spot's type, F5.3: no stored type means static).
+      const fallback = spec.defaultOption ?? '';
       control = (
         <NativeSelect
           id={id}
-          value={draft}
+          value={draft === '' ? fallback : draft}
           disabled={disabled}
           aria-invalid={invalid}
           onChange={(event) => {
-            setDraft(event.target.value);
-            onCommit(event.target.value === '' ? null : event.target.value, true);
+            const value = event.target.value;
+            setDraft(value === fallback ? '' : value);
+            onCommit(value === '' || value === fallback ? null : value, true);
           }}
         >
-          <option value="">—</option>
+          {spec.defaultOption === undefined && <option value="">—</option>}
           {(spec.options ?? []).map((option) => (
             <option key={option} value={option}>
               {enumLabel(option)}
@@ -112,6 +116,7 @@ export function FieldInput({
         </NativeSelect>
       );
       break;
+    }
     case 'number':
       control = (
         <Input

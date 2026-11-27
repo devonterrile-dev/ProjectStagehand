@@ -128,6 +128,50 @@ describe('Generate visual', () => {
     expect(within(card).queryByRole('button', { name: 'Show the original' })).toBeNull();
   });
 
+  it("shows how a transition Spot's backdrop in use loops (F5.3)", async () => {
+    const area = record({ type: 'area', name: 'Saltreach' });
+    const inUse = assetSummary({ kind: 'backdrop', status: 'approved' });
+    const road = record({
+      type: 'spot',
+      name: 'Coastal Road',
+      parentId: area.id,
+      fields: { spotType: 'transition' },
+      visualAssetId: inUse.id,
+    });
+    const { coast } = world([area, road], { visuals: { [road.id]: [inUse] } });
+    renderAt(recordPath(coast, road));
+
+    const card = await visualCard();
+    const strip = await within(card).findByRole('img', {
+      name: 'How the backdrop of Coastal Road loops: the image, its mirror, then the image again',
+    });
+    const copies = [...strip.querySelectorAll('img')];
+    expect(copies).toHaveLength(3);
+    expect(copies.map((copy) => copy.className.includes('-scale-x-100'))).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    expect(new Set(copies.map((copy) => copy.getAttribute('src'))).size).toBe(1);
+  });
+
+  it("shows no loop for a static Spot's backdrop", async () => {
+    const area = record({ type: 'area', name: 'Saltreach' });
+    const still = assetSummary({ kind: 'backdrop', status: 'approved' });
+    const dock = record({
+      type: 'spot',
+      name: 'Fish Market',
+      parentId: area.id,
+      visualAssetId: still.id,
+    });
+    const { coast } = world([area, dock], { visuals: { [dock.id]: [still] } });
+    renderAt(recordPath(coast, dock));
+
+    const card = await visualCard();
+    await within(card).findByRole('img', { name: 'Fish Market, backdrop visual' });
+    expect(within(card).queryByRole('img', { name: /How the backdrop of/ })).toBeNull();
+  });
+
   it('opens an image large when it is clicked, and closes again', async () => {
     const bell = record({ type: 'prop', name: 'Harbour Bell' });
     const asset = assetSummary({ kind: 'prop', revisionNotes: 'bigger clapper' });

@@ -1,4 +1,4 @@
-import { isVisualSubject, RECORD_TYPE_LABELS } from '@stagehand/shared';
+import { isVisualSubject, RECORD_TYPE_LABELS, spotTypeOf } from '@stagehand/shared';
 import { EyeIcon, EyeOffIcon, SparklesIcon, TheaterIcon } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -145,6 +145,9 @@ export function RecordPage() {
     );
   }
 
+  /** A transition Spot (F5.3): its backdrop loops on the stage, so the card shows how. */
+  const transition = record.type === 'spot' && spotTypeOf(record.fields) === 'transition';
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -168,6 +171,7 @@ export function RecordPage() {
               </Link>
             </Button>
           )}
+          {transition && <Badge variant="outline">Transition</Badge>}
           <Badge variant="secondary">{RECORD_TYPE_LABELS[record.type]}</Badge>
         </div>
       </div>
@@ -218,6 +222,7 @@ export function RecordPage() {
                 name={record.name}
                 subject={record.type}
                 readOnly={campaign.archivedAt !== null}
+                loops={transition}
               />
             )}
             <BacklinksPanel

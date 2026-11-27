@@ -48,6 +48,11 @@ interface VisualCardProps {
   subject: VisualSubject;
   /** Archived campaigns can look but not make or choose. */
   readOnly: boolean;
+  /**
+   * A transition Spot's backdrop (F5.3): it loops on the stage by mirror tiling, so the card
+   * shows the image in use as it will repeat.
+   */
+  loops?: boolean;
   className?: string;
 }
 
@@ -89,6 +94,7 @@ export function VisualCard({
   name,
   subject,
   readOnly,
+  loops = false,
   className,
 }: VisualCardProps) {
   const visuals = useVisuals(campaignId, owner, true);
@@ -235,6 +241,9 @@ export function VisualCard({
         ) : (
           <>
             {images}
+            {loops && inUse !== null && (
+              <LoopStrip campaignId={campaignId} asset={inUse} name={name} />
+            )}
             {working !== null && <Generating asset={working} />}
             {failed.map((asset) => (
               <div
@@ -607,6 +616,49 @@ function Shot({
         </div>
         {asset.revisionNotes !== null && <p>Notes: {asset.revisionNotes}</p>}
         <Downloads campaignId={campaignId} asset={asset} name={name} />
+      </figcaption>
+    </figure>
+  );
+}
+
+/**
+ * How a transition Spot's backdrop loops (F5.3, D-74): the stage tiles it with every second
+ * copy flipped left to right, so its edges always meet. Three copies side by side, the middle
+ * one mirrored, show both seams.
+ */
+function LoopStrip({
+  campaignId,
+  asset,
+  name,
+}: {
+  campaignId: string;
+  asset: AssetSummary;
+  name: string;
+}) {
+  // Only the stage version loops; an image not processed yet has none to show.
+  if (asset.processed === null) return null;
+  const src = assetImagePath(campaignId, asset.id, {
+    variant: 'processed',
+    processed: asset.processed,
+  });
+  return (
+    <figure className="space-y-2">
+      <div
+        role="img"
+        aria-label={`How the backdrop of ${name} loops: the image, its mirror, then the image again`}
+        className="flex overflow-hidden rounded-md border"
+      >
+        {[false, true, false].map((mirrored, index) => (
+          <img
+            key={index}
+            src={src}
+            alt=""
+            className={`aspect-video w-1/3 object-cover${mirrored ? ' -scale-x-100' : ''}`}
+          />
+        ))}
+      </div>
+      <figcaption className="text-xs text-muted-foreground">
+        How it loops: every second copy is flipped, so the edges always meet.
       </figcaption>
     </figure>
   );
