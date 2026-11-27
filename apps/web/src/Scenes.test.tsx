@@ -911,3 +911,129 @@ describe('Scene builder', () => {
     );
   });
 });
+
+describe('Likely next scenes (F5.2)', () => {
+  /** The Docks, opened in the builder, and seven other scenes it could lead to. */
+  async function openDocks(nextOf: (ids: string[]) => string[] = () => []) {
+    const docks = uuid();
+    const others = [
+      'Warehouse fire',
+      'Harbour master',
+      'Lighthouse',
+      'Smugglers cave',
+      'Tavern',
+      'Old pier',
+      'Chapel',
+    ].map((name) => ({ id: uuid(), name }));
+    const built = world({
+      scenes: () => [
+        { id: docks, name: 'The Docks', nextSceneIds: nextOf(others.map((scene) => scene.id)) },
+        ...others,
+      ],
+    });
+    renderAt(sceneUrl(built.coast, docks));
+    await canvas();
+    return { ...built, docks, others };
+  }
+
+  const dialog = () => within(screen.getByRole('dialog'));
+  const listed = () =>
+    dialog()
+      .queryAllByRole('listitem')
+      .map((item) => item.textContent);
+  const options = () =>
+    [...dialog().getByLabelText<HTMLSelectElement>('Add a scene').options]
+      .map((option) => option.textContent)
+      .slice(1);
+
+  it('adds scenes in order, never the scene itself or one already listed', async () => {
+    const { docks, fetchMock } = await openDocks();
+    fireEvent.click(screen.getByRole('button', { name: 'Likely next (0)' }));
+    expect(await dialog().findByText('None yet.')).toBeDefined();
+    await waitFor(() => {
+      expect(options()).toHaveLength(7);
+    });
+    expect(options()).not.toContain('The Docks');
+
+    const add = (name: string) => {
+      const select = dialog().getByLabelText<HTMLSelectElement>('Add a scene');
+      const option = [...select.options].find((entry) => entry.textContent === name);
+      fireEvent.change(select, { target: { value: option?.value } });
+    };
+    add('Warehouse fire');
+    await waitFor(() => {
+      expect(listed()).toHaveLength(1);
+    });
+    add('Lighthouse');
+    await waitFor(() => {
+      expect(listed()).toHaveLength(2);
+    });
+    expect(listed()[0]).toContain('Warehouse fire');
+    expect(listed()[1]).toContain('Lighthouse');
+    expect(options()).not.toContain('Warehouse fire');
+    fireEvent.click(dialog().getByRole('button', { name: 'Done' }));
+    expect(await screen.findByRole('button', { name: 'Likely next (2)' })).toBeDefined();
+
+    const bodies = bodiesTo(fetchMock, `/scenes/${docks}`, 'PATCH') as { nextSceneIds: string[] }[];
+    expect(bodies.map((body) => body.nextSceneIds.length)).toEqual([1, 2]);
+  });
+
+  it('moves a scene up and down, and removes one', async () => {
+    const { docks, others, fetchMock } = await openDocks((ids) => ids.slice(0, 3));
+    fireEvent.click(screen.getByRole('button', { name: 'Likely next (3)' }));
+    const [fire, master, light] = others;
+
+    expect(dialog().getByRole('button', { name: 'Move Warehouse fire up' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(dialog().getByRole('button', { name: 'Move Lighthouse down' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    fireEvent.click(dialog().getByRole('button', { name: 'Move Lighthouse up' }));
+    await waitFor(() => {
+      expect(listed()[1]).toContain('Lighthouse');
+    });
+    fireEvent.click(dialog().getByRole('button', { name: 'Move Warehouse fire down' }));
+    await waitFor(() => {
+      expect(listed()[0]).toContain('Lighthouse');
+    });
+    fireEvent.click(dialog().getByRole('button', { name: 'Remove Harbour master' }));
+    await waitFor(() => {
+      expect(listed()).toHaveLength(2);
+    });
+
+    expect(bodiesTo(fetchMock, `/scenes/${docks}`, 'PATCH')).toEqual([
+      { nextSceneIds: [fire?.id, light?.id, master?.id] },
+      { nextSceneIds: [light?.id, fire?.id, master?.id] },
+      { nextSceneIds: [light?.id, fire?.id] },
+    ]);
+  });
+
+  it('stops adding at six', async () => {
+    await openDocks((ids) => ids.slice(0, 6));
+    fireEvent.click(screen.getByRole('button', { name: 'Likely next (6)' }));
+    const select = dialog().getByLabelText<HTMLSelectElement>('Add a scene');
+    expect(select.disabled).toBe(true);
+    expect(select.options[0]?.textContent).toBe('6 of 6: remove one to add another');
+  });
+
+  it('shows the list but no changes while the campaign is archived', async () => {
+    const docks = uuid();
+    const fire = uuid();
+    const built = world({
+      scenes: () => [
+        { id: docks, name: 'The Docks', nextSceneIds: [fire] },
+        { id: fire, name: 'Warehouse fire' },
+      ],
+      overrides: { archivedAt: '2026-11-14T09:00:00.000Z' },
+    });
+    renderAt(sceneUrl(built.coast, docks));
+    await canvas();
+    fireEvent.click(screen.getByRole('button', { name: 'Likely next (1)' }));
+    expect(listed()[0]).toContain('Warehouse fire');
+    expect(dialog().queryByRole('button', { name: /Remove/ })).toBeNull();
+    expect(dialog().queryByLabelText('Add a scene')).toBeNull();
+  });
+});

@@ -14,6 +14,7 @@ import { Link, useParams } from 'react-router';
 import { CampaignNameDialog } from '@/components/campaigns/CampaignNameDialog';
 import { SaveStatus } from '@/components/records/SaveStatus';
 
+import { LikelyNextDialog } from '@/components/scenes/LikelyNextDialog';
 import { ObjectPanel } from '@/components/scenes/ObjectPanel';
 import { SceneTray } from '@/components/scenes/SceneTray';
 import { Button } from '@/components/ui/button';
@@ -136,6 +137,7 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
   const [preview, setPreview] = useState(false);
   const [lookAround, setLookAround] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [pickingNext, setPickingNext] = useState(false);
 
   const archived = campaign.archivedAt !== null;
   const editable = !archived && !preview;
@@ -260,6 +262,15 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
             Rename
           </Button>
         )}
+        <Button
+          size="xs"
+          variant="secondary"
+          onClick={() => {
+            setPickingNext(true);
+          }}
+        >
+          Likely next ({scene.nextScenes.length})
+        </Button>
         <label className="flex items-center gap-2">
           Backdrop
           <NativeSelect
@@ -385,6 +396,14 @@ function SceneBuilder({ campaign, scene }: { campaign: Campaign; scene: Scene })
           />
         )}
       </div>
+
+      <LikelyNextDialog
+        campaignId={campaign.id}
+        scene={scene}
+        open={pickingNext}
+        onOpenChange={setPickingNext}
+        readOnly={archived}
+      />
 
       <CampaignNameDialog
         open={renaming}

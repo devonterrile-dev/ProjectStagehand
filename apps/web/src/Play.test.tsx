@@ -425,6 +425,9 @@ describe('The table, for the GM', () => {
       'Ambush at the marketOn stageLoad again',
       'The cellarLoad',
     ]);
+    // A scene with no likely next scenes adds nothing above the list (F5.2).
+    expect(desk().queryByRole('list', { name: 'Likely next' })).toBeNull();
+    expect(desk().queryByText('All scenes')).toBeNull();
 
     fireEvent.click(scenes.getByRole('button', { name: 'Load: The cellar' }));
     expect(socket.last(PLAY_SOCKET.loadScene).payload).toEqual({ sceneId: cellarId });
@@ -446,6 +449,46 @@ describe('The table, for the GM', () => {
       ]);
     });
     expect(desk().getByText('An empty theater.')).toBeDefined();
+  });
+
+  it("lists the loaded scene's likely next scenes first, in order, then all of them (F5.2)", async () => {
+    const harbourId = uuid();
+    mockApi(MIRA, [coast], {
+      scenes: {
+        [coast.id]: [
+          { id: marketId, name: 'Ambush at the market', nextSceneIds: [harbourId, cellarId] },
+          { id: cellarId, name: 'The cellar' },
+          { id: harbourId, name: 'The harbour' },
+        ],
+      },
+      playSessions: { [coast.id]: SESSION },
+    });
+    await seated(coast, stageWith(), [GM_HERE]);
+
+    const likely = within(await desk().findByRole('list', { name: 'Likely next' }));
+    expect(likely.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'The harbourLoad',
+      'The cellarLoad',
+    ]);
+    expect(desk().getByText('All scenes')).toBeDefined();
+    expect(
+      within(desk().getByRole('list', { name: 'Scenes' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Ambush at the marketOn stageLoad again', 'The cellarLoad', 'The harbourLoad']);
+
+    fireEvent.click(likely.getByRole('button', { name: 'Load: The harbour' }));
+    expect(socket.last(PLAY_SOCKET.loadScene).payload).toEqual({ sceneId: harbourId });
+    await answer(PLAY_SOCKET.loadScene, { ok: true });
+
+    // The harbour lists nothing next, so the desk goes back to the one list.
+    serverSends(
+      PLAY_SOCKET.stage,
+      stageWith({ sceneLoad: 2, scene: { id: harbourId, name: 'The harbour' }, objects: [] }),
+    );
+    await waitFor(() => {
+      expect(desk().queryByRole('list', { name: 'Likely next' })).toBeNull();
+    });
   });
 
   it('closes and opens the curtain, following what the server says', async () => {

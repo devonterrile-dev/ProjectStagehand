@@ -11,6 +11,7 @@ import {
   type GmStageObject,
   type ObjectChanges,
   type Presence,
+  type SceneSummary,
   type StageImage,
 } from '@stagehand/shared';
 import { Mic } from 'lucide-react';
@@ -344,6 +345,39 @@ function RevealAny({
  * the scenes to load; who is here; and ending the session. Every change goes to the server,
  * which sends everyone the stage; moves are shown here at once.
  */
+/** One scene on the desk's lists, with its Load button (Load again when it's on stage). */
+function SceneRow({
+  scene,
+  onStage,
+  disabled,
+  onLoad,
+}: {
+  scene: SceneSummary;
+  onStage: boolean;
+  disabled: boolean;
+  onLoad: (sceneId: string) => void;
+}) {
+  return (
+    <li className="flex items-center gap-2">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{scene.name}</span>
+        {onStage && <span className="block text-xs text-muted-foreground">On stage</span>}
+      </span>
+      <Button
+        size="xs"
+        variant="secondary"
+        disabled={disabled}
+        aria-label={`${onStage ? 'Load again' : 'Load'}: ${scene.name}`}
+        onClick={() => {
+          onLoad(scene.id);
+        }}
+      >
+        {onStage ? 'Load again' : 'Load'}
+      </Button>
+    </li>
+  );
+}
+
 export function GmDesk({
   campaign,
   stage,
@@ -360,6 +394,11 @@ export function GmDesk({
   onEnd,
 }: GmDeskProps) {
   const scenes = useScenes(campaign.id, true);
+  // The loaded scene's likely next scenes (F5.2), in the GM's order, listed first.
+  const loaded = scenes.data?.find((scene) => scene.id === stage.scene?.id);
+  const likelyNext = (loaded?.nextSceneIds ?? []).flatMap((id) =>
+    (scenes.data ?? []).filter((scene) => scene.id === id),
+  );
   const reveal = useRevealRecord(campaign.id);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -373,6 +412,11 @@ export function GmDesk({
     const result = await action();
     setBusy(false);
     if (!result.ok) setRefusal(result.message);
+  }
+
+  function load(sceneId: string) {
+    onSelect(null);
+    void send(() => room.loadScene(sceneId));
   }
 
   /** A move: no waiting, so a slider or a drag keeps going; a refusal is still said. */
@@ -709,30 +753,33 @@ export function GmDesk({
             , then load it here.
           </p>
         )}
-        <ul aria-label="Scenes" className="space-y-1.5">
-          {scenes.data?.map((scene) => {
-            const onStage = stage.scene?.id === scene.id;
-            return (
-              <li key={scene.id} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{scene.name}</span>
-                  {onStage && <span className="block text-xs text-muted-foreground">On stage</span>}
-                </span>
-                <Button
-                  size="xs"
-                  variant="secondary"
+        {likelyNext.length > 0 && (
+          <>
+            <h3 className="text-xs font-medium text-muted-foreground">Likely next</h3>
+            <ul aria-label="Likely next" className="space-y-1.5">
+              {likelyNext.map((scene) => (
+                <SceneRow
+                  key={scene.id}
+                  scene={scene}
+                  onStage={stage.scene?.id === scene.id}
                   disabled={!idle}
-                  aria-label={`${onStage ? 'Load again' : 'Load'}: ${scene.name}`}
-                  onClick={() => {
-                    onSelect(null);
-                    void send(() => room.loadScene(scene.id));
-                  }}
-                >
-                  {onStage ? 'Load again' : 'Load'}
-                </Button>
-              </li>
-            );
-          })}
+                  onLoad={load}
+                />
+              ))}
+            </ul>
+            <h3 className="text-xs font-medium text-muted-foreground">All scenes</h3>
+          </>
+        )}
+        <ul aria-label="Scenes" className="space-y-1.5">
+          {scenes.data?.map((scene) => (
+            <SceneRow
+              key={scene.id}
+              scene={scene}
+              onStage={stage.scene?.id === scene.id}
+              disabled={!idle}
+              onLoad={load}
+            />
+          ))}
         </ul>
       </Section>
 
