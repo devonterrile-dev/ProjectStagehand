@@ -306,12 +306,14 @@ describe('the live room, from the browser', () => {
         trait: 'agility',
         difficulty: 12,
         hidden: true,
+        edge: 'advantage',
       });
       expect(socket.last(PLAY_SOCKET.callRoll).payload).toEqual({
         characterIds: ['pc-1', 'pc-2'],
         trait: 'agility',
         difficulty: 12,
         hidden: true,
+        edge: 'advantage',
       });
       socket.last(PLAY_SOCKET.callRoll).answer({ ok: true });
       expect(await calling).toEqual({ ok: true });

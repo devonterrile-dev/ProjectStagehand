@@ -829,8 +829,56 @@ describe('The table, for the GM', () => {
         difficulty: 14,
         hidden: true,
         label: 'Spot the ambush',
+        edge: 'none',
       });
       await answer(PLAY_SOCKET.callRoll, { ok: true });
+    });
+
+    it('calls a roll with advantage or disadvantage, then goes back to None (F5.1)', async () => {
+      await seated(coast, stageWith({ party }), [GM_HERE]);
+      const form = within(rolls().getByRole('form', { name: 'Call a roll' }));
+      const choice = (name: string) => form.getByRole<HTMLInputElement>('radio', { name });
+      expect(choice('None').checked).toBe(true);
+
+      fireEvent.click(form.getByRole('checkbox', { name: /^Vex/ }));
+      fireEvent.click(choice('Roll with disadvantage'));
+      fireEvent.click(form.getByRole('button', { name: 'Call roll' }));
+      expect(socket.last(PLAY_SOCKET.callRoll).payload).toMatchObject({
+        characterIds: [vex],
+        edge: 'disadvantage',
+      });
+      // A refused call keeps the choice, to try again.
+      await answer(PLAY_SOCKET.callRoll, { ok: false, message: 'No session is running' });
+      expect(choice('Roll with disadvantage').checked).toBe(true);
+
+      fireEvent.click(choice('Roll with advantage'));
+      fireEvent.click(form.getByRole('button', { name: 'Call roll' }));
+      expect(socket.last(PLAY_SOCKET.callRoll).payload).toMatchObject({ edge: 'advantage' });
+      await answer(PLAY_SOCKET.callRoll, { ok: true });
+      expect(choice('None').checked).toBe(true);
+    });
+
+    it('marks a waiting call hidden and with its edge', async () => {
+      await seated(
+        coast,
+        stageWith({
+          party,
+          calls: [
+            {
+              id: uuid(),
+              characterId: vex,
+              characterName: 'Vex',
+              trait: 'agility',
+              difficulty: 12,
+              hidden: true,
+              label: null,
+              edge: 'advantage',
+            },
+          ],
+        }),
+        [GM_HERE],
+      );
+      expect(rolls().getByText('Vex: Agility vs 12 (hidden, advantage)')).toBeDefined();
     });
 
     it('takes back a call, and reveals a hidden roll’s result', async () => {

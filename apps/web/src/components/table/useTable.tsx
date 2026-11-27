@@ -117,6 +117,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
   const diceId = lastRoll?.id ?? null;
   const hopeDie = lastRoll?.dice.hope ?? 0;
   const fearDie = lastRoll?.dice.fear ?? 0;
+  const edgeDie = lastRoll?.edgeDie ?? null;
   const fear = stage?.fear ?? 0;
   const spendId = stage?.lastFearSpend?.id ?? null;
 
@@ -313,7 +314,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
           }
         : null,
       onOpenSheet: lookDown,
-      dice: diceId === null ? null : { id: diceId, hope: hopeDie, fear: fearDie },
+      dice: diceId === null ? null : { id: diceId, hope: hopeDie, fear: fearDie, edge: edgeDie },
       freeDice:
         freeId === null || freeDie === null || freeResults === null
           ? null
@@ -349,6 +350,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     diceId,
     hopeDie,
     fearDie,
+    edgeDie,
     freeId,
     freeDie,
     freeResults,

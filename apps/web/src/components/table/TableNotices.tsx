@@ -10,7 +10,7 @@ import {
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { rollTitle } from '@/lib/rolls';
+import { rollTitle, withEdge } from '@/lib/rolls';
 import { freeDiceLanded, freeDiceSeconds, TOSS_SECONDS } from '@/stage/dice';
 
 /** How long a roll's result stays up once the dice have landed. */
@@ -145,6 +145,7 @@ export function TableNotices({
         <div role="status" className={`${CARD} pointer-events-auto flex items-center gap-3`}>
           <span>
             The GM calls for a roll: {traitLabel(ruleset, mine.trait)}
+            {withEdge(mine.edge)}
             {mine.label === null ? '' : `, ${mine.label}`}
           </span>
           <Button size="xs" onClick={onGoToSheet}>
@@ -155,7 +156,10 @@ export function TableNotices({
       {othersRolling.length > 0 && (
         <p className={CARD}>
           {othersRolling
-            .map((call) => `${call.characterName} is rolling ${traitLabel(ruleset, call.trait)}`)
+            .map(
+              (call) =>
+                `${call.characterName} is rolling ${traitLabel(ruleset, call.trait)}${withEdge(call.edge)}`,
+            )
             .join(' · ')}
           …
         </p>

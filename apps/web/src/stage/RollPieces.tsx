@@ -340,11 +340,14 @@ export interface DiceRoll {
   id: string;
   hope: number;
   fear: number;
+  /** The advantage die (F5.1); null for a roll with no edge. */
+  edge: number | null;
 }
 
 /**
  * The Hope die and the Fear die (§9, 19.12): tossed onto the table in front of the theater when
- * a roll lands, the same throw for everyone, and left lying there until the next.
+ * a roll lands, the same throw for everyone, and left lying there until the next. A roll with
+ * advantage or disadvantage (F5.1) tosses the dice tray's white d6 with them.
  */
 export function Dice({ roll }: { roll: DiceRoll | null }) {
   // A roll that was there before this table was: lying still, not thrown again.
@@ -376,6 +379,18 @@ export function Dice({ roll }: { roll: DiceRoll | null }) {
         color={STAGE_COLORS.fearDie}
         ink={STAGE_COLORS.fearDieInk}
       />
+      {roll.edge !== null && (
+        <Die
+          {...common}
+          shape={DIE_SHAPES.d6}
+          size={FREE_DICE.size}
+          face={roll.edge}
+          seed={`${roll.id}:edge`}
+          landing={DICE.edge}
+          color={STAGE_COLORS.freeDie}
+          ink={STAGE_COLORS.freeDieInk}
+        />
+      )}
     </group>
   );
 }

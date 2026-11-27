@@ -12,6 +12,7 @@ import {
   traitLabel,
   type ActionResult,
   type GmStage,
+  type RollEdge,
   type Ruleset,
 } from '@stagehand/shared';
 import { useState } from 'react';
@@ -20,7 +21,7 @@ import { Toggle } from '@/components/scenes/PlacementControls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useSessionLog } from '@/lib/queries';
-import { rollTitle } from '@/lib/rolls';
+import { EDGE_CHOICES, rollTitle } from '@/lib/rolls';
 import type { PlayRoom } from '@/play/room';
 
 import { DiceTray } from '@/components/table/DiceTray';
@@ -83,6 +84,12 @@ export function DiceSection({
   );
 }
 
+/** " (hidden, advantage)": what a waiting call has beyond its trait and difficulty. */
+function callNotes(hidden: boolean, edge: RollEdge): string {
+  const notes = [...(hidden ? ['hidden'] : []), ...(edge === 'none' ? [] : [edge])];
+  return notes.length === 0 ? '' : ` (${notes.join(', ')})`;
+}
+
 /** Calling a roll, the calls waiting, and the last roll. */
 export function RollsSection({ stage, ruleset, room, idle, send }: DeskPartProps) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
@@ -90,6 +97,9 @@ export function RollsSection({ stage, ruleset, room, idle, send }: DeskPartProps
   const [difficulty, setDifficulty] = useState('12');
   const [hidden, setHidden] = useState(false);
   const [label, setLabel] = useState('');
+  // Advantage or disadvantage (F5.1): back to None after each call, since it fits one moment.
+  const [edge, setEdge] = useState<RollEdge>('none');
+  const hasEdges = ruleset.advantageDie !== undefined;
 
   // Only PCs still in the party can be picked.
   const party = stage.party;
@@ -118,15 +128,18 @@ export function RollsSection({ stage, ruleset, room, idle, send }: DeskPartProps
           className="space-y-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void send(() =>
-              room.callRolls({
+            void send(async () => {
+              const result = await room.callRolls({
                 characterIds: chosen,
                 trait,
                 difficulty: value,
                 hidden,
                 ...(label.trim() === '' ? {} : { label: label.trim() }),
-              }),
-            );
+                ...(hasEdges ? { edge } : {}),
+              });
+              if (result.ok) setEdge('none');
+              return result;
+            });
           }}
         >
           <fieldset className="space-y-1">
@@ -211,6 +224,24 @@ export function RollsSection({ stage, ruleset, room, idle, send }: DeskPartProps
             />
             Hide the difficulty from players
           </label>
+          {hasEdges && (
+            <fieldset className="space-y-1">
+              <legend className="text-xs text-muted-foreground">Edge</legend>
+              {EDGE_CHOICES.map((choice) => (
+                <label key={choice.edge} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="roll-edge"
+                    checked={edge === choice.edge}
+                    onChange={() => {
+                      setEdge(choice.edge);
+                    }}
+                  />
+                  {choice.label}
+                </label>
+              ))}
+            </fieldset>
+          )}
           <Button
             type="submit"
             size="sm"
@@ -228,7 +259,7 @@ export function RollsSection({ stage, ruleset, room, idle, send }: DeskPartProps
             <li key={call.id} className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate">
                 {call.characterName}: {traitLabel(ruleset, call.trait)} vs {call.difficulty}
-                {call.hidden ? ' (hidden)' : ''}
+                {callNotes(call.hidden, call.edge)}
               </span>
               <Button
                 size="xs"

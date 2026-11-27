@@ -438,6 +438,64 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
     });
   });
 
+  it('tells everyone a call with advantage or disadvantage before it is rolled (F5.1)', async () => {
+    const { coast } = party();
+    await seated(
+      coast,
+      playerStage({
+        calls: [
+          called({ edge: 'advantage' }),
+          called({ characterId: BRAM, characterName: 'Bram', edge: 'disadvantage' }),
+        ],
+      }),
+    );
+    expect(
+      await screen.findByText('The GM calls for a roll: Agility with advantage, Climb the wall'),
+    ).toBeDefined();
+    expect(screen.getByText(/Bram is rolling Agility with disadvantage/)).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to sheet' }));
+    const panel = within(await screen.findByRole('group', { name: 'Called roll' }));
+    expect(panel.getByText('With advantage: + d6')).toBeDefined();
+  });
+
+  it('says disadvantage on the sheet, and tosses the d6 with the d12s (F5.1)', async () => {
+    const { coast } = party();
+    await seated(coast, playerStage({ calls: [called({ edge: 'disadvantage' })] }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to sheet' }));
+    const panel = within(await screen.findByRole('group', { name: 'Called roll' }));
+    expect(panel.getByText('With disadvantage: − d6')).toBeDefined();
+
+    const roll: RollResult = {
+      id: uuid(),
+      characterId: VEX,
+      characterName: 'Vex',
+      trait: 'agility',
+      label: null,
+      dice: { hope: 9, fear: 4 },
+      modifier: 2,
+      hopeBonus: 0,
+      edge: 'disadvantage',
+      edgeDie: 5,
+      total: 10,
+      critical: false,
+      gained: 'hope',
+      difficulty: 12,
+      success: false,
+      hidden: false,
+      revealed: false,
+      at: '2026-11-17T20:00:00.000Z',
+    };
+    serverSends(PLAY_SOCKET.stage, playerStage({ lastRoll: roll }));
+    await waitFor(() => {
+      expect(props().table?.dice).toEqual({ id: roll.id, hope: 9, fear: 4, edge: 5 });
+    });
+    const told = await screen.findByRole('status', { name: 'Roll result' }, { timeout: 3000 });
+    expect(told.textContent).toContain(
+      '9 + 4 + 2 − 5 (disadvantage) = 10 vs 12: failure with Hope',
+    );
+  });
+
   it('puts the dice and the Fear on the table, and tells the roll once the dice land', async () => {
     const { coast } = party();
     await seated(coast, playerStage({ fear: 4 }));
@@ -466,7 +524,7 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
     };
     serverSends(PLAY_SOCKET.stage, playerStage({ fear: 4, lastRoll: roll }));
     await waitFor(() => {
-      expect(props().table?.dice).toEqual({ id: roll.id, hope: 9, fear: 4 });
+      expect(props().table?.dice).toEqual({ id: roll.id, hope: 9, fear: 4, edge: null });
     });
     const told = await screen.findByRole('status', { name: 'Roll result' }, { timeout: 3000 });
     expect(told.textContent).toContain('Vex rolled Agility (Climb the wall)');

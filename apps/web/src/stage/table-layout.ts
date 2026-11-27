@@ -145,11 +145,14 @@ export const SHEET_CARDS = (() => {
 /**
  * Where the two dice land (F3.6), on the strip of table in front of the theater that the Stage
  * view shows, between the middle and the Fear bowl. `size` is a die's radius; the dice are
- * tossed from `from`, relative to where they land: from the players' side, and above.
+ * tossed from `from`, relative to where they land: from the players' side, and above. `edge` is
+ * where the white d6 of a roll with advantage or disadvantage lands (F5.1): in front of the two,
+ * between them.
  */
 export const DICE = {
   hope: [0.5, TOP, FRONT + 0.5] as Point3,
   fear: [0.82, TOP, FRONT + 0.44] as Point3,
+  edge: [0.66, TOP, FRONT + 0.6] as Point3,
   size: 0.075,
   from: [-0.35, 0.55, 1.1] as Point3,
 } as const;

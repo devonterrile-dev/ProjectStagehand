@@ -109,6 +109,11 @@ export function SheetPaper({
               ? 'Difficulty hidden'
               : `Difficulty ${String(call.difficulty)}`}
           </p>
+          {call.edge !== 'none' && (
+            <p className="text-lg font-semibold text-amber-900">
+              {`${call.edge === 'advantage' ? 'With advantage: +' : 'With disadvantage: −'} d${String(ruleset.advantageDie ?? 6)}`}
+            </p>
+          )}
           <label className="flex items-center gap-2 text-lg">
             <input
               type="checkbox"
