@@ -34,9 +34,9 @@ const INFO: RunInfo = {
 };
 
 describe('the test set', () => {
-  it('has the fixed 10 subjects with unique ids, covering every kind', () => {
-    expect(TEST_SET).toHaveLength(10);
-    expect(new Set(TEST_SET.map((subject) => subject.id)).size).toBe(10);
+  it('has the fixed 11 subjects with unique ids, covering every kind', () => {
+    expect(TEST_SET).toHaveLength(11);
+    expect(new Set(TEST_SET.map((subject) => subject.id)).size).toBe(11);
     expect(new Set(TEST_SET.map((subject) => subject.kind))).toEqual(
       new Set(['character', 'monster', 'prop', 'backdrop']),
     );
@@ -44,12 +44,22 @@ describe('the test set', () => {
 
   it('builds a prompt for every subject from the style bible', () => {
     const jobs = sampleJobs(bible, TEST_SET, 2);
-    expect(jobs).toHaveLength(20);
+    expect(jobs).toHaveLength(22);
     expect(jobs.map((job) => job.rep).slice(0, 4)).toEqual([1, 2, 1, 2]);
     for (const job of jobs) {
       expect(job.prompt.startsWith(bible.base)).toBe(true);
       expect(job.prompt).toContain(`Name: ${job.subject.name}`);
     }
+  });
+
+  it('draws the transition Spot from its own template, and skips it for a bible without one', () => {
+    const road = sampleJobs(bible, TEST_SET, 1).find(
+      (job) => job.subject.id === 'backdrop-coastal-road',
+    );
+    expect(road?.prompt).toContain('flipped left to right');
+    const v1 = sampleJobs(loadStyleBible(1), TEST_SET, 1);
+    expect(v1).toHaveLength(10);
+    expect(v1.map((job) => job.subject.id)).not.toContain('backdrop-coastal-road');
   });
 });
 
@@ -57,7 +67,7 @@ describe('quoteUsd', () => {
   const jobs = sampleJobs(bible, TEST_SET, 1);
 
   it('uses the guess per quality when nothing was measured', () => {
-    expect(quoteUsd(bible, jobs)).toBeCloseTo(10 * IMAGE_COST_GUESS_USD.medium);
+    expect(quoteUsd(bible, jobs)).toBeCloseTo(11 * IMAGE_COST_GUESS_USD.medium);
   });
 
   it('uses what the last run measured per kind', () => {
@@ -68,8 +78,8 @@ describe('quoteUsd', () => {
       { kind: 'backdrop', status: 'ok', costUsd: null },
     ] as RunRecord['results']);
     expect(measured).toEqual({ prop: expect.closeTo(0.15) as unknown });
-    // 3 props at 0.15, the other 7 at the guess.
-    expect(quoteUsd(bible, jobs, measured)).toBeCloseTo(0.45 + 7 * IMAGE_COST_GUESS_USD.medium);
+    // 3 props at 0.15, the other 8 at the guess.
+    expect(quoteUsd(bible, jobs, measured)).toBeCloseTo(0.45 + 8 * IMAGE_COST_GUESS_USD.medium);
   });
 });
 

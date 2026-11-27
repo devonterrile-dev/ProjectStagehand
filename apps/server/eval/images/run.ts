@@ -58,16 +58,23 @@ export interface RunRecord extends RunInfo {
   totalCostUsd: number;
 }
 
-/** Every subject × rep, in test set order, with its prompt. */
+/**
+ * Every subject × rep, in test set order, with its prompt. A subject drawn from a variant
+ * template the style bible lacks (a transition Spot before v2) is left out.
+ */
 export function sampleJobs(
   bible: StyleBible,
   subjects: readonly TestSubject[],
   reps: number,
 ): SampleJob[] {
-  return subjects.flatMap((subject) => {
+  const drawable = subjects.filter(
+    (subject) => subject.variant === undefined || bible.variants[subject.variant] !== undefined,
+  );
+  return drawable.flatMap((subject) => {
     const prompt = buildImagePrompt(bible, subject.kind, {
       name: subject.name,
       subject: subjectLines(subject.lines),
+      ...(subject.variant === undefined ? {} : { variant: subject.variant }),
     });
     return Array.from({ length: reps }, (_unused, index) => ({ subject, rep: index + 1, prompt }));
   });

@@ -298,12 +298,21 @@ describe('creates', () => {
             area: 'E1',
             fields: [{ key: 'pointsOfInterest', value: '- stalls' }],
           }),
+          wireCreate({
+            id: 'N3',
+            type: 'spot',
+            name: 'Coastal road',
+            area: 'E1',
+            fields: [{ key: 'spotType', value: 'transition' }],
+          }),
         ],
       }),
     );
     expect(issues).toEqual([
       expect.stringContaining('factions is a link field. Put it in links'),
       expect.stringContaining('Spot records have no field "pointsOfInterest"'),
+      // The GM sets a Spot's type; the import never does (F5.3).
+      expect.stringContaining('Spot records have no field "spotType"'),
     ]);
   });
 

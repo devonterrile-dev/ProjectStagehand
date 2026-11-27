@@ -80,9 +80,16 @@ export function indexPack(pack: ContextPack): {
   };
 }
 
-/** The field specs of a type, as a plain string-keyed map. */
+/**
+ * The field specs of a type that AI import works with, as a plain string-keyed map. A field
+ * marked `ai: false` (a Spot's type, F5.3) is left out, so it is never sent to the model,
+ * listed in the prompt, filled or accepted from an answer: imported Spots stay static.
+ */
 export function fieldSpecsOf(type: RecordType): Record<string, FieldSpec> {
-  return RECORD_FIELD_SPECS[type];
+  const specs: Record<string, FieldSpec> = RECORD_FIELD_SPECS[type];
+  return Object.fromEntries(
+    Object.entries(specs).filter(([, spec]) => spec.kind === 'links' || spec.ai !== false),
+  );
 }
 
 /** True when a stored value says nothing: missing, blank text, an empty document or list. */

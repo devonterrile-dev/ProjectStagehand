@@ -85,6 +85,12 @@ describe('fieldReference', () => {
     );
   });
 
+  it("leaves out a Spot's type: AI import keeps Spots static (F5.3)", () => {
+    expect(fieldReference('spot')).not.toContain('spotType');
+    expect(Object.keys(fieldSpecsOf('spot'))).not.toContain('spotType');
+    expect(Object.keys(fieldSpecsOf('spot'))).toContain('backdropNotes');
+  });
+
   it('lists a Prop with its one Spot, and no points of interest on a Spot (F1.10)', () => {
     expect(fieldReference('spot')).not.toContain('pointsOfInterest');
     expect(fieldReference('prop')).toBe(

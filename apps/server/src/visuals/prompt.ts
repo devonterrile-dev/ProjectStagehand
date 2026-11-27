@@ -5,12 +5,16 @@
  * what `pnpm style:sample` tried is what the GM gets.
  *
  * A Regenerate with notes (F2.5) adds the style bible's revision block after that prompt.
+ *
+ * A transition Spot's backdrop is drawn from the style bible's transition template instead of
+ * the backdrop's own, for Generate and Regenerate with notes alike (F5.3, D-74).
  */
-import { richTextToPlainText, type AssetKind, type RichText } from '@stagehand/shared';
+import { richTextToPlainText, spotTypeOf, type AssetKind, type RichText } from '@stagehand/shared';
 import {
   buildImagePrompt,
   buildRevisionPrompt,
   subjectLines,
+  type ImagePromptInput,
   type StyleBible,
   type SubjectLine,
 } from '@stagehand/style-bible';
@@ -87,14 +91,17 @@ export function subjectLinesFor(source: VisualSource): SubjectLine[] {
   }
 }
 
-function promptInput(source: VisualSource): { name: string; subject: string } {
+function promptInput(kind: AssetKind, source: VisualSource): ImagePromptInput {
   const lines = subjectLinesFor(source).map(([label, value]) => [label, capped(value)] as const);
-  return { name: source.name, subject: subjectLines(lines) };
+  const input = { name: source.name, subject: subjectLines(lines) };
+  const transition =
+    kind === 'backdrop' && source.subject === 'spot' && spotTypeOf(source.fields) === 'transition';
+  return transition ? { ...input, variant: 'transition' } : input;
 }
 
 /** The full text prompt sent to the image model. */
 export function visualPrompt(bible: StyleBible, kind: AssetKind, source: VisualSource): string {
-  return buildImagePrompt(bible, kind, promptInput(source));
+  return buildImagePrompt(bible, kind, promptInput(kind, source));
 }
 
 /**
@@ -107,5 +114,5 @@ export function revisionPrompt(
   source: VisualSource,
   notes: string,
 ): string {
-  return buildRevisionPrompt(bible, kind, { ...promptInput(source), notes });
+  return buildRevisionPrompt(bible, kind, { ...promptInput(kind, source), notes });
 }

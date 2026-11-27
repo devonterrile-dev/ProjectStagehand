@@ -10,6 +10,7 @@ import {
   RECORD_TYPES,
   recordFieldsSchemas,
   recordTypeSchema,
+  spotTypeOf,
   type FieldSpec,
   type RecordType,
 } from './record-fields';
@@ -41,6 +42,7 @@ const FULL_FIELDS: Record<RecordType, Record<string, unknown>> = {
     secrets: rich('The mayor is a mimic'),
   },
   spot: {
+    spotType: 'transition',
     readAloud: rich('Stalls bob on barrels'),
     hiddenDetails: rich('A trapdoor under the fish crates'),
     backdropNotes: 'Wide dock at dusk',
@@ -199,6 +201,27 @@ describe('field validation details', () => {
       fieldsSchemaFor('spot').safeParse({ pointsOfInterest: [{ name: 'Well', detail: 'x' }] })
         .success,
     ).toBe(false);
+  });
+
+  it('reads a Spot as static unless it says transition, and keeps the type from AI import', () => {
+    expect(spotTypeOf({})).toBe('static');
+    expect(spotTypeOf({ spotType: 'static' })).toBe('static');
+    expect(spotTypeOf({ spotType: 'transition' })).toBe('transition');
+    expect(spotTypeOf({ spotType: 'hallway' })).toBe('static');
+    expect(fieldsSchemaFor('spot').safeParse({ spotType: 'hallway' }).success).toBe(false);
+    expect(Object.keys(RECORD_FIELD_SPECS.spot)[0]).toBe('spotType');
+    expect(RECORD_FIELD_SPECS.spot.spotType).toMatchObject({ defaultOption: 'static', ai: false });
+  });
+
+  it('gives a default option only that is one of its choices', () => {
+    for (const type of RECORD_TYPES) {
+      const specs: Record<string, FieldSpec> = RECORD_FIELD_SPECS[type];
+      for (const [key, spec] of Object.entries(specs)) {
+        if (spec.kind === 'links' || spec.defaultOption === undefined) continue;
+        expect(spec.kind, key).toBe('enum');
+        expect(spec.options, key).toContain(spec.defaultOption);
+      }
+    }
   });
 
   it('links a Prop to one Spot, and lets Items and story beats point at Props', () => {

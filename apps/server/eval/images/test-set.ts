@@ -1,5 +1,5 @@
 /**
- * The fixed image test set (governance §11, D-38): the same 10 made-up records every time, so
+ * The fixed image test set (governance §11, D-38): the same 11 made-up records every time, so
  * a style bible change or a new image model can be compared side by side with the last run.
  * Generic on purpose: the repo is public, and these subjects spoil nothing.
  *
@@ -7,7 +7,7 @@
  * kind, in the same order, so the prompts here look like the ones the GM will get.
  */
 import type { AssetKind } from '@stagehand/shared';
-import type { SubjectLine } from '@stagehand/style-bible';
+import type { SubjectLine, TemplateVariant } from '@stagehand/style-bible';
 
 export interface TestSubject {
   /** Stable, used in file names and `--only`. */
@@ -17,6 +17,8 @@ export interface TestSubject {
   source: string;
   name: string;
   lines: SubjectLine[];
+  /** A variant template it is drawn from (F5.3): `transition` for a transition Spot. */
+  variant?: TemplateVariant;
 }
 
 export const TEST_SET: readonly TestSubject[] = [
@@ -147,6 +149,20 @@ export const TEST_SET: readonly TestSubject[] = [
         'A winding dirt path leading into a dense forest of tall, twisted trees, big mushrooms along the edges and shafts of light through the canopy. Late afternoon.',
       ],
       ['Area', 'The Old Woods'],
+    ],
+  },
+  {
+    id: 'backdrop-coastal-road',
+    kind: 'backdrop',
+    source: 'Spot record (transition)',
+    name: 'Coastal Road',
+    variant: 'transition',
+    lines: [
+      [
+        'Backdrop notes',
+        'A sandy road along the top of low dunes, tufts of beach grass, a calm blue sea with small waves behind and a few puffy clouds. Bright midday.',
+      ],
+      ['Area', 'The Sunny Coast'],
     ],
   },
 ];

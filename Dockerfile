@@ -51,8 +51,9 @@ COPY --from=build --chown=node:node /repo/apps/web/dist ./web
 # The versioned AI prompt files (F1.9). They are read from disk, not bundled; the server
 # loads its prompt at startup and exits if it isn't here.
 COPY --from=build --chown=node:node /repo/packages/prompts/import ./prompts/import
-# The image style bible and its anchor images (F2.3), read at startup like the prompt.
-COPY --from=build --chown=node:node /repo/packages/style-bible/v1 ./style-bible/v1
+# The image style bible and its anchor images (F2.3), read at startup like the prompt. Only
+# the version new images are made with (STYLE_BIBLE_VERSION) is read; v2 since F5.3.
+COPY --from=build --chown=node:node /repo/packages/style-bible/v2 ./style-bible/v2
 
 USER node
 EXPOSE 3000

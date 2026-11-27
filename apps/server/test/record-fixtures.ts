@@ -30,6 +30,7 @@ export const FULL_FIELDS: Record<RecordType, Record<string, unknown>> = {
     secrets: richText('The mayor is a mimic'),
   },
   spot: {
+    spotType: 'transition',
     readAloud: richText('Stalls bob on barrels'),
     hiddenDetails: richText('A trapdoor under the fish crates'),
     backdropNotes: 'Wide dock at dusk',

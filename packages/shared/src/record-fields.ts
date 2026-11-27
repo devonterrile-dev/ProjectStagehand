@@ -53,6 +53,13 @@ export const npcStatusSchema = z.enum(['alive', 'dead', 'missing', 'unknown']);
 export type NpcStatus = z.infer<typeof npcStatusSchema>;
 export const storyBeatStatusSchema = z.enum(['planned', 'active', 'done', 'skipped']);
 export type StoryBeatStatus = z.infer<typeof storyBeatStatusSchema>;
+/**
+ * A Spot's type (F5.3, D-74): static, a place the party stands in, or transition, a stretch
+ * they move along (a hallway, a beach) whose backdrop loops on the stage. Stored only when
+ * transition: a Spot without one is static, as every Spot made before F5.3 is.
+ */
+export const spotTypeSchema = z.enum(['static', 'transition']);
+export type SpotType = z.infer<typeof spotTypeSchema>;
 
 // Shapes list every field as required; `.partial()` below makes them all optional
 // ("all are optional except name"), and `patchOf` makes them nullable for PATCH.
@@ -76,6 +83,7 @@ const AREA_SHAPE = {
   secrets: richTextSchema,
 };
 const SPOT_SHAPE = {
+  spotType: spotTypeSchema,
   readAloud: richTextSchema,
   hiddenDetails: richTextSchema,
   backdropNotes: textField,
@@ -130,6 +138,10 @@ export const areaFieldsSchema = z.strictObject(AREA_SHAPE).partial();
 export type AreaFields = z.infer<typeof areaFieldsSchema>;
 export const spotFieldsSchema = z.strictObject(SPOT_SHAPE).partial();
 export type SpotFields = z.infer<typeof spotFieldsSchema>;
+/** A Spot's type from its stored fields: static unless it says transition. */
+export function spotTypeOf(fields: Record<string, unknown>): SpotType {
+  return fields['spotType'] === 'transition' ? 'transition' : 'static';
+}
 export const propFieldsSchema = z.strictObject(PROP_SHAPE).partial();
 export type PropFields = z.infer<typeof propFieldsSchema>;
 export const factionFieldsSchema = z.strictObject(FACTION_SHAPE).partial();
@@ -218,6 +230,13 @@ export interface ValueFieldSpec {
   label: string;
   /** The choices of an `enum` field. */
   options?: readonly string[];
+  /**
+   * The choice an `enum` field means while it holds nothing. The form shows it instead of a
+   * blank choice, and picking it clears the field (F5.3).
+   */
+  defaultOption?: string;
+  /** False keeps the field away from AI import: it is never sent, offered or set (F5.3). */
+  ai?: false;
 }
 
 export type LinkCardinality = 'one' | 'many';
@@ -269,6 +288,13 @@ export const RECORD_FIELD_SPECS = {
     secrets: { kind: 'rich', label: 'Secrets' },
   } satisfies Record<keyof AreaFields | 'factionsPresent', FieldSpec>,
   spot: {
+    spotType: {
+      kind: 'enum',
+      label: 'Type',
+      options: spotTypeSchema.options,
+      defaultOption: 'static',
+      ai: false,
+    },
     readAloud: { kind: 'rich', label: 'Description to read out' },
     npcsHere: {
       kind: 'links',

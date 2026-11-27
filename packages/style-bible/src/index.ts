@@ -27,7 +27,7 @@ import {
 import { z } from 'zod';
 
 /** The style bible new assets are made with. */
-export const STYLE_BIBLE_VERSION = 1;
+export const STYLE_BIBLE_VERSION = 2;
 
 /** This package's folder: where the `v<N>/` folders are when running from source. */
 export const DEFAULT_STYLE_BIBLE_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -137,12 +137,28 @@ export interface Anchor {
   path: string;
 }
 
+/**
+ * Templates that stand in for their kind's own for some subjects, each with the kind it is
+ * for: `transition` draws a transition Spot's backdrop as a stretch that loops by mirror
+ * tiling (F5.3, D-74). Its file is `templates/<kind>-<variant>.md`, with the kind's slots.
+ */
+export const TEMPLATE_VARIANTS = { transition: 'backdrop' } as const satisfies Record<
+  string,
+  AssetKind
+>;
+export type TemplateVariant = keyof typeof TEMPLATE_VARIANTS;
+
+/** The first version that must have every variant; older ones have none. */
+export const VARIANTS_FROM_VERSION = 2;
+
 export interface StyleBible {
   version: number;
   /** The version's folder. */
   dir: string;
   base: string;
   templates: Record<AssetKind, string>;
+  /** The variant templates this version has (none before `VARIANTS_FROM_VERSION`). */
+  variants: Partial<Record<TemplateVariant, string>>;
   /** The Regenerate with notes block (F2.5): one slot, `notes`. */
   revision: string;
   style: Style;
@@ -243,9 +259,7 @@ export function loadStyleBible(
     throw new StyleBibleError(`${basePath}: the base style has no slots`);
   }
 
-  const templates = {} as Record<AssetKind, string>;
-  for (const kind of ASSET_KINDS) {
-    const path = join(root, 'templates', `${kind}.md`);
+  function readTemplate(kind: AssetKind, path: string): string {
     const template = readText(path);
     checkWords(template, path);
     const slots = [...slotsOf(template)].sort();
@@ -255,7 +269,22 @@ export function loadStyleBible(
         `${path}: needs exactly the slots ${expected.join(', ')}; has ${slots.join(', ') || 'none'}`,
       );
     }
-    templates[kind] = template;
+    return template;
+  }
+
+  const templates = {} as Record<AssetKind, string>;
+  for (const kind of ASSET_KINDS) {
+    templates[kind] = readTemplate(kind, join(root, 'templates', `${kind}.md`));
+  }
+
+  const variants: Partial<Record<TemplateVariant, string>> = {};
+  if (version >= VARIANTS_FROM_VERSION) {
+    for (const [variant, kind] of Object.entries(TEMPLATE_VARIANTS)) {
+      variants[variant as TemplateVariant] = readTemplate(
+        kind,
+        join(root, 'templates', `${kind}-${variant}.md`),
+      );
+    }
   }
 
   const revisionPath = join(root, 'revision.md');
@@ -286,7 +315,7 @@ export function loadStyleBible(
     return { ...anchor, path };
   });
 
-  return { version, dir: root, base, templates, revision, style, palette, anchors };
+  return { version, dir: root, base, templates, variants, revision, style, palette, anchors };
 }
 
 /** One line of a subject: a label and the record's value for it. */
@@ -309,6 +338,21 @@ export interface ImagePromptInput {
   name: string;
   /** From `subjectLines`. */
   subject: string;
+  /** A variant template to use instead of the kind's own (F5.3): `transition` for a backdrop. */
+  variant?: TemplateVariant;
+}
+
+/** The template a prompt is filled from: the kind's own, or the variant asked for. */
+function templateFor(bible: StyleBible, kind: AssetKind, variant?: TemplateVariant): string {
+  if (variant === undefined) return bible.templates[kind];
+  if (TEMPLATE_VARIANTS[variant] !== kind) {
+    throw new StyleBibleError(`The ${variant} template is for a ${TEMPLATE_VARIANTS[variant]}`);
+  }
+  const template = bible.variants[variant];
+  if (template === undefined) {
+    throw new StyleBibleError(`Style bible v${String(bible.version)} has no ${variant} template`);
+  }
+  return template;
 }
 
 /** The full text prompt for one image: the base style, then the kind's filled template. */
@@ -323,7 +367,7 @@ export function buildImagePrompt(
     subject: input.subject.trim(),
     ...(isCutoutKind(kind) ? { key_color: `${keyColor.name} (${keyColor.hex})` } : {}),
   };
-  const filled = fillPrompt(bible.templates[kind], values)
+  const filled = fillPrompt(templateFor(bible, kind, input.variant), values)
     .replace(/[ \t]+$/gm, '')
     .trim();
   return `${bible.base}\n\n${filled}`;

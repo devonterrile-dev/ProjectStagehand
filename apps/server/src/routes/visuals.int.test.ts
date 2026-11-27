@@ -380,6 +380,30 @@ describe('Visuals API', () => {
       expect(calls[0]?.references.map((r) => r.data)).toEqual(anchorBytes('backdrop'));
     });
 
+    it("draws a transition Spot's backdrop from the transition template, and its revisions (F5.3)", async () => {
+      const area = await makeRecord({ type: 'area', name: 'Saltreach' });
+      const spot = await makeRecord({
+        type: 'spot',
+        name: 'Coastal Road',
+        parentId: area.id,
+        fields: { spotType: 'transition', backdropNotes: 'Dunes along the sea' },
+      });
+      const draft = await started(recordBase(spot));
+      expect(draft.kind).toBe('backdrop');
+      await settled();
+      expect(calls[0]?.prompt).toContain('flipped left to right');
+      expect(calls[0]?.prompt).toContain('Backdrop notes: Dunes along the sea');
+      expect(calls[0]?.references.map((r) => r.data)).toEqual(anchorBytes('backdrop'));
+
+      const revised = await call('POST', `${recordBase(spot)}/visuals/${draft.id}/revise`, gm, {
+        notes: 'more gulls',
+      });
+      expect(revised.statusCode).toBe(202);
+      await settled();
+      expect(calls[1]?.prompt).toContain('flipped left to right');
+      expect(calls[1]?.prompt.endsWith('more gulls')).toBe(true);
+    });
+
     it('asks an NPC whether it is a humanoid or a monster, and draws it as told', async () => {
       const npc = await makeRecord({ type: 'npc', name: 'Old Gnarl', fields: FULL_FIELDS.npc });
 

@@ -21,6 +21,8 @@ import {
   StyleBibleError,
   styleBibleDir,
   subjectLines,
+  TEMPLATE_VARIANTS,
+  VARIANTS_FROM_VERSION,
 } from './index';
 
 const temp = mkdtempSync(join(tmpdir(), 'stagehand-style-bible-'));
@@ -28,10 +30,13 @@ afterAll(() => {
   rmSync(temp, { recursive: true, force: true });
 });
 
-/** A fresh copy of the shipped version, as v1 under `temp`, to break one file at a time. */
-function copyOfV1(): string {
+/** The shipped version, which the copies below are of. */
+const V = STYLE_BIBLE_VERSION;
+
+/** A fresh copy of the shipped version under `temp`, to break one file at a time. */
+function copyOfShipped(): string {
   const dir = mkdtempSync(join(temp, 'copy-'));
-  cpSync(styleBibleDir(STYLE_BIBLE_VERSION), styleBibleDir(1, dir), { recursive: true });
+  cpSync(styleBibleDir(V), styleBibleDir(V, dir), { recursive: true });
   return dir;
 }
 
@@ -44,11 +49,11 @@ interface StyleJson {
 }
 
 function readJson(dir: string, file: string): unknown {
-  return JSON.parse(readFileSync(join(styleBibleDir(1, dir), file), 'utf8'));
+  return JSON.parse(readFileSync(join(styleBibleDir(V, dir), file), 'utf8'));
 }
 
 function writeJson(dir: string, file: string, value: unknown) {
-  writeFileSync(join(styleBibleDir(1, dir), file), JSON.stringify(value));
+  writeFileSync(join(styleBibleDir(V, dir), file), JSON.stringify(value));
 }
 
 function editPalette(dir: string, edit: (palette: PaletteJson) => void) {
@@ -107,6 +112,38 @@ describe('the shipped style bible', () => {
     expect(buildImagePrompt(bible, 'prop', subject)).toContain('magenta (#FF00FF)');
     expect(buildImagePrompt(bible, 'character', subject)).toContain('magenta (#FF00FF)');
     expect(buildImagePrompt(bible, 'backdrop', subject)).not.toContain('#FF00FF');
+  });
+
+  it('has the transition backdrop template from v2, and v1 has none (F5.3)', () => {
+    expect(V).toBeGreaterThanOrEqual(VARIANTS_FROM_VERSION);
+    expect(Object.keys(bible.variants)).toEqual(Object.keys(TEMPLATE_VARIANTS));
+    expect(bible.variants.transition).not.toContain('<!--');
+    expect(loadStyleBible(1).variants).toEqual({});
+  });
+
+  it('builds a transition backdrop prompt from its own template', () => {
+    const input = { name: 'Coastal Road', subject: 'Backdrop notes: dunes' };
+    const plain = buildImagePrompt(bible, 'backdrop', input);
+    const transition = buildImagePrompt(bible, 'backdrop', { ...input, variant: 'transition' });
+    expect(transition).not.toBe(plain);
+    expect(transition.startsWith(bible.base)).toBe(true);
+    expect(transition).toContain('flipped left to right');
+    expect(transition).toMatch(/Name: Coastal Road\nBackdrop notes: dunes$/);
+    expect(plain).not.toContain('flipped left to right');
+    const revision = buildRevisionPrompt(bible, 'backdrop', {
+      ...input,
+      variant: 'transition',
+      notes: 'more gulls',
+    });
+    expect(revision.startsWith(transition)).toBe(true);
+  });
+
+  it('refuses a variant on another kind, or one the version lacks', () => {
+    const input = { name: 'Well', subject: '', variant: 'transition' as const };
+    expect(() => buildImagePrompt(bible, 'prop', input)).toThrow(/is for a backdrop/);
+    expect(() => buildImagePrompt(loadStyleBible(1), 'backdrop', input)).toThrow(
+      /v1 has no transition template/,
+    );
   });
 
   it('ends cleanly when the record has nothing but a name', () => {
@@ -170,79 +207,89 @@ describe('subjectLines', () => {
 describe('loadStyleBible refuses a broken version', () => {
   let dir: string;
   beforeEach(() => {
-    dir = copyOfV1();
+    dir = copyOfShipped();
   });
 
   it('a missing version or file', () => {
     expect(() => loadStyleBible(99, dir)).toThrow(StyleBibleError);
-    rmSync(join(styleBibleDir(1, dir), 'templates', 'prop.md'));
-    expect(() => loadStyleBible(1, dir)).toThrow(/not found: .*prop\.md/);
+    rmSync(join(styleBibleDir(V, dir), 'templates', 'prop.md'));
+    expect(() => loadStyleBible(V, dir)).toThrow(/not found: .*prop\.md/);
+  });
+
+  it('a missing or broken variant template', () => {
+    const path = join(styleBibleDir(V, dir), 'templates', 'backdrop-transition.md');
+    writeFileSync(path, 'Draw {{name}} on {{key_color}} with {{subject}}.');
+    expect(() => loadStyleBible(V, dir)).toThrow(
+      /backdrop-transition\.md: needs exactly the slots/,
+    );
+    rmSync(path);
+    expect(() => loadStyleBible(V, dir)).toThrow(/not found: .*backdrop-transition\.md/);
   });
 
   it('a template with a slot too many or too few', () => {
-    const path = join(styleBibleDir(1, dir), 'templates', 'backdrop.md');
+    const path = join(styleBibleDir(V, dir), 'templates', 'backdrop.md');
     writeFileSync(path, `${readFileSync(path, 'utf8')}\n{{key_color}}`);
-    expect(() => loadStyleBible(1, dir)).toThrow(/backdrop\.md: needs exactly the slots/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/backdrop\.md: needs exactly the slots/);
     writeFileSync(path, 'Draw {{name}}.');
-    expect(() => loadStyleBible(1, dir)).toThrow(/has name$/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/has name$/);
   });
 
   it('a revision block that is missing or has the wrong slots', () => {
-    const path = join(styleBibleDir(1, dir), 'revision.md');
+    const path = join(styleBibleDir(V, dir), 'revision.md');
     writeFileSync(path, 'Change it: {{notes}} for {{name}}');
-    expect(() => loadStyleBible(1, dir)).toThrow(/revision\.md: needs exactly the slot notes/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/revision\.md: needs exactly the slot notes/);
     rmSync(path);
-    expect(() => loadStyleBible(1, dir)).toThrow(/not found: .*revision\.md/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/not found: .*revision\.md/);
   });
 
   it('a franchise name in the base style', () => {
-    const path = join(styleBibleDir(1, dir), 'base.md');
+    const path = join(styleBibleDir(V, dir), 'base.md');
     writeFileSync(path, `${readFileSync(path, 'utf8')}\nLike Paper Mario.`);
-    expect(() => loadStyleBible(1, dir)).toThrow(/naming "paper mario"/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/naming "paper mario"/);
   });
 
   it('a palette color that is not a color, repeated, or too close to the key color', () => {
     editPalette(dir, (palette) => {
       setHex(palette, 0, () => 'red');
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/colors\.0\.hex/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/colors\.0\.hex/);
 
-    dir = copyOfV1();
+    dir = copyOfShipped();
     editPalette(dir, (palette) => {
       setHex(palette, 1, (hexes) => (hexes[0] ?? '').toLowerCase());
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/listed twice/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/listed twice/);
 
-    dir = copyOfV1();
+    dir = copyOfShipped();
     editPalette(dir, (palette) => {
       setHex(palette, 0, () => '#F010F0');
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/too close to the key color/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/too close to the key color/);
   });
 
   it('a style.json for another version, or bad JSON', () => {
     editStyle(dir, (style) => {
-      style.version = 2;
+      style.version = V + 1;
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/says version 2/);
-    writeFileSync(join(styleBibleDir(1, dir), 'style.json'), '{ nope');
-    expect(() => loadStyleBible(1, dir)).toThrow(/not valid JSON/);
+    expect(() => loadStyleBible(V, dir)).toThrow(`says version ${String(V + 1)}`);
+    writeFileSync(join(styleBibleDir(V, dir), 'style.json'), '{ nope');
+    expect(() => loadStyleBible(V, dir)).toThrow(/not valid JSON/);
   });
 
   it('an anchor whose image is missing, and finds one that is there', () => {
     editStyle(dir, (style) => {
       style.anchors = [{ file: 'character-hero.png', kind: 'character', subject: 'An adventurer' }];
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/Anchor image not found: .*character-hero\.png/);
-    mkdirSync(join(styleBibleDir(1, dir), 'anchors'), { recursive: true });
-    writeFileSync(join(styleBibleDir(1, dir), 'anchors', 'character-hero.png'), 'png bytes');
-    const bible = loadStyleBible(1, dir);
+    expect(() => loadStyleBible(V, dir)).toThrow(/Anchor image not found: .*character-hero\.png/);
+    mkdirSync(join(styleBibleDir(V, dir), 'anchors'), { recursive: true });
+    writeFileSync(join(styleBibleDir(V, dir), 'anchors', 'character-hero.png'), 'png bytes');
+    const bible = loadStyleBible(V, dir);
     expect(bible.anchors).toEqual([
       {
         file: 'character-hero.png',
         kind: 'character',
         subject: 'An adventurer',
-        path: join(styleBibleDir(1, dir), 'anchors', 'character-hero.png'),
+        path: join(styleBibleDir(V, dir), 'anchors', 'character-hero.png'),
       },
     ]);
   });
@@ -251,7 +298,7 @@ describe('loadStyleBible refuses a broken version', () => {
     editStyle(dir, (style) => {
       style.anchors = [{ file: 'prop-well.webp', kind: 'monster', subject: 'x' }];
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/anchors\.0\.file: An anchor file name starts/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/anchors\.0\.file: An anchor file name starts/);
 
     editStyle(dir, (style) => {
       style.anchors = Array.from({ length: ANCHORS_PER_KIND_MAX + 1 }, (_unused, index) => ({
@@ -260,13 +307,13 @@ describe('loadStyleBible refuses a broken version', () => {
         subject: 'x',
       }));
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/At most 4 anchors per kind/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/At most 4 anchors per kind/);
   });
 
   it('an anchor file name that could leave the folder', () => {
     editStyle(dir, (style) => {
       style.anchors = [{ file: '../base.md', kind: 'prop', subject: 'x' }];
     });
-    expect(() => loadStyleBible(1, dir)).toThrow(/anchors\.0\.file/);
+    expect(() => loadStyleBible(V, dir)).toThrow(/anchors\.0\.file/);
   });
 });

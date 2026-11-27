@@ -1,5 +1,5 @@
 import { emptyRichText, type RichText } from '@stagehand/shared';
-import { loadStyleBible } from '@stagehand/style-bible';
+import { buildImagePrompt, loadStyleBible } from '@stagehand/style-bible';
 import { describe, expect, it } from 'vitest';
 
 import { revisionPrompt, SUBJECT_LINE_MAX, subjectLinesFor, visualPrompt } from './prompt';
@@ -109,6 +109,26 @@ describe('visualPrompt', () => {
     });
     expect(prompt).not.toContain('#FF00FF');
     expect(prompt).toContain('Backdrop notes: Wide dock');
+  });
+
+  it("draws a transition Spot's backdrop from the transition template (F5.3)", () => {
+    const spot = {
+      subject: 'spot' as const,
+      name: 'Coastal Road',
+      publicDescription: emptyRichText(),
+      fields: { backdropNotes: 'Dunes and sea' },
+    };
+    const input = { name: 'Coastal Road', subject: 'Backdrop notes: Dunes and sea' };
+    const transition = { ...spot, fields: { ...spot.fields, spotType: 'transition' } };
+    expect(visualPrompt(BIBLE, 'backdrop', spot)).toBe(buildImagePrompt(BIBLE, 'backdrop', input));
+    expect(visualPrompt(BIBLE, 'backdrop', transition)).toBe(
+      buildImagePrompt(BIBLE, 'backdrop', { ...input, variant: 'transition' }),
+    );
+    expect(visualPrompt(BIBLE, 'backdrop', { ...spot, fields: { spotType: 'static' } })).toBe(
+      buildImagePrompt(BIBLE, 'backdrop', { name: 'Coastal Road', subject: '' }),
+    );
+    const revised = revisionPrompt(BIBLE, 'backdrop', transition, 'more gulls');
+    expect(revised.startsWith(visualPrompt(BIBLE, 'backdrop', transition))).toBe(true);
   });
 });
 
