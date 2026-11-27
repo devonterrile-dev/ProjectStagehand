@@ -849,6 +849,7 @@ describe('The table, for the GM', () => {
               difficulty: 10,
               hidden: false,
               label: null,
+              edge: 'none',
             },
           ],
           lastRoll: {
@@ -860,6 +861,8 @@ describe('The table, for the GM', () => {
             dice: { hope: 3, fear: 5 },
             modifier: 2,
             hopeBonus: 0,
+            edge: 'none',
+            edgeDie: null,
             total: 10,
             critical: false,
             gained: 'fear',

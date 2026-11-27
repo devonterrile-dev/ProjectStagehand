@@ -37,7 +37,9 @@ describe('rulesets', () => {
       proficiency: { start: 1, perTier: 1 },
       start: { hope: 0, stressSlots: 6 },
       domainCards: { atCreation: 2, loadoutMax: 5 },
+      advantageDie: 6,
     });
+    expect(rulesetFor(1).advantageDie).toBeUndefined();
     expect(v2.tiers).toEqual([
       { tier: 1, minLevel: 1, maxLevel: 1 },
       { tier: 2, minLevel: 2, maxLevel: 4 },

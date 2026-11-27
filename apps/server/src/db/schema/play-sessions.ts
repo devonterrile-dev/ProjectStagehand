@@ -15,7 +15,7 @@
  * Its events stay: they are the record of the night (§8 `session_events`).
  * Only `src/campaigns/play-sessions.ts` queries these tables.
  */
-import { SESSION_LOG_KINDS } from '@stagehand/shared';
+import { ROLL_EDGES, SESSION_LOG_KINDS } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -188,6 +188,9 @@ export const sessionEvents = pgTable(
   ],
 );
 
+/** A call's advantage or disadvantage (F5.1): none, or the ruleset's advantage die added or taken. */
+export const rollEdge = pgEnum('roll_edge', ROLL_EDGES);
+
 /**
  * Rolls the GM has called and their players haven't made yet (F3.6, governance §9). One per PC
  * at a time: a new call replaces the one waiting. A call goes when it is rolled or taken back,
@@ -215,6 +218,7 @@ export const playRollCalls = pgTable(
     /** Players see neither the difficulty nor the result until the GM reveals it. */
     difficultyHidden: boolean('difficulty_hidden').notNull(),
     label: text('label'),
+    edge: rollEdge('edge').default('none').notNull(),
     calledBy: uuid('called_by').references(() => users.id, { onDelete: 'set null' }),
     calledAt: timestamp('called_at', { withTimezone: true }).defaultNow().notNull(),
   },

@@ -225,6 +225,13 @@
       "when": 1795473615258,
       "tag": "0031_visual_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795736526187,
+      "tag": "0032_roll_edge",
+      "breakpoints": true
     }
   ]
 }

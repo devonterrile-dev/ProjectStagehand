@@ -16,6 +16,7 @@ import {
   partyMemberSchema,
   resolveActionRoll,
   rollCallSchema,
+  rollEdgeSchema,
   rollResultSchema,
   rulesetFor,
   sessionLogEntrySchema,
@@ -27,6 +28,8 @@ import {
   type FearSpend,
   type PartyMember,
   type RollCall,
+  type RollEdge,
+  type RollEdgeDie,
   type RollResult,
   type Ruleset,
   type SessionLogEntry,
@@ -48,7 +51,7 @@ import {
 import { httpError } from '../http/errors';
 import { shownName } from '../users/profile';
 
-import { freeRollEventSchema } from './free-rolls';
+import { freeRollEventSchema, type RollAny } from './free-rolls';
 import type { DbOrTx } from './members';
 import type { CampaignScope } from './scope';
 import { lockRunning, logEvent, running, type SessionRow } from './session-core';
@@ -71,6 +74,9 @@ const rollEventSchema = z.object({
   dice: z.object({ hope: z.int(), fear: z.int() }),
   modifier: z.int(),
   hopeBonus: z.int(),
+  /** Advantage or disadvantage (F5.1) and its die; left out of rolls logged before F5.1. */
+  edge: rollEdgeSchema.optional(),
+  edgeDie: z.int().nullable().optional(),
   total: z.int(),
   critical: z.boolean(),
   success: z.boolean(),
@@ -185,10 +191,16 @@ export async function callRolls(
     difficulty: number;
     hidden: boolean;
     label?: string | undefined;
+    edge?: RollEdge | undefined;
   },
 ): Promise<void> {
-  if (!traitIdsOf(rulesetOf(scope)).includes(request.trait)) {
+  const ruleset = rulesetOf(scope);
+  if (!traitIdsOf(ruleset).includes(request.trait)) {
     throw httpError(400, 'Choose one of the traits');
+  }
+  const edge = request.edge ?? 'none';
+  if (edge !== 'none' && ruleset.advantageDie === undefined) {
+    throw httpError(400, "This campaign's ruleset has no advantage or disadvantage");
   }
   await db.transaction(async (tx) => {
     const session = await lockRunning(tx, scope);
@@ -213,6 +225,7 @@ export async function callRolls(
         difficulty: request.difficulty,
         difficultyHidden: request.hidden,
         label: request.label ?? null,
+        edge,
         calledBy: scope.userId,
       })),
     );
@@ -237,14 +250,16 @@ export async function cancelRollCall(
 
 /**
  * A player makes the roll called for their own PC (§9, §13 `roll:make`): the server rolls the
- * Hope die and the Fear die, the engine resolves them, and the PC's Hope, the GM's Fear, the
- * call and the log change together. Answers the PC whose sheet changed.
+ * Hope die and the Fear die, and the advantage die for a call with an edge (F5.1); the engine
+ * resolves them, and the PC's Hope, the GM's Fear, the call and the log change together.
+ * Answers the PC whose sheet changed.
  */
 export async function makeRoll(
   db: Database,
   scope: CampaignScope,
   request: { callId: string; spendHope: boolean },
   rollDie: RollDie,
+  rollAny: RollAny,
 ): Promise<{ characterId: string }> {
   return db.transaction(async (tx) => {
     const session = await lockRunning(tx, scope);
@@ -288,6 +303,11 @@ export async function makeRoll(
     const traits = await effectiveTraitsOf(tx, scope, pc, ruleset);
     const modifier = traits[call.trait] ?? 0;
     const dice = { hope: rollDie(), fear: rollDie() };
+    // A call is only stored with an edge when the ruleset has an advantage die (callRolls).
+    const edge: RollEdgeDie | null =
+      call.edge === 'none' || ruleset.advantageDie === undefined
+        ? null
+        : { kind: call.edge, die: rollAny(ruleset.advantageDie) };
     const result = resolveActionRoll({
       dice,
       modifier,
@@ -297,10 +317,11 @@ export async function makeRoll(
       hope: pc.hope,
       fear: session.fear,
       ruleset,
+      edge,
     });
     if (!result.ok) {
       if (result.reason === 'NO_HOPE') throw httpError(409, 'You have no Hope to spend');
-      throw new Error('the dice were not d12 faces');
+      throw new Error(`the roll was refused: ${result.reason}`);
     }
 
     if (result.hope !== pc.hope) {
@@ -329,6 +350,8 @@ export async function makeRoll(
       dice,
       modifier,
       hopeBonus: result.hopeBonus,
+      edge: edge?.kind ?? 'none',
+      edgeDie: edge?.die ?? null,
       total: result.total,
       critical: result.critical,
       success: result.success,
@@ -475,6 +498,8 @@ function toRollResult(
     dice: roll.dice,
     modifier: roll.modifier,
     hopeBonus: roll.hopeBonus,
+    edge: roll.edge ?? 'none',
+    edgeDie: roll.edgeDie ?? null,
     total: roll.total,
     critical: roll.critical,
     gained: roll.gained,
@@ -543,6 +568,7 @@ export async function rollStageOf(
       difficulty: forPlayers && row.call.difficultyHidden ? null : row.call.difficulty,
       hidden: row.call.difficultyHidden,
       label: row.call.label,
+      edge: row.call.edge,
     });
 
   const rollRow = await latest(db, session, 'roll');

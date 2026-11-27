@@ -23,6 +23,14 @@ export const FEAR_REASON_MAX = 120;
 
 export const difficultySchema = z.int().min(1).max(DIFFICULTY_MAX);
 
+/**
+ * A called roll's edge (F5.1, D-71): advantage adds the ruleset's advantage die (a d6) to the
+ * total, disadvantage takes it away. One or the other, never both. Players see it openly.
+ */
+export const ROLL_EDGES = ['none', 'advantage', 'disadvantage'] as const;
+export const rollEdgeSchema = z.enum(ROLL_EDGES);
+export type RollEdge = z.infer<typeof rollEdgeSchema>;
+
 /** A roll waiting for its player. A player's copy leaves out a hidden difficulty. */
 export const rollCallSchema = z.object({
   id: z.uuid(),
@@ -34,6 +42,7 @@ export const rollCallSchema = z.object({
   difficulty: difficultySchema.nullable(),
   hidden: z.boolean(),
   label: z.string().nullable(),
+  edge: rollEdgeSchema,
 });
 export type RollCall = z.infer<typeof rollCallSchema>;
 
@@ -51,6 +60,9 @@ export const rollResultSchema = z.object({
   modifier: z.int(),
   /** The bonus for spending Hope; 0 when none was spent. */
   hopeBonus: z.int().nonnegative(),
+  edge: rollEdgeSchema,
+  /** The advantage die as it landed; null for a roll with no edge. */
+  edgeDie: z.int().positive().nullable(),
   total: z.int(),
   critical: z.boolean(),
   gained: z.enum(['hope', 'fear']),
@@ -109,6 +121,7 @@ export const rollCallRequestSchema = z.strictObject({
   difficulty: difficultySchema,
   hidden: z.boolean(),
   label,
+  edge: rollEdgeSchema.default('none'),
 });
 export type RollCallRequest = z.input<typeof rollCallRequestSchema>;
 
@@ -245,14 +258,18 @@ export function signed(value: number): string {
 
 /**
  * A roll in words, as the GM's log and the table's slip say it:
- * "7 + 9 + 2 + 3 = 21 vs 12: success with Hope". The difficulty part is left out when the copy
- * has none (a hidden roll in a player's copy).
+ * "7 + 9 + 2 + 3 = 21 vs 12: success with Hope", and with an edge (F5.1) "… + 4 (advantage) = 25"
+ * or "… − 4 (disadvantage) = 17". The difficulty part is left out when the copy has none (a
+ * hidden roll in a player's copy).
  */
 export function describeRoll(roll: RollResult): string {
   let sum = `${String(roll.dice.hope)} + ${String(roll.dice.fear)}`;
   if (roll.modifier > 0) sum += ` + ${String(roll.modifier)}`;
   if (roll.modifier < 0) sum += ` − ${String(-roll.modifier)}`;
   if (roll.hopeBonus > 0) sum += ` + ${String(roll.hopeBonus)}`;
+  if (roll.edge !== 'none' && roll.edgeDie !== null) {
+    sum += ` ${roll.edge === 'advantage' ? '+' : '−'} ${String(roll.edgeDie)} (${roll.edge})`;
+  }
   sum += ` = ${String(roll.total)}`;
   const outcome = roll.critical
     ? 'critical success'

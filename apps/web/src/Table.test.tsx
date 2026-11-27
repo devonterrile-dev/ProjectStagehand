@@ -347,6 +347,7 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
       difficulty: 12,
       hidden: false,
       label: 'Climb the wall',
+      edge: 'none',
       ...overrides,
     };
   }
@@ -452,6 +453,8 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
       dice: { hope: 9, fear: 4 },
       modifier: 2,
       hopeBonus: 3,
+      edge: 'none',
+      edgeDie: null,
       total: 18,
       critical: false,
       gained: 'hope',

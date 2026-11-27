@@ -632,6 +632,7 @@ export {
   type ActionRollOutcome,
   type ActionRollRefusal,
   type ActionRollResult,
+  type RollEdgeDie,
   type RollGain,
 } from './rules';
 export {
@@ -650,9 +651,11 @@ export {
   makeRollRequestSchema,
   partyMemberSchema,
   revealRollRequestSchema,
+  ROLL_EDGES,
   ROLL_LABEL_MAX,
   rollCallRequestSchema,
   rollCallSchema,
+  rollEdgeSchema,
   rollResultSchema,
   SESSION_LOG_KINDS,
   sessionLogEntrySchema,
@@ -675,6 +678,7 @@ export {
   type RevealRollRequest,
   type RollCall,
   type RollCallRequest,
+  type RollEdge,
   type RollResult,
   type SessionLogEntry,
   type SessionLogKind,

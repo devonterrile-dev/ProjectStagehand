@@ -37,7 +37,7 @@ import {
   signIn,
 } from '../../test/auth-helpers';
 import type { DbHandle } from '../db/client';
-import { assets, campaignMembers, characters, records, users } from '../db/schema';
+import { assets, campaignMembers, campaigns, characters, records, users } from '../db/schema';
 
 import { EMOTE_GAP_MS, EVENT_BUDGET } from './socket';
 
@@ -1044,6 +1044,94 @@ describe('The live room', () => {
       });
       const kinds = (await logOf(campaign)).json<{ entries: { kind: string }[] }>().entries;
       expect(kinds.filter((entry) => entry.kind === 'roll_reveal')).toHaveLength(1);
+      await end(campaign);
+    });
+
+    it('rolls a d6 with advantage or disadvantage, shown openly, and logs it (F5.1)', async () => {
+      const { campaign, mira, bram, director, first, second } = await rollTable('Edge Roll');
+      // A call with no edge says none.
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [bram],
+        trait: 'agility',
+        difficulty: 10,
+        hidden: false,
+      });
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 15,
+        hidden: true,
+        edge: 'advantage',
+      });
+      const calls = await waitForCalls(first.client, 2);
+      expect(calls.find((entry) => entry.characterId === bram)).toMatchObject({ edge: 'none' });
+      // Players see the edge even while the difficulty is hidden.
+      const called = calls.find((entry) => entry.characterId === mira);
+      expect(called).toMatchObject({ edge: 'advantage', difficulty: null });
+
+      dice.push(3, 5);
+      faces.push(4);
+      await act(first.client, PLAY_SOCKET.makeRoll, { callId: called?.id, spendHope: false });
+      await vi.waitFor(() => {
+        expect(playerView(second.client).lastRoll).not.toBeNull();
+      });
+      expect(playerView(second.client).lastRoll).toMatchObject({
+        edge: 'advantage',
+        edgeDie: 4,
+        total: 14,
+        success: null,
+      });
+      expect(gmView(director.client).lastRoll).toMatchObject({ total: 14, success: false });
+
+      await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 10,
+        hidden: false,
+        edge: 'disadvantage',
+      });
+      const [again] = (await waitForCalls(first.client, 2)).filter(
+        (entry) => entry.characterId === mira,
+      );
+      dice.push(8, 2);
+      faces.push(3);
+      await act(first.client, PLAY_SOCKET.makeRoll, { callId: again?.id, spendHope: false });
+      await vi.waitFor(() => {
+        expect(gmView(director.client).lastRoll).toMatchObject({
+          edge: 'disadvantage',
+          edgeDie: 3,
+          total: 9,
+          success: false,
+          gained: 'hope',
+        });
+      });
+
+      const entries = (await logOf(campaign)).json<{ entries: { kind: string; text: string }[] }>()
+        .entries;
+      expect(entries.filter((entry) => entry.kind === 'roll').map((entry) => entry.text)).toEqual([
+        'Mira rolled Agility: 8 + 2 + 2 − 3 (disadvantage) = 9 vs 10: failure with Hope',
+        'Mira rolled Agility, hidden: 3 + 5 + 2 + 4 (advantage) = 14 vs 15: failure with Fear',
+      ]);
+      await end(campaign);
+    });
+
+    it('refuses an edge on a ruleset without an advantage die (F5.1)', async () => {
+      const { campaign, mira, director } = await rollTable('Edge V1');
+      await handle.db
+        .update(campaigns)
+        .set({ rulesetVersion: 1 })
+        .where(eq(campaigns.id, campaign.id));
+      const refused = await act(director.client, PLAY_SOCKET.callRoll, {
+        characterIds: [mira],
+        trait: 'agility',
+        difficulty: 10,
+        hidden: false,
+        edge: 'advantage',
+      });
+      expect(refused).toEqual({
+        ok: false,
+        message: "This campaign's ruleset has no advantage or disadvantage",
+      });
       await end(campaign);
     });
 

@@ -25,6 +25,8 @@ const roll: RollResult = {
   dice: { hope: 9, fear: 4 },
   modifier: 2,
   hopeBonus: 3,
+  edge: 'none',
+  edgeDie: null,
   total: 18,
   critical: false,
   gained: 'hope',
@@ -59,6 +61,15 @@ describe('describeRoll', () => {
     );
   });
 
+  it('adds the die with advantage and takes it away with disadvantage (F5.1)', () => {
+    expect(describeRoll({ ...roll, edge: 'advantage', edgeDie: 4, total: 22 })).toBe(
+      '9 + 4 + 2 + 3 + 4 (advantage) = 22 vs 12: success with Hope',
+    );
+    expect(
+      describeRoll({ ...roll, hopeBonus: 0, edge: 'disadvantage', edgeDie: 5, total: 10 }),
+    ).toBe('9 + 4 + 2 − 5 (disadvantage) = 10 vs 12: success with Hope');
+  });
+
   it('names a critical', () => {
     expect(describeRoll({ ...roll, dice: { hope: 5, fear: 5 }, critical: true })).toContain(
       'critical success with Hope',
@@ -74,6 +85,11 @@ describe('the requests', () => {
       false,
     );
     expect(rollCallRequestSchema.safeParse({ ...call, difficulty: 0 }).success).toBe(false);
+    expect(rollCallRequestSchema.parse(call).edge).toBe('none');
+    expect(rollCallRequestSchema.parse({ ...call, edge: 'disadvantage' }).edge).toBe(
+      'disadvantage',
+    );
+    expect(rollCallRequestSchema.safeParse({ ...call, edge: 'both' }).success).toBe(false);
     expect(spendFearRequestSchema.parse({ amount: 1, reason: '' }).reason).toBeUndefined();
   });
 });

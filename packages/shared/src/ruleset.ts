@@ -90,6 +90,11 @@ export interface Ruleset {
   readonly levelUpPicks?: number;
   /** The level-up options and each tier list's counts (F4.9, §9). */
   readonly levelUpOptions?: readonly LevelUpOptionRule[];
+  /**
+   * The die a called roll with advantage adds, or with disadvantage takes away (F5.1, D-71).
+   * Added to v2 under D-59; v1 has none, so its calls have no edge.
+   */
+  readonly advantageDie?: number;
 }
 
 const option = (
@@ -158,6 +163,7 @@ const RULESET_V2: Ruleset = Object.freeze({
     option('proficiency', '+1 Proficiency (two marks)', FROM_TIER_3, 1, 2),
     option('multiclass', 'Multiclass: take a second class (two marks)', FROM_TIER_3, 1, 2),
   ]),
+  advantageDie: 6,
 });
 
 /** Every published ruleset, by version. */

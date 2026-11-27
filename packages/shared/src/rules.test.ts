@@ -41,6 +41,7 @@ describe('resolveActionRoll', () => {
       ok: true,
       total: 12,
       hopeBonus: 0,
+      edgeBonus: 0,
       critical: false,
       success: true,
       gained: 'hope',
@@ -148,6 +149,72 @@ describe('resolveActionRoll', () => {
     expect(roll({ fear: 12, dice: { hope: 1, fear: 2 } })).toMatchObject({
       gained: 'fear',
       fear: 12,
+    });
+  });
+
+  describe('advantage and disadvantage (F5.1)', () => {
+    it('adds the die with advantage', () => {
+      expect(roll({ edge: { kind: 'advantage', die: 4 } })).toMatchObject({
+        ok: true,
+        total: 16,
+        edgeBonus: 4,
+        gained: 'hope',
+      });
+    });
+
+    it('takes the die away with disadvantage, which can make it fail', () => {
+      expect(roll({ edge: { kind: 'disadvantage', die: 3 } })).toMatchObject({
+        total: 9,
+        edgeBonus: -3,
+        success: false,
+        gained: 'hope',
+        hope: 3,
+      });
+    });
+
+    it('adds up with the Hope bonus', () => {
+      expect(
+        roll({ spendHope: true, edge: { kind: 'advantage', die: 6 }, dice: { hope: 2, fear: 9 } }),
+      ).toMatchObject({ total: 20, hopeBonus: 2, edgeBonus: 6, hope: 1, fear: 4 });
+    });
+
+    it('leaves a critical a success, and the d12s alone decide who gains', () => {
+      expect(
+        roll({
+          dice: { hope: 2, fear: 2 },
+          difficulty: 30,
+          edge: { kind: 'disadvantage', die: 6 },
+        }),
+      ).toMatchObject({ total: -1, critical: true, success: true, gained: 'hope' });
+      expect(
+        roll({ dice: { hope: 3, fear: 9 }, edge: { kind: 'advantage', die: 6 } }),
+      ).toMatchObject({ gained: 'fear', fear: 4 });
+    });
+
+    it('treats null as no edge', () => {
+      expect(roll({ edge: null })).toMatchObject({ total: 12, edgeBonus: 0 });
+    });
+
+    it('refuses a die that is not a face of the advantage die', () => {
+      expect(roll({ edge: { kind: 'advantage', die: 0 } })).toEqual({
+        ok: false,
+        reason: 'BAD_DIE',
+      });
+      expect(roll({ edge: { kind: 'disadvantage', die: 7 } })).toEqual({
+        ok: false,
+        reason: 'BAD_DIE',
+      });
+      expect(roll({ edge: { kind: 'advantage', die: 2.5 } })).toEqual({
+        ok: false,
+        reason: 'BAD_DIE',
+      });
+    });
+
+    it('refuses an edge on a ruleset without an advantage die (v1)', () => {
+      expect(roll({ ruleset: rulesetFor(1), edge: { kind: 'advantage', die: 3 } })).toEqual({
+        ok: false,
+        reason: 'NO_EDGE_DIE',
+      });
     });
   });
 });

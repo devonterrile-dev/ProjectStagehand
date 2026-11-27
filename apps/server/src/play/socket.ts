@@ -558,7 +558,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       makeRollRequestSchema,
       'Choose a called roll',
       async (scope, request) => {
-        const { characterId } = await makeRoll(db, scope, request, rollDie);
+        const { characterId } = await makeRoll(db, scope, request, rollDie, rollAny);
         return { logged: true, sheets: [characterId] };
       },
     );
