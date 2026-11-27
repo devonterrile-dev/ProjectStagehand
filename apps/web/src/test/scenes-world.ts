@@ -33,6 +33,8 @@ export interface SceneSeed {
   name: string;
   spotId?: string | null;
   objects?: SceneObjectInput[];
+  /** Its likely next scenes (F5.2), in order. */
+  nextSceneIds?: string[];
 }
 
 export interface ScenesWorldOptions {
@@ -53,6 +55,7 @@ interface StoredScene {
   name: string;
   spotId: string | null;
   objects: SceneObjectInput[];
+  nextSceneIds: string[];
   updatedAt: string;
 }
 
@@ -82,6 +85,7 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
         name: seed.name,
         spotId: seed.spotId ?? null,
         objects: [...(seed.objects ?? [])],
+        nextSceneIds: [...(seed.nextSceneIds ?? [])],
         updatedAt: '2026-11-14T10:00:00.000Z',
       }));
       stores.set(campaignId, scenes);
@@ -166,12 +170,17 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
           ];
         }),
         suggestions: [...suggested.values()].sort(byName).flatMap(toStageRecord),
+        // Like the server: a deleted scene is gone from every list.
+        nextScenes: liveNext(scene).map((next) => ({ id: next.id, name: next.name })),
         createdAt: '2026-11-14T10:00:00.000Z',
         updatedAt: scene.updatedAt,
       };
     };
 
     const scenes = scenesOf(found.id);
+    function liveNext(scene: StoredScene): StoredScene[] {
+      return scene.nextSceneIds.flatMap((nextId) => scenes.filter((other) => other.id === nextId));
+    }
     const archived = () =>
       found.archivedAt === null ? null : ctx.refused(409, 'Campaign is archived');
 
@@ -201,6 +210,7 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
             type: shown.type,
             spot: shown.spot === null ? null : { id: shown.spot.id, name: shown.spot.name },
             objectCount: shown.objects.length,
+            nextSceneIds: shown.nextScenes.map((next) => next.id),
             updatedAt: shown.updatedAt,
           };
         });
@@ -218,6 +228,7 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
           name: parsed.data.name,
           spotId,
           objects: [],
+          nextSceneIds: [],
           updatedAt: '2026-11-14T11:00:00.000Z',
         };
         scenes.push(created);
@@ -271,10 +282,17 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
     if (method === 'PATCH') {
       const parsed = updateSceneRequestSchema.safeParse(rawBody);
       if (!parsed.success) return ctx.invalid(parsed.error.issues);
-      const { name, spotId } = parsed.data;
+      const { name, spotId, nextSceneIds } = parsed.data;
       if (spotId != null && spotOf(spotId) === null) return ctx.notFound('Spot not found');
+      if (nextSceneIds?.includes(scene.id) === true) {
+        return ctx.refused(400, "A scene can't lead to itself");
+      }
+      if (nextSceneIds?.some((nextId) => !scenes.some((other) => other.id === nextId)) === true) {
+        return ctx.notFound('Scene not found');
+      }
       if (name !== undefined) scene.name = name;
       if (spotId !== undefined) scene.spotId = spotId;
+      if (nextSceneIds !== undefined) scene.nextSceneIds = nextSceneIds;
       scene.updatedAt = '2026-11-14T12:00:00.000Z';
       return Response.json(present(scene));
     }

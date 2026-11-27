@@ -722,6 +722,7 @@ export {
 } from './sheet-parts';
 export {
   createSceneRequestSchema,
+  LIKELY_NEXT_MAX,
   PROP_MOUNTS,
   propMountSchema,
   SCENE_MAX_OBJECTS,

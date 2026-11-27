@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createSceneRequestSchema,
+  LIKELY_NEXT_MAX,
   SCENE_MAX_OBJECTS,
   SCENE_SCALE,
   sceneObjectInputSchema,
@@ -78,6 +79,20 @@ describe('updateSceneRequestSchema', () => {
     expect(updateSceneRequestSchema.safeParse({}).success).toBe(false);
     expect(updateSceneRequestSchema.safeParse({ name: null }).success).toBe(false);
     expect(updateSceneRequestSchema.safeParse({ objects: [] }).success).toBe(false);
+  });
+
+  it('takes up to 6 likely next scenes, each once, and an empty list (F5.2)', () => {
+    const six = [1, 2, 3, 4, 5, 6].map(id);
+    expect(LIKELY_NEXT_MAX).toBe(6);
+    expect(updateSceneRequestSchema.safeParse({ nextSceneIds: six }).success).toBe(true);
+    expect(updateSceneRequestSchema.safeParse({ nextSceneIds: [] }).success).toBe(true);
+    expect(updateSceneRequestSchema.safeParse({ nextSceneIds: [...six, id(7)] }).success).toBe(
+      false,
+    );
+    expect(updateSceneRequestSchema.safeParse({ nextSceneIds: [id(1), id(1)] }).success).toBe(
+      false,
+    );
+    expect(updateSceneRequestSchema.safeParse({ nextSceneIds: ['nope'] }).success).toBe(false);
   });
 });
 

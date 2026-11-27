@@ -40,6 +40,12 @@ export type PropMount = z.infer<typeof propMountSchema>;
  */
 export const SCENE_MAX_OBJECTS = STAGE_MAX_OBJECTS - SESSION_MAX_PLAYERS;
 
+/**
+ * Most likely next scenes a scene lists (F5.2, 19.28): the scenes it probably leads to, in order,
+ * which the desk shows first while it is loaded.
+ */
+export const LIKELY_NEXT_MAX = 6;
+
 /** An object's size against its image's own (1). The database checks the same range. */
 export const SCENE_SCALE = { min: 0.25, max: 2.5, initial: 1 } as const;
 
@@ -139,6 +145,8 @@ export const sceneSchema = z.object({
   objects: z.array(sceneObjectSchema),
   /** The Spot's Props here, NPCs usually here and Items here, sorted by name. */
   suggestions: z.array(stageRecordSchema),
+  /** The scenes this one probably leads to (F5.2), in the GM's order. */
+  nextScenes: z.array(z.object({ id: z.uuid(), name: z.string() })),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -151,6 +159,8 @@ export const sceneSummarySchema = z.object({
   type: sceneTypeSchema,
   spot: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   objectCount: z.int(),
+  /** Its likely next scenes (F5.2), in order; their names are in the same list. */
+  nextSceneIds: z.array(z.uuid()),
   updatedAt: timestamp,
 });
 export type SceneSummary = z.infer<typeof sceneSummarySchema>;
@@ -169,11 +179,19 @@ export const createSceneRequestSchema = z.strictObject({
 });
 export type CreateSceneRequest = z.infer<typeof createSceneRequestSchema>;
 
-/** `PATCH …/scenes/:sceneId`. Any subset of the keys; a null Spot leaves the back wall bare. */
+/**
+ * `PATCH …/scenes/:sceneId`. Any subset of the keys; a null Spot leaves the back wall bare.
+ * `nextSceneIds` replaces the likely next scenes whole, in order (F5.2); empty clears them.
+ */
 export const updateSceneRequestSchema = z
   .strictObject({
     name: sceneNameSchema.optional(),
     spotId: z.uuid().nullable().optional(),
+    nextSceneIds: z
+      .array(z.uuid())
+      .max(LIKELY_NEXT_MAX, `A scene lists at most ${String(LIKELY_NEXT_MAX)} likely next scenes`)
+      .refine((ids) => new Set(ids).size === ids.length, 'A scene is listed twice')
+      .optional(),
   })
   .refine((patch) => Object.keys(patch).length > 0, 'Nothing to update');
 export type UpdateSceneRequest = z.infer<typeof updateSceneRequestSchema>;

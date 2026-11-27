@@ -28,6 +28,7 @@ import {
   campaignMembers,
   campaigns,
   records,
+  sceneNext,
   sceneObjects,
   scenes,
   users,
@@ -641,6 +642,87 @@ describe('Scenes API', () => {
     });
   });
 
+  describe('likely next scenes (F5.2)', () => {
+    const patch = (sceneId: string, nextSceneIds: string[], c = campaign) =>
+      call('PATCH', `${base(c)}/${sceneId}`, gm, { nextSceneIds });
+
+    it('starts empty, then sets, reorders and clears the list, in the list endpoint too', async () => {
+      const c = await newCampaign('Leading On');
+      const docks = await created({ name: 'Docks' }, c);
+      const fire = await created({ name: 'Warehouse fire' }, c);
+      const master = await created({ name: 'Harbour master' }, c);
+      expect(docks.nextScenes).toEqual([]);
+
+      const set = await patch(docks.id, [fire.id, master.id], c);
+      expect(set.statusCode, set.body).toBe(200);
+      expect(set.json<Scene>().nextScenes).toEqual([
+        { id: fire.id, name: 'Warehouse fire' },
+        { id: master.id, name: 'Harbour master' },
+      ]);
+      expect(set.json<Scene>().updatedAt > docks.updatedAt).toBe(true);
+      expect((await list(c)).find((entry) => entry.id === docks.id)?.nextSceneIds).toEqual([
+        fire.id,
+        master.id,
+      ]);
+
+      expect((await patch(docks.id, [master.id, fire.id], c)).json<Scene>().nextScenes).toEqual([
+        { id: master.id, name: 'Harbour master' },
+        { id: fire.id, name: 'Warehouse fire' },
+      ]);
+      // A rename on the scene listed shows on the next read.
+      await call('PATCH', `${base(c)}/${master.id}`, gm, { name: 'The harbour master' });
+      expect((await loaded(docks.id, c)).nextScenes[0]?.name).toBe('The harbour master');
+
+      expect((await patch(docks.id, [], c)).json<Scene>().nextScenes).toEqual([]);
+      expect((await list(c)).every((entry) => entry.nextSceneIds.length === 0)).toBe(true);
+    });
+
+    it('leaves the list alone when a patch changes something else', async () => {
+      const c = await newCampaign('Kept Lists');
+      const a = await created({ name: 'A' }, c);
+      const b = await created({ name: 'B' }, c);
+      await patch(a.id, [b.id], c);
+      const renamed = await call('PATCH', `${base(c)}/${a.id}`, gm, { name: 'A again' });
+      expect(renamed.json<Scene>().nextScenes).toEqual([{ id: b.id, name: 'B' }]);
+    });
+
+    it('refuses the scene itself, a repeat, a seventh, and scenes it cannot find', async () => {
+      const c = await newCampaign('Bad Lists');
+      const docks = await created({ name: 'Docks' }, c);
+      const fire = await created({ name: 'Warehouse fire' }, c);
+      const six: string[] = [];
+      for (let n = 1; n <= 6; n += 1)
+        six.push((await created({ name: `Next ${String(n)}` }, c)).id);
+      const elsewhere = await created({ name: 'Elsewhere' }, other);
+      await patch(docks.id, [fire.id], c);
+
+      const itself = await patch(docks.id, [fire.id, docks.id], c);
+      expect(itself.statusCode).toBe(400);
+      expect(itself.json<{ message: string }>().message).toBe("A scene can't lead to itself");
+      expect((await patch(docks.id, [fire.id, fire.id], c)).statusCode).toBe(400);
+      expect((await patch(docks.id, [...six, fire.id], c)).statusCode).toBe(400);
+      expect((await patch(docks.id, six, c)).statusCode).toBe(200);
+      expect((await patch(docks.id, [elsewhere.id], c)).statusCode).toBe(404);
+      expect((await patch(docks.id, [randomUUID()], c)).statusCode).toBe(404);
+      // Nothing refused was written: the six from the good patch are still there.
+      expect((await loaded(docks.id, c)).nextScenes.map((entry) => entry.id)).toEqual(six);
+    });
+
+    it('drops a deleted scene from every list, and a deleted scene takes its own list along', async () => {
+      const c = await newCampaign('Deleted Leads');
+      const a = await created({ name: 'A' }, c);
+      const b = await created({ name: 'B' }, c);
+      const gone = await created({ name: 'Gone' }, c);
+      await patch(a.id, [gone.id, b.id], c);
+      await patch(gone.id, [a.id], c);
+
+      expect((await call('DELETE', `${base(c)}/${gone.id}`, gm)).statusCode).toBe(204);
+      expect((await loaded(a.id, c)).nextScenes).toEqual([{ id: b.id, name: 'B' }]);
+      const rows = await handle.db.select().from(sceneNext).where(eq(sceneNext.campaignId, c.id));
+      expect(rows).toEqual([expect.objectContaining({ sceneId: a.id, nextSceneId: b.id })]);
+    });
+  });
+
   describe('players and archived campaigns', () => {
     it('keeps players out of a real scene', async () => {
       const scene = await created({ name: 'GM Eyes Only' });
@@ -649,6 +731,7 @@ describe('Scenes API', () => {
       for (const [method, path, body] of [
         ['GET', url, undefined],
         ['PATCH', url, { name: 'Mine Now' }],
+        ['PATCH', url, { nextSceneIds: [] }],
         ['PUT', `${url}/objects`, { objects: [] }],
         ['DELETE', url, undefined],
         ['GET', base(campaign), undefined],
@@ -672,6 +755,7 @@ describe('Scenes API', () => {
       for (const [method, path, body] of [
         ['POST', base(c), { name: 'New' }],
         ['PATCH', url, { name: 'Thawed' }],
+        ['PATCH', url, { nextSceneIds: [] }],
         ['PUT', `${url}/objects`, { objects: [] }],
         ['DELETE', url, undefined],
       ] as const) {

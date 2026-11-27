@@ -28,7 +28,7 @@ import { and, asc, count, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/client';
-import { characters, recordLinks, records, sceneObjects, scenes } from '../db/schema';
+import { characters, recordLinks, records, sceneNext, sceneObjects, scenes } from '../db/schema';
 import { httpError } from '../http/errors';
 
 import type { DbOrTx } from './members';
@@ -196,6 +196,15 @@ async function toScene(db: DbOrTx, scope: CampaignScope, row: SceneRow): Promise
     .where(and(eq(sceneObjects.sceneId, row.id), eq(sceneObjects.campaignId, scope.campaignId)))
     .orderBy(asc(sceneObjects.position));
   const suggested = spot === null ? [] : await suggestionsFor(db, scope, spot.id);
+  const nextScenes = await db
+    .select({ id: scenes.id, name: scenes.name })
+    .from(sceneNext)
+    .innerJoin(
+      scenes,
+      and(eq(scenes.id, sceneNext.nextSceneId), eq(scenes.campaignId, sceneNext.campaignId)),
+    )
+    .where(and(eq(sceneNext.sceneId, row.id), eq(sceneNext.campaignId, scope.campaignId)))
+    .orderBy(asc(sceneNext.position));
 
   const assetIds = [spot, ...placed, ...suggested].flatMap((source) => {
     const assetId = source?.visualAssetId ?? null;
@@ -222,6 +231,7 @@ async function toScene(db: DbOrTx, scope: CampaignScope, row: SceneRow): Promise
       mount: object.mount,
     })),
     suggestions: toStageRecords(suggested, images),
+    nextScenes,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   });
@@ -273,6 +283,18 @@ export async function listScenes(db: Database, scope: CampaignScope): Promise<Sc
     .groupBy(scenes.id, spot.id)
     .orderBy(asc(sql`lower(${scenes.name})`), asc(scenes.createdAt));
 
+  const links = await db
+    .select({ sceneId: sceneNext.sceneId, nextSceneId: sceneNext.nextSceneId })
+    .from(sceneNext)
+    .where(eq(sceneNext.campaignId, scope.campaignId))
+    .orderBy(asc(sceneNext.sceneId), asc(sceneNext.position));
+  const nextOf = new Map<string, string[]>();
+  for (const link of links) {
+    const list = nextOf.get(link.sceneId) ?? [];
+    list.push(link.nextSceneId);
+    nextOf.set(link.sceneId, list);
+  }
+
   return rows.map((row) =>
     sceneSummarySchema.parse({
       id: row.id,
@@ -283,6 +305,7 @@ export async function listScenes(db: Database, scope: CampaignScope): Promise<Sc
           ? null
           : { id: row.spotId, name: row.spotName },
       objectCount: row.objectCount,
+      nextSceneIds: nextOf.get(row.id) ?? [],
       updatedAt: row.updatedAt.toISOString(),
     }),
   );
@@ -317,7 +340,10 @@ export async function createScene(
   return toScene(db, scope, row);
 }
 
-/** Renames a scene, or gives it another Spot (or none). Last write wins. */
+/**
+ * Renames a scene, gives it another Spot (or none), or replaces its likely next scenes (F5.2):
+ * other scenes of this campaign, in order, never itself. Last write wins.
+ */
 export async function updateScene(
   db: Database,
   scope: CampaignScope,
@@ -325,16 +351,51 @@ export async function updateScene(
   patch: UpdateSceneRequest,
 ): Promise<Scene> {
   if (patch.spotId != null) await requireSpot(db, scope, patch.spotId);
-  const [row] = await db
-    .update(scenes)
-    .set({
-      ...(patch.name === undefined ? {} : { name: patch.name }),
-      ...(patch.spotId === undefined ? {} : { spotId: patch.spotId }),
-    })
-    .where(scoped(scope, sceneId))
-    .returning();
-  if (row === undefined) throw httpError(404, NOT_FOUND);
-  return toScene(db, scope, row);
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(scenes)
+      .set({
+        ...(patch.name === undefined ? {} : { name: patch.name }),
+        ...(patch.spotId === undefined ? {} : { spotId: patch.spotId }),
+        // Always something to set, so a change to the list alone still moves `updatedAt` on.
+        updatedAt: new Date(),
+      })
+      .where(scoped(scope, sceneId))
+      .returning();
+    if (row === undefined) throw httpError(404, NOT_FOUND);
+    if (patch.nextSceneIds !== undefined)
+      await setNextScenes(tx, scope, row.id, patch.nextSceneIds);
+    return toScene(tx, scope, row);
+  });
+}
+
+/** Makes `sceneId` list exactly `nextSceneIds`, in that order (F5.2). */
+async function setNextScenes(
+  tx: DbOrTx,
+  scope: CampaignScope,
+  sceneId: string,
+  nextSceneIds: readonly string[],
+): Promise<void> {
+  if (nextSceneIds.includes(sceneId)) throw httpError(400, "A scene can't lead to itself");
+  if (nextSceneIds.length > 0) {
+    const found = await tx
+      .select({ id: scenes.id })
+      .from(scenes)
+      .where(and(inArray(scenes.id, [...nextSceneIds]), eq(scenes.campaignId, scope.campaignId)));
+    if (found.length !== nextSceneIds.length) throw httpError(404, NOT_FOUND);
+  }
+  await tx
+    .delete(sceneNext)
+    .where(and(eq(sceneNext.sceneId, sceneId), eq(sceneNext.campaignId, scope.campaignId)));
+  if (nextSceneIds.length === 0) return;
+  await tx.insert(sceneNext).values(
+    nextSceneIds.map((nextSceneId, position) => ({
+      sceneId,
+      nextSceneId,
+      campaignId: scope.campaignId,
+      position,
+    })),
+  );
 }
 
 /** Deletes a scene and everything placed in it. The records themselves are untouched. */

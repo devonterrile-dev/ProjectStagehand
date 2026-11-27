@@ -24,6 +24,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -121,5 +122,36 @@ export const sceneObjects = pgTable(
       'scene_objects_mount_only_props',
       sql`(${table.kind} = 'prop') = (${table.mount} is not null)`,
     ),
+  ],
+);
+
+/**
+ * A scene's likely next scenes (F5.2, 19.28): the scenes it probably leads to, in the GM's order,
+ * which the desk lists first while it is loaded. A scene lists another at most once and never
+ * itself; deleting either scene removes the row. Both scenes are in `campaign_id`: checked by
+ * the data layer.
+ */
+export const sceneNext = pgTable(
+  'scene_next',
+  {
+    sceneId: uuid('scene_id')
+      .notNull()
+      .references(() => scenes.id, { onDelete: 'cascade' }),
+    nextSceneId: uuid('next_scene_id')
+      .notNull()
+      .references(() => scenes.id, { onDelete: 'cascade' }),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Its place in the scene's list. */
+    position: integer('position').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sceneId, table.nextSceneId] }),
+    /** The cascade when the next scene is deleted. */
+    index('scene_next_next_scene_id_idx').on(table.nextSceneId),
+    index('scene_next_campaign_id_idx').on(table.campaignId),
+    check('scene_next_not_itself', sql`${table.sceneId} <> ${table.nextSceneId}`),
+    check('scene_next_position', sql`${table.position} >= 0`),
   ],
 );
