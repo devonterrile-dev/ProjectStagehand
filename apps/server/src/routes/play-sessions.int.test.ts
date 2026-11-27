@@ -28,6 +28,8 @@ import {
   setCurtain,
   setLiveObjectShown,
   setRecordRevealed,
+  setTravelPlaying,
+  settlePasses,
   stagesOf,
 } from '../campaigns/play-sessions';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
@@ -369,6 +371,8 @@ describe('Live sessions API', () => {
         sceneLoad: 0,
         curtainOpen: false,
         backdrop: null,
+        // No transition scene loaded (F5.4).
+        travel: null,
         objects: [],
         // Fear where it starts, Rest off (F4.7), and no rolls yet (F3.6).
         rest: false,
@@ -400,9 +404,11 @@ describe('Live sessions API', () => {
           scale: object.scale,
           flipped: object.flipped,
           mount: object.mount,
+          passFrom: null,
           subject: { kind: 'record', ...object.record, revealed: false },
           image: object.image,
           shown: object.shown,
+          travelMode: object.travelMode,
         })),
       );
       expect(forGm.objects.map((object) => object.shown)).toEqual([true, false, false]);
@@ -426,6 +432,7 @@ describe('Live sessions API', () => {
           scale: 1,
           flipped: false,
           mount: 'stand',
+          passFrom: null,
           image: { assetId: well.assetId, width: 640, height: 1024, version: 3 },
           // Opening the curtain on it revealed it, so players may inspect it (F3.5).
           recordId: well.record.id,
@@ -1116,6 +1123,245 @@ describe('Live sessions API', () => {
 
       expect(await status(anchor.assetId, player)).toBe(404);
       expect(await status(backdropAsset, player)).toBe(404);
+    });
+  });
+
+  describe('transition scenes (F5.4)', () => {
+    let road: CampaignRecord;
+    let crate: Awaited<ReturnType<typeof drawn>>;
+    let gull: Awaited<ReturnType<typeof drawn>>;
+    let walker: Awaited<ReturnType<typeof drawn>>;
+    let roadScene: Scene;
+    let scope: CampaignScope;
+    /** The travel clock's time in these tests: each passes its own `now`. */
+    const T = Date.now();
+    const seconds = (n: number) => T + n * 1000;
+
+    const objectOf = <T extends { id: string }>(stage: { objects: T[] }, id: string | undefined) =>
+      stage.objects.find((object) => object.id === id);
+    const idOf = (target: { record: { id: string } }) =>
+      roadScene.objects.find((object) => object.record.id === target.record.id)?.id ?? '';
+    async function stagesAt(now: number) {
+      const both = await stagesOf(handle.db, scope, now);
+      if (both === null) throw new Error('no session is running');
+      return both;
+    }
+
+    beforeAll(async () => {
+      road = await record({
+        type: 'spot',
+        name: 'Coastal Road',
+        parentId: area.id,
+        fields: { spotType: 'transition' },
+      });
+      await giveImage(road, 'backdrop');
+      crate = await drawn('prop', 'Fallen crate');
+      gull = await drawn('npc', 'A watching gull');
+      walker = await drawn('npc', 'Pip the guide');
+      roadScene = await scene('Along the coast', road.id, [
+        at(crate.record.id, { shown: true }),
+        at(gull.record.id, { travelMode: 'stationary', up: 0.1 }),
+        at(walker.record.id, { up: 0.1 }),
+      ]);
+      scope = await scopeOf(gm);
+      if ((await running(gm)) !== null) await end();
+      await start();
+    });
+
+    afterAll(async () => {
+      if ((await running(gm)) !== null) await end();
+    });
+
+    it('is a transition scene from its Spot, with every prop saved hidden and each NPC set', async () => {
+      expect(roadScene.type).toBe('transition');
+      expect(roadScene.objects.map((object) => [object.shown, object.travelMode])).toEqual([
+        [false, null],
+        [false, 'stationary'],
+        [false, 'walking'],
+      ]);
+      const list = await call('GET', `/api/campaigns/${campaign.id}/scenes`, gm);
+      const listed = list.json<{ scenes: { id: string; type: string }[] }>().scenes;
+      expect(listed.find((summary) => summary.id === roadScene.id)?.type).toBe('transition');
+    });
+
+    it('loads paused at the start of its travel, with nothing passing', async () => {
+      await loadSceneLive(handle.db, scope, roadScene.id);
+
+      const { gm: forGm, player: forPlayers } = await stagesAt(seconds(0));
+      expect(forGm.travel).toEqual({ playing: false, distance: 0 });
+      expect(forPlayers.travel).toEqual({ playing: false, distance: 0 });
+      expect(forGm.objects.map((object) => [object.shown, object.passFrom])).toEqual([
+        [false, null],
+        [false, null],
+        [false, null],
+      ]);
+      expect(forGm.objects.map((object) => object.travelMode)).toEqual([
+        null,
+        'stationary',
+        'walking',
+      ]);
+    });
+
+    it('plays one backdrop width every 12 seconds, and pauses where it is', async () => {
+      await setTravelPlaying(handle.db, scope, true, seconds(0));
+      expect((await stagesAt(seconds(6))).gm.travel).toEqual({ playing: true, distance: 0.5 });
+
+      await setTravelPlaying(handle.db, scope, false, seconds(6));
+      expect((await stagesAt(seconds(60))).gm.travel).toEqual({ playing: false, distance: 0.5 });
+      // Pausing again changes nothing.
+      await setTravelPlaying(handle.db, scope, false, seconds(90));
+      expect((await stagesAt(seconds(90))).player.travel).toEqual({
+        playing: false,
+        distance: 0.5,
+      });
+    });
+
+    it('passes a prop shown from where the travel is, and ends the pass one width on', async () => {
+      await setTravelPlaying(handle.db, scope, true, seconds(100));
+      await setLiveObjectShown(handle.db, scope, idOf(crate), 'prop', true, seconds(106));
+
+      const passing = await stagesAt(seconds(106));
+      expect(objectOf(passing.gm, idOf(crate))).toMatchObject({ shown: true, passFrom: 1 });
+      expect(objectOf(passing.player, idOf(crate))).toMatchObject({ passFrom: 1 });
+
+      // Just before the end it is still passing; just after, the views count it hidden at once.
+      expect(objectOf((await stagesAt(seconds(117.9))).gm, idOf(crate))?.shown).toBe(true);
+      const over = await stagesAt(seconds(118));
+      expect(objectOf(over.gm, idOf(crate))).toMatchObject({ shown: false, passFrom: null });
+      expect(objectOf(over.player, idOf(crate))).toBeUndefined();
+
+      expect(await settlePasses(handle.db, scope, seconds(118))).toBe(true);
+      const [row] = await handle.db
+        .select({ shown: playSessionObjects.shown, passFrom: playSessionObjects.passFrom })
+        .from(playSessionObjects)
+        .where(eq(playSessionObjects.id, idOf(crate)));
+      expect(row).toEqual({ shown: false, passFrom: null });
+      expect(await settlePasses(handle.db, scope, seconds(119))).toBe(false);
+    });
+
+    it('passes a stationary NPC raised, revealed as it comes into sight; a walking one stays', async () => {
+      await setCurtain(handle.db, scope, true, seconds(120));
+      await setLiveObjectShown(handle.db, scope, idOf(gull), 'puppet', true, seconds(120));
+      await setLiveObjectShown(handle.db, scope, idOf(walker), 'puppet', true, seconds(120));
+
+      const { gm: forGm } = await stagesAt(seconds(120));
+      // 0.5 when it paused, then 20 s at a width every 12 s.
+      expect(objectOf(forGm, idOf(gull))).toMatchObject({ shown: true });
+      expect(objectOf(forGm, idOf(gull))?.passFrom).toBeCloseTo(0.5 + 20 / 12);
+      expect(objectOf(forGm, idOf(walker))).toMatchObject({ shown: true, passFrom: null });
+      const [revealed] = await handle.db
+        .select({ revealedAt: records.revealedAt })
+        .from(records)
+        .where(eq(records.id, gull.record.id));
+      expect(revealed?.revealedAt).not.toBeNull();
+    });
+
+    it("refuses to move a passer across, and sets an NPC's travel only while it waits below", async () => {
+      const across = moveLiveObject(
+        handle.db,
+        scope,
+        { id: idOf(gull), across: 0.2 },
+        seconds(121),
+      );
+      await expect(across).rejects.toMatchObject({ statusCode: 409 });
+      // Up, depth and the rest still work while it passes.
+      await moveLiveObject(handle.db, scope, { id: idOf(gull), depthTick: 3 }, seconds(121));
+
+      const raised = moveLiveObject(
+        handle.db,
+        scope,
+        { id: idOf(walker), travelMode: 'stationary' },
+        seconds(121),
+      );
+      await expect(raised).rejects.toMatchObject({ statusCode: 409 });
+      const onProp = moveLiveObject(
+        handle.db,
+        scope,
+        { id: idOf(crate), travelMode: 'walking' },
+        seconds(121),
+      );
+      await expect(onProp).rejects.toMatchObject({ statusCode: 400 });
+
+      await setLiveObjectShown(handle.db, scope, idOf(walker), 'puppet', false, seconds(121));
+      await moveLiveObject(
+        handle.db,
+        scope,
+        { id: idOf(walker), travelMode: 'stationary' },
+        seconds(121),
+      );
+      expect(objectOf((await stagesAt(seconds(121))).gm, idOf(walker))?.travelMode).toBe(
+        'stationary',
+      );
+    });
+
+    it('ends a pass when the passer is lowered, and passes a prop added in sight', async () => {
+      await setLiveObjectShown(handle.db, scope, idOf(gull), 'puppet', false, seconds(122));
+      expect(objectOf((await stagesAt(seconds(122))).gm, idOf(gull))).toMatchObject({
+        shown: false,
+        passFrom: null,
+      });
+
+      const added = randomUUID();
+      await addLiveObject(
+        handle.db,
+        scope,
+        { id: added, recordId: crate.record.id, shown: true },
+        seconds(123),
+      );
+      expect(objectOf((await stagesAt(seconds(123))).gm, added)).toMatchObject({
+        shown: true,
+        travelMode: null,
+      });
+      expect(objectOf((await stagesAt(seconds(123))).gm, added)?.passFrom).toBeCloseTo(
+        0.5 + 23 / 12,
+      );
+    });
+
+    it('starts again from the start, paused, when the scene is loaded again', async () => {
+      await loadSceneLive(handle.db, scope, roadScene.id);
+      const { gm: forGm } = await stagesAt(seconds(200));
+      expect(forGm.travel).toEqual({ playing: false, distance: 0 });
+      expect(forGm.objects.every((object) => object.passFrom === null && !object.shown)).toBe(true);
+    });
+
+    it('refuses play and pause in a static scene, and has no travel there', async () => {
+      const square = await record({ type: 'spot', name: 'Quiet Square', parentId: area.id });
+      const still = await scene('Standing still', square.id, [at(crate.record.id)]);
+      expect(still.type).toBe('static');
+      expect(still.objects[0]?.shown).toBe(true);
+      await loadSceneLive(handle.db, scope, still.id);
+
+      expect((await stagesAt(seconds(300))).gm.travel).toBeNull();
+      await expect(setTravelPlaying(handle.db, scope, true, seconds(300))).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Load a transition scene first',
+      });
+    });
+
+    it('keeps a playing clock off a static scene, and a pass off what is out of sight', async () => {
+      const [session] = await handle.db
+        .select({ id: playSessions.id })
+        .from(playSessions)
+        .where(and(eq(playSessions.campaignId, campaign.id), isNull(playSessions.endedAt)));
+      const clock = await handle.db
+        .update(playSessions)
+        .set({ transition: false, travelSince: new Date() })
+        .where(eq(playSessions.id, session?.id ?? ''))
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(pgCode(clock)).toBe('23514');
+
+      const pass = await handle.db
+        .update(playSessionObjects)
+        .set({ shown: false, passFrom: 1 })
+        .where(eq(playSessionObjects.playSessionId, session?.id ?? ''))
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(pgCode(pass)).toBe('23514');
     });
   });
 });

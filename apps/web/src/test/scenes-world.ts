@@ -166,6 +166,7 @@ export function scenesWorld(options: ScenesWorldOptions, ctx: Ctx) {
               flipped: object.flipped,
               shown: kind === 'prop' ? (object.shown ?? true) : false,
               mount: kind === 'prop' ? (object.mount ?? 'stand') : null,
+              travelMode: kind === 'puppet' ? (object.travelMode ?? 'walking') : null,
             },
           ];
         }),

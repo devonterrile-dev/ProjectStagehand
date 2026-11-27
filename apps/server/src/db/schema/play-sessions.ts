@@ -36,7 +36,7 @@ import {
 import { users } from './auth';
 import { campaigns, characters } from './campaigns';
 import { records } from './records';
-import { propMount, sceneObjectKind, scenes } from './scenes';
+import { propMount, sceneObjectKind, scenes, travelMode } from './scenes';
 
 export const playSessions = pgTable(
   'play_sessions',
@@ -63,6 +63,18 @@ export const playSessions = pgTable(
     fear: integer('fear').notNull(),
     /** The GM's Rest switch (F4.7): while on, PCs move domain cards between loadout and vault free. */
     rest: boolean('rest').default(false).notNull(),
+    /**
+     * The loaded scene is a transition scene (F5.4): its Spot's type, copied at the load like the
+     * Spot, so changing the Spot mid-session can't stop a pass halfway.
+     */
+    transition: boolean('transition').default(false).notNull(),
+    /**
+     * The travel clock (F5.4, `travelDistance` in the shared package): how far the transition
+     * scene had gone, in opening widths, when it last paused, and since when it has been playing
+     * (null while paused). A scene load sets it back to the start, paused.
+     */
+    travelDistance: doublePrecision('travel_distance').default(0).notNull(),
+    travelSince: timestamp('travel_since', { withTimezone: true }),
   },
   (table) => [
     uniqueIndex('play_sessions_campaign_number_unique').on(table.campaignId, table.number),
@@ -76,6 +88,11 @@ export const playSessions = pgTable(
     check('play_sessions_number', sql`${table.number} >= 1`),
     check('play_sessions_scene_loads', sql`${table.sceneLoads} >= 0`),
     check('play_sessions_fear', sql`${table.fear} >= 0`),
+    check('play_sessions_travel_distance', sql`${table.travelDistance} >= 0`),
+    check(
+      'play_sessions_travel_only_transition',
+      sql`${table.travelSince} is null or ${table.transition}`,
+    ),
   ],
 );
 
@@ -107,6 +124,14 @@ export const playSessionObjects = pgTable(
     shown: boolean('shown').notNull(),
     /** A prop's stand or string; null for a puppet, which is on a stick. */
     mount: propMount('mount'),
+    /** An NPC puppet's travel in a transition scene (F5.4); null for a prop and a PC, who walks. */
+    travelMode: travelMode('travel_mode'),
+    /**
+     * Passing by in a transition scene (F5.4): the travel distance at which a prop was shown or a
+     * stationary NPC raised. Its place across comes from the clock from then on; the pass is
+     * over `PASS_SPAN` later, when it goes back to hidden. Null when it isn't passing.
+     */
+    passFrom: doublePrecision('pass_from'),
     /** Its place in the stage's list. */
     position: integer('position').notNull(),
   },
@@ -143,6 +168,16 @@ export const playSessionObjects = pgTable(
     check(
       'play_session_objects_mount_only_props',
       sql`(${table.kind} = 'prop') = (${table.mount} is not null)`,
+    ),
+    /** Every NPC puppet has a travel mode (F5.4); props and PCs have none. */
+    check(
+      'play_session_objects_travel_mode_only_npcs',
+      sql`(${table.kind} = 'puppet' and ${table.recordId} is not null) = (${table.travelMode} is not null)`,
+    ),
+    /** Only what is in sight passes by (F5.4). */
+    check(
+      'play_session_objects_passing_shown',
+      sql`${table.passFrom} is null or (${table.shown} and ${table.passFrom} >= 0)`,
     ),
   ],
 );

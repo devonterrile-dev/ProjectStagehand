@@ -71,6 +71,7 @@ export function placeRecord(
     flipped: false,
     shown: isProp,
     mount: isProp ? 'stand' : null,
+    travelMode: isProp ? null : 'walking',
   };
 }
 

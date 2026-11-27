@@ -3,7 +3,8 @@
  * a listening server and a real Postgres: who may connect, joining and waiting, each role's
  * view of the stage, the GM's actions and a player trying them, the 6-player cap, coming back
  * after a drop, ending, and a removed member; rolls, Hope and Fear (F3.6), with fixed dice; and
- * puppet motion (F3.7): emotes and who is talking; free rolls from the dice tray (F4.2).
+ * puppet motion (F3.7): emotes and who is talking; free rolls from the dice tray (F4.2); and a
+ * transition scene's travel (F5.4), on a clock the tests move.
  */
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -37,7 +38,15 @@ import {
   signIn,
 } from '../../test/auth-helpers';
 import type { DbHandle } from '../db/client';
-import { assets, campaignMembers, campaigns, characters, records, users } from '../db/schema';
+import {
+  assets,
+  campaignMembers,
+  campaigns,
+  characters,
+  playSessionObjects,
+  records,
+  users,
+} from '../db/schema';
 
 import { EMOTE_GAP_MS, EVENT_BUDGET } from './socket';
 
@@ -76,6 +85,9 @@ const faces: number[] = [];
 
 const WAIT_MS = 3000;
 
+/** How far the live room's clock is ahead of the real one (F5.4): tests move it on. */
+const clock = { ahead: 0 };
+
 describe('The live room', () => {
   let app: FastifyInstance;
   let handle: DbHandle;
@@ -89,6 +101,7 @@ describe('The live room', () => {
     ({ app, handle } = await buildTestApp({
       rollDie: () => dice.shift() ?? 6,
       rollAny: () => faces.shift() ?? 1,
+      now: () => Date.now() + clock.ahead,
     }));
     await app.listen({ port: 0, host: '127.0.0.1' });
     ({ port } = app.server.address() as AddressInfo);
@@ -1918,6 +1931,117 @@ describe('The live room', () => {
         });
         expect(voicing(director.client)).toBeNull();
       }
+      await end(campaign);
+    });
+  });
+
+  describe('travel in a transition scene (F5.4)', () => {
+    /** A running session on a transition Spot's scene: a crate to pass by and a guide who walks. */
+    async function roadTable(name: string) {
+      const campaign = await table(name, 1);
+      const made = await call('POST', `/api/campaigns/${campaign.id}/records`, gm, {
+        type: 'area',
+        name: 'The coast',
+      });
+      const road = await call('POST', `/api/campaigns/${campaign.id}/records`, gm, {
+        type: 'spot',
+        name: 'Coastal Road',
+        parentId: made.json<CampaignRecord>().id,
+        fields: { spotType: 'transition' },
+      });
+      expect(road.statusCode, road.body).toBe(201);
+      const crate = await drawn(campaign, 'prop', 'Fallen crate');
+      const guide = await drawn(campaign, 'npc', 'Pip the guide');
+      const created = await call('POST', `/api/campaigns/${campaign.id}/scenes`, gm, {
+        name: 'Along the coast',
+        spotId: road.json<CampaignRecord>().id,
+      });
+      const placed = await call(
+        'PUT',
+        `/api/campaigns/${campaign.id}/scenes/${created.json<Scene>().id}/objects`,
+        gm,
+        { objects: [at(crate.id), at(guide.id)] },
+      );
+      expect(placed.statusCode, placed.body).toBe(200);
+      const roadScene = placed.json<Scene>();
+      await start(campaign);
+      const director = await seated(gm, campaign);
+      const watcher = await seated(players[0] ?? gm, campaign);
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: roadScene.id })).toEqual({
+        ok: true,
+      });
+      expect(await act(director.client, PLAY_SOCKET.openCurtain)).toEqual({ ok: true });
+      const [crateId = '', guideId = ''] = roadScene.objects.map((object) => object.id);
+      return { campaign, director, watcher, crateId, guideId };
+    }
+
+    it('plays and pauses for everyone, the GM only, and only in a transition scene', async () => {
+      const { campaign, director, watcher } = await roadTable('Travelling Table');
+
+      expect(await act(watcher.client, PLAY_SOCKET.playTravel)).toEqual({
+        ok: false,
+        message: 'Only the GM can do that',
+      });
+      expect(await act(director.client, PLAY_SOCKET.playTravel)).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect((last(watcher.client.stages) as PlayerStage | undefined)?.travel?.playing).toBe(
+          true,
+        );
+      });
+
+      expect(await act(director.client, PLAY_SOCKET.pauseTravel)).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        const travel = (last(director.client.stages) as GmStage | undefined)?.travel;
+        expect(travel?.playing).toBe(false);
+        expect(travel?.distance).toBeGreaterThan(0);
+      });
+
+      // A static scene has no travel to play.
+      const still = await scene(campaign, 'Standing still', []);
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: still.id })).toEqual({
+        ok: true,
+      });
+      expect(await act(director.client, PLAY_SOCKET.playTravel)).toEqual({
+        ok: false,
+        message: 'Load a transition scene first',
+      });
+      await end(campaign);
+    });
+
+    it('sends a shown prop past, and takes it back to hidden when its pass ends', async () => {
+      const { campaign, director, watcher, crateId, guideId } = await roadTable('Passing Table');
+      expect(await act(director.client, PLAY_SOCKET.playTravel)).toEqual({ ok: true });
+      expect(await act(director.client, PLAY_SOCKET.showProp, { id: crateId })).toEqual({
+        ok: true,
+      });
+      expect(await act(director.client, PLAY_SOCKET.raisePuppet, { id: guideId })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => {
+        const objects = (last(watcher.client.stages) as PlayerStage | undefined)?.objects ?? [];
+        expect(objects.find((object) => object.id === crateId)?.passFrom).not.toBeNull();
+        // The guide walks with the party: no pass.
+        expect(objects.find((object) => object.id === guideId)?.passFrom).toBeNull();
+      });
+
+      // Move the clock on to just before the crate's pass ends; the next stage sets the timer.
+      clock.ahead += 12_000 - 150;
+      expect(await act(director.client, PLAY_SOCKET.closeCurtain)).toEqual({ ok: true });
+      await vi.waitFor(
+        () => {
+          const objects = (last(watcher.client.stages) as PlayerStage | undefined)?.objects ?? [];
+          expect(objects.some((object) => object.id === crateId)).toBe(false);
+          expect(objects.some((object) => object.id === guideId)).toBe(true);
+        },
+        { timeout: WAIT_MS },
+      );
+      await vi.waitFor(async () => {
+        const [row] = await handle.db
+          .select({ shown: playSessionObjects.shown, passFrom: playSessionObjects.passFrom })
+          .from(playSessionObjects)
+          .where(eq(playSessionObjects.id, crateId));
+        expect(row).toEqual({ shown: false, passFrom: null });
+      });
       await end(campaign);
     });
   });

@@ -31,6 +31,7 @@ import {
   makeRollRequestSchema,
   moveObjectRequestSchema,
   objectRequestSchema,
+  passEndsAt,
   PLAY_SOCKET,
   releaseRequestSchema,
   revealRollRequestSchema,
@@ -43,6 +44,7 @@ import {
   type ActionResult,
   type EmotePlayed,
   type CampaignRole,
+  type GmStage,
   type JoinResult,
 } from '@stagehand/shared';
 import { fromNodeHeaders } from 'better-auth/node';
@@ -62,6 +64,8 @@ import {
   removeLiveObject,
   setCurtain,
   setLiveObjectShown,
+  setTravelPlaying,
+  settlePasses,
   stagesOf,
 } from '../campaigns/play-sessions';
 import {
@@ -113,6 +117,8 @@ export interface PlaySocketDeps {
   rollDie?: RollDie;
   /** Rolls one die of a free roll (F4.2): a secure random 1 to `sides` unless a test passes its own. */
   rollAny?: RollAny;
+  /** The time, in milliseconds, for a transition scene's travel clock (F5.4); tests pass their own. */
+  now?: () => number;
 }
 
 /** What an action did beyond the stage, for the room to pass on (F3.6). */
@@ -169,6 +175,12 @@ export const EMOTE_GAP_MS = 800;
 export const FREE_ROLL_GAP_MS = 1000;
 const TOO_QUICK = 'Too quick: wait a moment';
 
+/**
+ * How long after a pass should end the live room writes it (F5.4): a little later, so the clock
+ * has surely passed it. Browsers draw the pass ending on their own clock meanwhile.
+ */
+export const PASS_SETTLE_SLACK_MS = 50;
+
 const ONLY_GM = 'Only the GM can do that';
 const ONLY_PLAYERS = 'Only players can do that';
 const NOT_JOINED = 'Join the session first';
@@ -178,6 +190,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
   const { auth, db, log } = deps;
   const rollDie = deps.rollDie ?? secureDie;
   const rollAny = deps.rollAny ?? secureAny;
+  const now = deps.now ?? Date.now;
   const nsp = io.of(PLAY_SOCKET.namespace) as PlayNamespace;
   const hub = new PlayHub();
 
@@ -224,13 +237,52 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       .emit(PLAY_SOCKET.presence, hub.presence(campaignId));
   }
 
+  /** Campaign id → the timer for the next pass to end in its transition scene (F5.4). */
+  const passTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function clearPassTimer(campaignId: string): void {
+    const timer = passTimers.get(campaignId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    passTimers.delete(campaignId);
+  }
+
+  /**
+   * Sets the timer for the next pass to end (F5.4), from the stage just sent: while the travel
+   * plays, the earliest end among the objects passing by. When it fires, the finished passes are
+   * written and the stage is sent again, which sets the timer for the one after.
+   */
+  function schedulePasses(scope: CampaignScope, gm: GmStage): void {
+    clearPassTimer(scope.campaignId);
+    if (gm.travel?.playing !== true) return;
+    const at = now();
+    const clock = { distance: gm.travel.distance, since: at };
+    const ends = gm.objects.flatMap((object) =>
+      object.passFrom === null ? [] : [passEndsAt(object.passFrom, clock, at) ?? at],
+    );
+    if (ends.length === 0) return;
+    const wait = Math.max(0, Math.min(...ends) - at) + PASS_SETTLE_SLACK_MS;
+    const timer = setTimeout(() => {
+      passTimers.delete(scope.campaignId);
+      void inTurn(scope.campaignId, 'passing by failed', async () => {
+        await settlePasses(db, scope, now());
+      }).then(() => sendStage(scope));
+    }, wait);
+    timer.unref();
+    passTimers.set(scope.campaignId, timer);
+  }
+
   /** Sends each role its view of the stage as it is now. */
   function sendStage(scope: CampaignScope): Promise<void> {
     return inTurn(scope.campaignId, 'live stage broadcast failed', async () => {
-      const stages = await stagesOf(db, scope);
-      if (stages === null) return;
+      const stages = await stagesOf(db, scope, now());
+      if (stages === null) {
+        clearPassTimer(scope.campaignId);
+        return;
+      }
       nsp.to(room.gm(scope.campaignId)).emit(PLAY_SOCKET.stage, stages.gm);
       nsp.to(room.player(scope.campaignId)).emit(PLAY_SOCKET.stage, stages.player);
+      schedulePasses(scope, stages.gm);
 
       // The NPC the GM voices left the stage, or went below (F3.8): the voice goes back.
       const voicing = hub.voicing(scope.campaignId);
@@ -281,7 +333,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
 
   /** Seats the connection in the campaign's session, or says why not. */
   async function admit(socket: PlaySocket, scope: CampaignScope): Promise<JoinResult> {
-    const stages = await stagesOf(db, scope);
+    const stages = await stagesOf(db, scope, now());
     if (stages === null) {
       wait(socket, scope.campaignId);
       return { status: 'no-session' };
@@ -456,14 +508,14 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       PLAY_SOCKET.addObject,
       addObjectRequestSchema,
       'Choose a record or a PC to add',
-      (scope, request) => addLiveObject(db, scope, request),
+      (scope, request) => addLiveObject(db, scope, request, now()),
       true,
     );
     onGm(
       PLAY_SOCKET.moveObject,
       moveObjectRequestSchema,
       'That place is not on the stage',
-      (scope, request) => moveLiveObject(db, scope, request),
+      (scope, request) => moveLiveObject(db, scope, request, now()),
     );
     onGm(PLAY_SOCKET.removeObject, objectRequestSchema, NOT_ON_STAGE, (scope, { id }) =>
       removeLiveObject(db, scope, id),
@@ -478,9 +530,22 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         event,
         objectRequestSchema,
         NOT_ON_STAGE,
-        (scope, { id }) => setLiveObjectShown(db, scope, id, kind, shown),
+        (scope, { id }) => setLiveObjectShown(db, scope, id, kind, shown, now()),
         shown,
       );
+    }
+
+    // Travel (F5.4): the loaded transition scene plays, or stops where it is.
+    for (const [event, playing] of [
+      [PLAY_SOCKET.playTravel, true],
+      [PLAY_SOCKET.pauseTravel, false],
+    ] as const) {
+      socket.on(event, (reply: unknown) => {
+        if (typeof reply !== 'function') return;
+        void act(socket, 'gm', reply as (result: ActionResult) => void, (scope) =>
+          setTravelPlaying(db, scope, playing, now()),
+        );
+      });
     }
 
     for (const [event, open] of [
@@ -493,7 +558,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
           socket,
           'gm',
           reply as (result: ActionResult) => void,
-          (scope) => setCurtain(db, scope, open),
+          (scope) => setCurtain(db, scope, open, now()),
           open,
         );
       });
@@ -657,6 +722,7 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
           .to(room.waiting(campaignId))
           .emit(PLAY_SOCKET.ended);
         hub.clear(campaignId);
+        clearPassTimer(campaignId);
         // Everyone who was in it now waits for the next one.
         for (const socket of nsp.sockets.values()) {
           const { seat } = socket.data;

@@ -34,6 +34,7 @@ export function playerObject(
     scale: 1,
     flipped: false,
     mount: 'stand',
+    passFrom: null,
     image: stageImage(n),
     recordId: id(300 + n),
     characterId: null,
@@ -50,6 +51,7 @@ export function gmObject(
     ...playerObject(n),
     subject: { kind: 'record', id: id(300 + n), type: 'prop', name, revealed: false },
     shown: true,
+    travelMode: null,
     ...overrides,
   };
 }
@@ -74,6 +76,7 @@ export function playerStage(overrides: Partial<PlayerStage> = {}): PlayerStage {
     sceneLoad: 1,
     curtainOpen: true,
     backdrop: stageImage(0),
+    travel: null,
     ...ROLL_STAGE,
     objects: [playerObject(1)],
     ...overrides,
@@ -87,6 +90,7 @@ export function gmStage(overrides: Partial<GmStage> = {}): GmStage {
     sceneLoad: 1,
     curtainOpen: true,
     backdrop: stageImage(0),
+    travel: null,
     ...ROLL_STAGE,
     scene: { id: id(400), name: 'Ambush at the market' },
     party: [],

@@ -499,6 +499,11 @@ describe('Scenes API', () => {
         [400, [at(smith.id), at(smith.id)], 'An NPC can only be in a scene once'],
         [
           400,
+          [at(well.id, { travelMode: 'walking' })],
+          'Only NPC puppets walk or stay where they are',
+        ],
+        [
+          400,
           [at(smith.id, { shown: true })],
           'Only props can be shown or hung: a puppet starts lowered, on a stick',
         ],
@@ -783,7 +788,13 @@ describe('Scenes API', () => {
         depthTick: 3,
         position: 0,
       };
-      const puppet = { ...row, kind: 'puppet' as const, recordId: npc.id, shown: false };
+      const puppet = {
+        ...row,
+        kind: 'puppet' as const,
+        recordId: npc.id,
+        shown: false,
+        travelMode: 'walking' as const,
+      };
       const standing = {
         ...row,
         kind: 'prop' as const,
@@ -795,6 +806,9 @@ describe('Scenes API', () => {
       for (const bad of [
         { ...puppet, shown: true },
         { ...puppet, mount: 'hang' as const },
+        // Every puppet has a travel mode, and a prop has none (F5.4).
+        { ...puppet, travelMode: null },
+        { ...standing, travelMode: 'walking' as const },
         { ...standing, mount: null },
         { ...standing, across: 1.5 },
         { ...standing, up: -0.5 },

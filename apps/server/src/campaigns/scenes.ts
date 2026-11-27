@@ -5,12 +5,16 @@
  *
  * A scene is drawn with images in use, never stored ones: its backdrop is its Spot's, and each
  * object shows its record's. `campaigns/visuals.ts` reads them (`stageImagesOf`).
+ *
+ * A scene's type is its Spot's, read with it (F5.4, D-75): a scene from a transition Spot is a
+ * transition scene, whose props are always saved hidden, since they pass by while it plays.
  */
 import {
   RECORD_TYPES,
   sceneObjectKindFor,
   sceneSchema,
   sceneSummarySchema,
+  spotTypeOf,
   stageRecordsResponseSchema,
   type CreateSceneRequest,
   type RECORD_FIELD_SPECS,
@@ -19,6 +23,7 @@ import {
   type SceneObjectInput,
   type SceneSpot,
   type SceneSummary,
+  type SceneType,
   type StageImage,
   type StageRecord,
   type StageRecordsResponse,
@@ -67,6 +72,11 @@ function scoped(scope: CampaignScope, sceneId: string) {
 const byName = (a: { name: string }, b: { name: string }) =>
   a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.name.localeCompare(b.name);
 
+/** A scene's type from its Spot's stored fields (F5.4): static with no Spot. */
+function sceneTypeOf(spotFields: Record<string, unknown> | null): SceneType {
+  return spotFields === null ? 'static' : spotTypeOf(spotFields);
+}
+
 /** A Spot of this campaign with its Area's name, or null. */
 async function loadSpot(db: DbOrTx, scope: CampaignScope, spotId: string) {
   const area = alias(records, 'area');
@@ -76,6 +86,7 @@ async function loadSpot(db: DbOrTx, scope: CampaignScope, spotId: string) {
       name: records.name,
       areaName: area.name,
       visualAssetId: records.visualAssetId,
+      fields: records.fields,
     })
     .from(records)
     .leftJoin(area, and(eq(area.id, records.parentId), eq(area.campaignId, records.campaignId)))
@@ -215,7 +226,7 @@ async function toScene(db: DbOrTx, scope: CampaignScope, row: SceneRow): Promise
   return sceneSchema.parse({
     id: row.id,
     name: row.name,
-    type: row.type,
+    type: sceneTypeOf(spot?.fields ?? null),
     spot: spot === null ? null : toSpot(spot, images),
     objects: placed.map(({ object, type, name, visualAssetId }) => ({
       id: object.id,
@@ -229,6 +240,7 @@ async function toScene(db: DbOrTx, scope: CampaignScope, row: SceneRow): Promise
       flipped: object.flipped,
       shown: object.shown,
       mount: object.mount,
+      travelMode: object.travelMode,
     })),
     suggestions: toStageRecords(suggested, images),
     nextScenes,
@@ -248,6 +260,8 @@ export async function sceneForStage(
 ): Promise<{
   name: string;
   spotId: string | null;
+  /** Its Spot is a transition Spot (F5.4). */
+  transition: boolean;
   objects: (typeof sceneObjects.$inferSelect)[];
 } | null> {
   const [scene] = await db
@@ -255,12 +269,18 @@ export async function sceneForStage(
     .from(scenes)
     .where(scoped(scope, sceneId));
   if (scene === undefined) return null;
+  const spot = scene.spotId === null ? null : await loadSpot(db, scope, scene.spotId);
   const objects = await db
     .select()
     .from(sceneObjects)
     .where(and(eq(sceneObjects.sceneId, sceneId), eq(sceneObjects.campaignId, scope.campaignId)))
     .orderBy(asc(sceneObjects.position));
-  return { name: scene.name, spotId: scene.spotId, objects };
+  return {
+    name: scene.name,
+    spotId: scene.spotId,
+    transition: sceneTypeOf(spot?.fields ?? null) === 'transition',
+    objects,
+  };
 }
 
 /** Every scene in the campaign, by name, with its Spot and how many objects it holds. */
@@ -270,9 +290,9 @@ export async function listScenes(db: Database, scope: CampaignScope): Promise<Sc
     .select({
       id: scenes.id,
       name: scenes.name,
-      type: scenes.type,
       spotId: spot.id,
       spotName: spot.name,
+      spotFields: spot.fields,
       objectCount: count(sceneObjects.id),
       updatedAt: scenes.updatedAt,
     })
@@ -299,7 +319,7 @@ export async function listScenes(db: Database, scope: CampaignScope): Promise<Sc
     sceneSummarySchema.parse({
       id: row.id,
       name: row.name,
-      type: row.type,
+      type: sceneTypeOf(row.spotId === null ? null : row.spotFields),
       spot:
         row.spotId === null || row.spotName === null
           ? null
@@ -322,8 +342,8 @@ export async function getScene(
 }
 
 /**
- * Creates an empty static scene, with a Spot's backdrop when one is given. Nothing is placed:
- * the Spot's Props, NPCs and Items come back as suggestions for the GM to place.
+ * Creates an empty scene, with a Spot's backdrop and type when one is given, else static.
+ * Nothing is placed: the Spot's Props, NPCs and Items come back as suggestions for the GM.
  */
 export async function createScene(
   db: Database,
@@ -418,7 +438,9 @@ export async function deleteScene(
  * other type can be placed. A newly placed record needs an image for the stage; an object that
  * was already in the scene keeps its place even if its record has lost its image. A puppet is
  * saved lowered and on its stick, so `shown` and `mount` are refused for one, and an NPC can be
- * placed once. Nothing is written unless the whole list is good.
+ * placed once. A puppet walks unless it is set stationary (F5.4); a prop has no travel mode.
+ * In a transition scene every prop is saved hidden: it passes by once shown (F5.4). Nothing is
+ * written unless the whole list is good.
  */
 export async function setSceneObjects(
   db: Database,
@@ -429,6 +451,8 @@ export async function setSceneObjects(
   return db.transaction(async (tx) => {
     const [scene] = await tx.select().from(scenes).where(scoped(scope, sceneId)).for('update');
     if (scene === undefined) throw httpError(404, NOT_FOUND);
+    const spot = scene.spotId === null ? null : await loadSpot(tx, scope, scene.spotId);
+    const transition = sceneTypeOf(spot?.fields ?? null) === 'transition';
 
     const ids = list.map((object) => object.id);
     const recordIds = [...new Set(list.map((object) => object.recordId))];
@@ -482,6 +506,8 @@ export async function setSceneObjects(
         }
         if (puppets.has(source.id)) throw httpError(400, 'An NPC can only be in a scene once');
         puppets.add(source.id);
+      } else if (object.travelMode !== undefined) {
+        throw httpError(400, 'Only NPC puppets walk or stay where they are');
       }
       return {
         id: object.id,
@@ -494,8 +520,9 @@ export async function setSceneObjects(
         depthTick: object.depthTick,
         scale: object.scale,
         flipped: object.flipped,
-        shown: kind === 'prop' ? (object.shown ?? true) : false,
+        shown: kind === 'prop' && !transition ? (object.shown ?? true) : false,
         mount: kind === 'prop' ? (object.mount ?? 'stand') : null,
+        travelMode: kind === 'puppet' ? (object.travelMode ?? 'walking') : null,
         position,
       };
     });

@@ -19,8 +19,12 @@ export const sceneNameSchema = z
   .min(1, 'Scene name cannot be empty')
   .max(SCENE_NAME_MAX, `Scene name must be ${String(SCENE_NAME_MAX)} characters or fewer`);
 
-/** §12 "Scene types". Only `static` can be made until Phase 4 (F4.1, F4.2). */
-export const SCENE_TYPES = ['static', 'transition', 'battle'] as const;
+/**
+ * §12 "Scene types". A scene's type is its Spot's (F5.4, D-75), worked out when it is read: a
+ * scene from a transition Spot is a transition scene, any other is static. Battles are a mode of
+ * the live session, not a scene type (D-71).
+ */
+export const SCENE_TYPES = ['static', 'transition'] as const;
 export const sceneTypeSchema = z.enum(SCENE_TYPES);
 export type SceneType = z.infer<typeof sceneTypeSchema>;
 
@@ -28,6 +32,14 @@ export type SceneType = z.infer<typeof sceneTypeSchema>;
 export const SCENE_OBJECT_KINDS = ['prop', 'puppet'] as const;
 export const sceneObjectKindSchema = z.enum(SCENE_OBJECT_KINDS);
 export type SceneObjectKind = z.infer<typeof sceneObjectKindSchema>;
+
+/**
+ * How an NPC puppet travels in a transition scene (F5.4): walking with the party, staying in
+ * place and stepping as it goes, or stationary, passed by like a prop. PCs always walk.
+ */
+export const TRAVEL_MODES = ['walking', 'stationary'] as const;
+export const travelModeSchema = z.enum(TRAVEL_MODES);
+export type TravelMode = z.infer<typeof travelModeSchema>;
 
 /** How a prop is held (§12): on a stand from below, or on a string from the roof. */
 export const PROP_MOUNTS = ['stand', 'hang'] as const;
@@ -132,6 +144,8 @@ export const sceneObjectSchema = z.object({
   shown: z.boolean(),
   /** Null for a puppet, which is always on a stick. */
   mount: propMountSchema.nullable(),
+  /** An NPC puppet's, for a transition scene (F5.4); null for a prop. */
+  travelMode: travelModeSchema.nullable(),
 });
 export type SceneObject = z.infer<typeof sceneObjectSchema>;
 
@@ -139,6 +153,7 @@ export type SceneObject = z.infer<typeof sceneObjectSchema>;
 export const sceneSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  /** Its Spot's type (F5.4); static with no Spot. */
   type: sceneTypeSchema,
   spot: sceneSpotSchema.nullable(),
   /** In list order: later objects on the same depth tick are drawn in front. */
@@ -170,8 +185,8 @@ export const sceneListResponseSchema = z.object({ scenes: z.array(sceneSummarySc
 export type SceneListResponse = z.infer<typeof sceneListResponseSchema>;
 
 /**
- * `POST /api/campaigns/:campaignId/scenes`. GM only; refused while archived. Always a static
- * scene. With a Spot, the scene starts with its backdrop; without, an empty theater.
+ * `POST /api/campaigns/:campaignId/scenes`. GM only; refused while archived. With a Spot, the
+ * scene starts with its backdrop and is of the Spot's type; without, an empty static theater.
  */
 export const createSceneRequestSchema = z.strictObject({
   name: sceneNameSchema,
@@ -199,7 +214,8 @@ export type UpdateSceneRequest = z.infer<typeof updateSceneRequestSchema>;
 /**
  * One object as the builder saves it. The browser makes the id, so an object keeps it from
  * the moment it is placed. Its kind comes from the record's type on the server. `shown` and
- * `mount` are for props only: left out, a prop is shown and on a stand.
+ * `mount` are for props only: left out, a prop is shown and on a stand; in a transition scene
+ * every prop is saved hidden (F5.4). `travelMode` is for puppets only: left out, walking.
  */
 export const sceneObjectInputSchema = z.strictObject({
   id: z.uuid(),
@@ -211,6 +227,7 @@ export const sceneObjectInputSchema = z.strictObject({
   flipped: z.boolean(),
   shown: z.boolean().optional(),
   mount: propMountSchema.optional(),
+  travelMode: travelModeSchema.optional(),
 });
 export type SceneObjectInput = z.infer<typeof sceneObjectInputSchema>;
 

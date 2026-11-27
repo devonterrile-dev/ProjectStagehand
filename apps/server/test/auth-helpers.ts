@@ -66,6 +66,8 @@ export async function buildTestApp(
     rollDie?: RollDie;
     /** The dice tray's dice (F4.2); secure random ones unless a test fixes them. */
     rollAny?: RollAny;
+    /** The live room's clock for travel (F5.4); the real one unless a test drives it. */
+    now?: () => number;
   } = {},
 ): Promise<{
   app: FastifyInstance;
@@ -147,6 +149,7 @@ export async function buildTestApp(
     activity: options.activity === true ? { clientId: DISCORD_CLIENT_ID } : undefined,
     rollDie: options.rollDie,
     rollAny: options.rollAny,
+    now: options.now,
     activityTest:
       options.activityTest === true
         ? { discord: { clientId: DISCORD_CLIENT_ID, clientSecret: 'test-client-secret' } }

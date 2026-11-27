@@ -100,6 +100,8 @@ export interface BuildAppOptions {
   rollDie?: RollDie | undefined;
   /** Rolls a die of a free roll (F4.2). A secure random roll unless a test fixes it. */
   rollAny?: RollAny | undefined;
+  /** The time for the live room's travel clock (F5.4), in milliseconds. `Date.now` unless a test sets it. */
+  now?: (() => number) | undefined;
 }
 
 /**
@@ -191,6 +193,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       log: app.log,
       ...(options.rollDie === undefined ? {} : { rollDie: options.rollDie }),
       ...(options.rollAny === undefined ? {} : { rollAny: options.rollAny }),
+      ...(options.now === undefined ? {} : { now: options.now }),
     });
     // Better Auth checks the origin of its own endpoints; everything else under /api is ours.
     // The Activity test's routes are called from Discord's proxy origin and carry no session.

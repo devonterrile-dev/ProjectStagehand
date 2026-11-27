@@ -53,6 +53,7 @@ describe('placeRecord', () => {
       flipped: false,
       shown: true,
       mount: 'stand',
+      travelMode: null,
     });
   });
 
@@ -62,6 +63,7 @@ describe('placeRecord', () => {
       up: 0.1,
       shown: false,
       mount: null,
+      travelMode: 'walking',
     });
   });
 

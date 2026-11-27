@@ -239,6 +239,13 @@
       "when": 1795740837316,
       "tag": "0033_likely_next_scenes",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795745936238,
+      "tag": "0034_transition_scenes",
+      "breakpoints": true
     }
   ]
 }

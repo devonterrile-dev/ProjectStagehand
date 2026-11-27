@@ -29,12 +29,14 @@ const placed = {
   scale: 1,
   flipped: false,
   mount: 'stand',
+  passFrom: null,
 };
 const stage = {
   session,
   sceneLoad: 1,
   curtainOpen: true,
   backdrop: image,
+  travel: null,
   rest: false,
   fear: 3,
   fearCap: 12,
@@ -93,6 +95,7 @@ describe('the GM’s stage', () => {
     subject: { kind: 'record', id: id(4), type: 'prop', name: 'The cursed well', revealed: false },
     image: null,
     shown: false,
+    travelMode: null,
   };
 
   it('holds a PC as a puppet, by name', () => {
@@ -103,10 +106,50 @@ describe('the GM’s stage', () => {
       subject: { kind: 'pc', id: id(6), name: 'Vex Tidecaller' },
       image,
       shown: true,
+      travelMode: null,
     };
     const parsed = gmStageSchema.parse({ role: 'gm', ...stage, scene: null, objects: [pc] });
 
     expect(parsed.objects).toEqual([pc]);
+  });
+
+  it("holds a transition scene's travel, what passes by and how each NPC travels (F5.4)", () => {
+    const npc = {
+      ...object,
+      kind: 'puppet',
+      mount: null,
+      subject: { kind: 'record', id: id(7), type: 'npc', name: 'Old Marta', revealed: true },
+      shown: true,
+      passFrom: 1.25,
+      travelMode: 'stationary',
+    };
+    const parsed = gmStageSchema.parse({
+      role: 'gm',
+      ...stage,
+      travel: { playing: true, distance: 1.5 },
+      scene: null,
+      objects: [npc],
+    });
+
+    expect(parsed.travel).toEqual({ playing: true, distance: 1.5 });
+    expect(parsed.objects).toEqual([npc]);
+    expect(
+      gmStageSchema.safeParse({
+        role: 'gm',
+        ...stage,
+        scene: null,
+        objects: [{ ...npc, travelMode: 'flying' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      gmStageSchema.safeParse({
+        role: 'gm',
+        ...stage,
+        travel: { playing: true, distance: -1 },
+        scene: null,
+        objects: [],
+      }).success,
+    ).toBe(false);
   });
 
   it('holds every object, in sight or not, with what it shows', () => {

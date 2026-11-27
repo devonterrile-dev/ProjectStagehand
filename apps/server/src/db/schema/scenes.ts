@@ -11,10 +11,13 @@
  * lowered: `shown` is a prop's flag and stays false for a puppet, whose place is where it will
  * rise to.
  *
+ * A scene has no type of its own: it is its Spot's, static or transition (F5.4, D-75), read with
+ * the Spot like the backdrop.
+ *
  * The record and the Spot must be in the scene's campaign, and of the right type: checked by
  * the data layer, as for `assets`. Only `src/campaigns/scenes.ts` queries these tables.
  */
-import { PROP_MOUNTS, SCENE_OBJECT_KINDS, SCENE_TYPES } from '@stagehand/shared';
+import { PROP_MOUNTS, SCENE_OBJECT_KINDS, TRAVEL_MODES } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -34,9 +37,10 @@ import {
 import { campaigns } from './campaigns';
 import { records } from './records';
 
-export const sceneType = pgEnum('scene_type', SCENE_TYPES);
 export const sceneObjectKind = pgEnum('scene_object_kind', SCENE_OBJECT_KINDS);
 export const propMount = pgEnum('prop_mount', PROP_MOUNTS);
+/** How an NPC puppet travels in a transition scene (F5.4). */
+export const travelMode = pgEnum('travel_mode', TRAVEL_MODES);
 
 export const scenes = pgTable(
   'scenes',
@@ -48,8 +52,6 @@ export const scenes = pgTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    /** Only `static` is made until Phase 4. */
-    type: sceneType('type').notNull().default('static'),
     /** The Spot whose image in use is the backdrop. Deleting the Spot leaves a bare wall. */
     spotId: uuid('spot_id').references(() => records.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -98,6 +100,8 @@ export const sceneObjects = pgTable(
     shown: boolean('shown').notNull(),
     /** A prop's stand or string; null for a puppet, which is on a stick. */
     mount: propMount('mount'),
+    /** A puppet's travel in a transition scene (F5.4): walking unless set; null for a prop. */
+    travelMode: travelMode('travel_mode'),
     /** Its place in the scene's list. */
     position: integer('position').notNull(),
   },
@@ -121,6 +125,10 @@ export const sceneObjects = pgTable(
     check(
       'scene_objects_mount_only_props',
       sql`(${table.kind} = 'prop') = (${table.mount} is not null)`,
+    ),
+    check(
+      'scene_objects_travel_mode_only_puppets',
+      sql`(${table.kind} = 'puppet') = (${table.travelMode} is not null)`,
     ),
   ],
 );

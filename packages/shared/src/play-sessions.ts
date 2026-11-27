@@ -17,6 +17,7 @@ import {
   scaleSchema,
   sceneObjectKindSchema,
   stageImageSchema,
+  travelModeSchema,
   unitSchema,
 } from './scenes';
 import { depthTickSchema } from './stage';
@@ -50,6 +51,12 @@ const placement = {
   flipped: z.boolean(),
   /** A prop's stand or string; null for a puppet, which is on a stick. */
   mount: propMountSchema.nullable(),
+  /**
+   * In a transition scene (F5.4), the travel distance at which it began to pass by: a prop
+   * shown or a stationary NPC raised. From then on its place across comes from the travel
+   * clock, not from `across`. Null when it isn't passing.
+   */
+  passFrom: z.number().nullable(),
 };
 
 /**
@@ -88,8 +95,20 @@ export const gmStageObjectSchema = z.object({
   image: stageImageSchema.nullable(),
   /** A prop that is shown, or a puppet that is raised. False: players get nothing of it. */
   shown: z.boolean(),
+  /** An NPC puppet's travel mode (F5.4); null for a prop, and for a PC, which always walks. */
+  travelMode: travelModeSchema.nullable(),
 });
 export type GmStageObject = z.infer<typeof gmStageObjectSchema>;
+
+/**
+ * A transition scene's travel (F5.4): playing or paused, and how far it has gone, in opening
+ * widths, when the stage was sent. While playing, a browser counts on from when it arrived.
+ */
+export const stageTravelSchema = z.object({
+  playing: z.boolean(),
+  distance: z.number().nonnegative(),
+});
+export type StageTravel = z.infer<typeof stageTravelSchema>;
 
 /** What both views share. */
 const stage = {
@@ -102,6 +121,8 @@ const stage = {
   curtainOpen: z.boolean(),
   /** The loaded scene's Spot's image in use; null leaves the back wall bare. */
   backdrop: stageImageSchema.nullable(),
+  /** The loaded scene's travel (F5.4); null unless it is a transition scene. */
+  travel: stageTravelSchema.nullable(),
   /** Fear, the calls waiting and the last roll (F3.6); see `rolls.ts`. */
   ...rollStage,
 };
@@ -175,6 +196,8 @@ export type Presence = z.infer<typeof presenceSchema>;
  *   raised puppet; a player on their own PC's. At most one a connection every 800 ms.
  * - `freeRoll` (F4.2, `rolls.ts`): `freeRollRequestSchema` → `actionResultSchema`. Anyone at
  *   the table; only the GM may roll privately. At most one a connection every second.
+ * - `playTravel`, `pauseTravel` (F5.4): no payload → `actionResultSchema`. GM only, while a
+ *   transition scene is loaded: its travel plays, or stops where it is.
  * - `takeOverNpc` (F3.8): `objectRequestSchema` → `actionResultSchema`. GM only: a raised NPC
  *   puppet's voice becomes the GM's (presence `voicing`). `releaseNpc`: `releaseRequestSchema`
  *   → `actionResultSchema`. Lowering, removing or loading a scene over that NPC releases it.
@@ -232,6 +255,8 @@ export const PLAY_SOCKET = {
   logChanged: 'log:changed',
   emote: 'emote',
   speaking: 'speaking',
+  playTravel: 'transition:play',
+  pauseTravel: 'transition:pause',
   takeOverNpc: 'npc:takeover',
   releaseNpc: 'npc:release',
 } as const;
@@ -288,7 +313,11 @@ export const addObjectRequestSchema = z
   );
 export type AddObjectRequest = z.infer<typeof addObjectRequestSchema>;
 
-/** Changes where a live object is and how it is drawn; any subset. `mount` is for props. */
+/**
+ * Changes where a live object is and how it is drawn; any subset. `mount` is for props, and
+ * `travelMode` for an NPC puppet waiting below (F5.4). A passing object's `across` comes from
+ * the travel clock, so it can't be set.
+ */
 export const moveObjectRequestSchema = z
   .strictObject({
     id: z.uuid(),
@@ -298,6 +327,7 @@ export const moveObjectRequestSchema = z
     scale: scaleSchema.optional(),
     flipped: z.boolean().optional(),
     mount: propMountSchema.optional(),
+    travelMode: travelModeSchema.optional(),
   })
   .refine((request) => Object.keys(request).length > 1, 'Nothing to change');
 export type MoveObjectRequest = z.infer<typeof moveObjectRequestSchema>;

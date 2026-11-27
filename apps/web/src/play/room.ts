@@ -189,9 +189,8 @@ const INITIAL: RoomState = {
 function showsChanges(stage: LiveStage, id: string, changes: ObjectChanges): boolean {
   const object = stage.objects.find((candidate) => candidate.id === id);
   if (object === undefined) return true;
-  return Object.entries(changes).every(
-    ([key, value]) => object[key as keyof ObjectChanges] === value,
-  );
+  const fields: Readonly<Record<string, unknown>> = object;
+  return Object.entries(changes).every(([key, value]) => fields[key] === value);
 }
 
 /** Bringing an object into sight or out of it: a prop is shown or hidden, a puppet raised or lowered. */
