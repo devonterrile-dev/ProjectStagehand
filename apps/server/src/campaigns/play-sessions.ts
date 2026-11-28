@@ -19,10 +19,15 @@
  * `PASS_SPAN` later. A finished pass counts as hidden or lowered the moment it ends: the views
  * treat it so at once, and `settlePasses` (the live room's timer) or the next change writes it.
  * Functions that read the clock take `now` (milliseconds) so tests can drive it.
+ *
+ * Battle mode (F5.5): `play_sessions.battle_size` says a mat is on the table, and
+ * `play_battle_tokens` holds a token for each puppet, on a square or beside the mat. A token goes
+ * with its object. While a battle is on, a scene load and Play are refused.
  */
 import {
   gmStageSchema,
   LIVE_OBJECT_START,
+  onMat,
   PASS_SPAN,
   passOver,
   playerStageSchema,
@@ -31,11 +36,14 @@ import {
   sceneObjectKindFor,
   STAGE_MAX_OBJECTS,
   type AddObjectRequest,
+  type BattleSide,
+  type BattleSize,
   type GmStage,
   type MoveObjectRequest,
   type PlayerStage,
   type PlaySession,
   type SceneObjectKind,
+  type Square,
   type StageSubject,
   travelDistance,
   type TravelClock,
@@ -44,8 +52,10 @@ import { and, asc, count, eq, inArray, isNotNull, isNull, lte, max, sql } from '
 
 import type { Database } from '../db/client';
 import {
+  assets,
   campaigns,
   characters,
+  playBattleTokens,
   playRollCalls,
   playSessionObjects,
   playSessions,
@@ -76,6 +86,8 @@ type ObjectRow = typeof playSessionObjects.$inferSelect;
 
 const NOT_ON_STAGE = 'That is no longer on the stage';
 const NOT_TRAVELLING = 'Load a transition scene first';
+const NO_BATTLE = 'No battle is on';
+const BATTLE_ON = 'End the battle first';
 
 /** A session's travel clock (F5.4). */
 function clockOf(session: SessionRow): TravelClock {
@@ -228,7 +240,8 @@ export async function endSession(db: Database, scope: CampaignScope): Promise<vo
   await db.transaction(async (tx) => {
     const [ended] = await tx
       .update(playSessions)
-      .set({ endedAt: new Date() })
+      // The battle's tokens go with the stage's objects (F5.5).
+      .set({ endedAt: new Date(), battleSize: null })
       .where(running(scope))
       .returning({ id: playSessions.id });
     if (ended === undefined) throw httpError(404, NO_SESSION);
@@ -253,6 +266,8 @@ export async function loadSceneLive(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const session = await lockRunning(tx, scope);
+    // A load replaces every object, and every token with it (F5.5).
+    if (session.battleSize !== null) throw httpError(409, BATTLE_ON);
 
     const scene = await sceneForStage(tx, scope, sceneId);
     if (scene === null) throw httpError(404, 'Scene not found');
@@ -323,6 +338,8 @@ export async function setTravelPlaying(
   await db.transaction(async (tx) => {
     const session = await lockRunning(tx, scope);
     if (!session.transition) throw httpError(409, NOT_TRAVELLING);
+    // A battle pauses the travel, and it stays paused until the mat is rolled up (F5.5).
+    if (playing && session.battleSize !== null) throw httpError(409, BATTLE_ON);
     if ((session.travelSince !== null) === playing) return;
     await settleIn(tx, session, now);
     await tx
@@ -369,6 +386,132 @@ export async function setCurtain(
     await settleIn(tx, session, now);
     await tx.update(playSessions).set({ curtainOpen: open }).where(eq(playSessions.id, session.id));
     if (open) await revealInSight(tx, scope, session, await recordsInSight(tx, session));
+  });
+}
+
+/**
+ * Lays a battle mat of this size out on the table (F5.5, §13 `battle:start`): the curtain
+ * closes, a transition scene's travel pauses, and every PC and NPC puppet on the stage, raised or
+ * below, gets a token beside the mat. Logged. 409 when no session is running or a battle is on.
+ */
+export async function startBattle(
+  db: Database,
+  scope: CampaignScope,
+  size: BattleSize,
+  now = Date.now(),
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.battleSize !== null) throw httpError(409, 'A battle is already on');
+    await settleIn(tx, session, now);
+    await tx
+      .update(playSessions)
+      .set({
+        battleSize: size,
+        curtainOpen: false,
+        ...(session.travelSince === null
+          ? {}
+          : { travelDistance: travelDistance(clockOf(session), now), travelSince: null }),
+      })
+      .where(eq(playSessions.id, session.id));
+    const puppets = await tx
+      .select({ id: playSessionObjects.id })
+      .from(playSessionObjects)
+      .where(
+        and(
+          eq(playSessionObjects.playSessionId, session.id),
+          eq(playSessionObjects.kind, 'puppet'),
+        ),
+      );
+    if (puppets.length > 0) {
+      await tx.insert(playBattleTokens).values(
+        puppets.map(({ id }) => ({
+          playSessionId: session.id,
+          objectId: id,
+          campaignId: scope.campaignId,
+        })),
+      );
+    }
+    await logEvent(tx, scope, session, 'battle_start', {
+      actorUserId: scope.userId,
+      data: { size },
+    });
+  });
+}
+
+/**
+ * Rolls the battle mat up (F5.5, §13 `battle:end`), with its tokens. The curtain stays closed,
+ * so the GM can tidy the stage before opening it (19.32). Logged. 409 when no battle is on.
+ */
+export async function endBattle(db: Database, scope: CampaignScope): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.battleSize === null) throw httpError(409, NO_BATTLE);
+    await tx.delete(playBattleTokens).where(eq(playBattleTokens.playSessionId, session.id));
+    await tx.update(playSessions).set({ battleSize: null }).where(eq(playSessions.id, session.id));
+    await logEvent(tx, scope, session, 'battle_end', { actorUserId: scope.userId });
+  });
+}
+
+/**
+ * Puts a battle token on a square of the mat, or back beside it with null (F5.5, §13
+ * `battle:token.move`). One token per square. Placing an NPC's token on the mat reveals its
+ * record, curtain or not: players see it there (19.31). 409 when no battle is on or the square
+ * is taken, 404 for a token that isn't there, 400 for a square off the mat.
+ */
+export async function moveToken(
+  db: Database,
+  scope: CampaignScope,
+  id: string,
+  square: Square | null,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.battleSize === null) throw httpError(409, NO_BATTLE);
+    if (square !== null && !onMat(session.battleSize, square)) {
+      throw httpError(400, 'That square is not on the mat');
+    }
+    const ofSession = eq(playBattleTokens.playSessionId, session.id);
+    const [token] = await tx
+      .select({
+        column: playBattleTokens.column,
+        row: playBattleTokens.row,
+        recordId: playSessionObjects.recordId,
+      })
+      .from(playBattleTokens)
+      .innerJoin(
+        playSessionObjects,
+        and(
+          eq(playSessionObjects.playSessionId, playBattleTokens.playSessionId),
+          eq(playSessionObjects.id, playBattleTokens.objectId),
+        ),
+      )
+      .where(and(ofSession, eq(playBattleTokens.objectId, id)));
+    if (token === undefined) throw httpError(404, NOT_ON_STAGE);
+    if (square === null) {
+      if (token.column === null) return;
+    } else {
+      if (token.column === square.column && token.row === square.row) return;
+      // The session's row is held, so no other move can take the square meanwhile.
+      const [taken] = await tx
+        .select({ id: playBattleTokens.objectId })
+        .from(playBattleTokens)
+        .where(
+          and(
+            ofSession,
+            eq(playBattleTokens.column, square.column),
+            eq(playBattleTokens.row, square.row),
+          ),
+        );
+      if (taken !== undefined) throw httpError(409, 'That square is taken');
+    }
+    await tx
+      .update(playBattleTokens)
+      .set({ column: square?.column ?? null, row: square?.row ?? null })
+      .where(and(ofSession, eq(playBattleTokens.objectId, id)));
+    if (square !== null && token.column === null) {
+      await revealInSight(tx, scope, session, [token.recordId]);
+    }
   });
 }
 
@@ -489,6 +632,14 @@ export async function addLiveObject(
       passFrom: shown && session.transition ? travelDistance(clockOf(session), now) : null,
       position: (placed?.last ?? -1) + 1,
     });
+    // A puppet added during a battle waits beside the mat (F5.5).
+    if (!isProp && session.battleSize !== null) {
+      await tx.insert(playBattleTokens).values({
+        playSessionId: session.id,
+        objectId: request.id,
+        campaignId: scope.campaignId,
+      });
+    }
     if (shown && session.curtainOpen) {
       await revealInSight(tx, scope, session, [subject.recordId]);
     }
@@ -745,6 +896,7 @@ export async function stagesOf(
   };
   // Fear, the calls waiting and the last roll (F3.6): each role's own copy.
   const rolls = await rollStageOf(db, scope, session);
+  const battle = await battleOf(db, scope, session, placed);
 
   const gm = gmStageSchema.parse({
     role: 'gm',
@@ -769,6 +921,17 @@ export async function stagesOf(
       shown: inSight(object),
       travelMode: object.travelMode,
     })),
+    battle:
+      battle === null
+        ? null
+        : {
+            size: battle.size,
+            tokens: battle.tokens.map(({ entry, side, square }) => ({
+              id: entry.object.id,
+              side,
+              square,
+            })),
+          },
   });
 
   // Written out field by field: nothing reaches a player because it happened to be on a row.
@@ -798,9 +961,102 @@ export async function stagesOf(
         },
       ];
     }),
+    // Only tokens on the mat (19.31), each with its own picture: a puppet below isn't above.
+    battle:
+      battle === null
+        ? null
+        : {
+            size: battle.size,
+            tokens: battle.tokens.flatMap(({ entry, side, square }) => {
+              const image = imageOf(entry.visualAssetId);
+              if (square === null || image === null) return [];
+              return [
+                {
+                  id: entry.object.id,
+                  side,
+                  image,
+                  characterId: entry.subject.kind === 'pc' ? entry.subject.id : null,
+                  square,
+                },
+              ];
+            }),
+          },
   });
 
   return { gm, player };
+}
+
+/** A battle token with its object, its side and its square (null: beside the mat). */
+interface PlacedToken {
+  entry: Placed;
+  side: BattleSide;
+  square: Square | null;
+}
+
+/**
+ * The session's battle (F5.5), or null when there is none: its size and its tokens, in the
+ * stage's order. A token's side is its clip's color: a PC's, or an NPC's, which is a monster's
+ * when its picture in use was drawn as one (§12 "Battle mode").
+ */
+async function battleOf(
+  db: DbOrTx,
+  scope: CampaignScope,
+  session: SessionRow,
+  placed: readonly Placed[],
+): Promise<{ size: BattleSize; tokens: PlacedToken[] } | null> {
+  if (session.battleSize === null) return null;
+  const rows = await db
+    .select({
+      objectId: playBattleTokens.objectId,
+      column: playBattleTokens.column,
+      row: playBattleTokens.row,
+    })
+    .from(playBattleTokens)
+    .where(
+      and(
+        eq(playBattleTokens.playSessionId, session.id),
+        eq(playBattleTokens.campaignId, scope.campaignId),
+      ),
+    );
+  const squares = new Map(
+    rows.map((row) => [
+      row.objectId,
+      row.column === null || row.row === null ? null : { column: row.column, row: row.row },
+    ]),
+  );
+  const npcAssets = placed.flatMap(({ object, subject, visualAssetId }) =>
+    squares.has(object.id) && subject.kind === 'record' && visualAssetId !== null
+      ? [visualAssetId]
+      : [],
+  );
+  const monsters = new Set(
+    npcAssets.length === 0
+      ? []
+      : (
+          await db
+            .select({ id: assets.id })
+            .from(assets)
+            .where(
+              and(
+                eq(assets.campaignId, scope.campaignId),
+                inArray(assets.id, npcAssets),
+                eq(assets.kind, 'monster'),
+              ),
+            )
+        ).map(({ id }) => id),
+  );
+  const tokens = placed.flatMap((entry): PlacedToken[] => {
+    const square = squares.get(entry.object.id);
+    if (square === undefined) return [];
+    const side: BattleSide =
+      entry.subject.kind === 'pc'
+        ? 'pc'
+        : entry.visualAssetId !== null && monsters.has(entry.visualAssetId)
+          ? 'monster'
+          : 'npc';
+    return [{ entry, side, square }];
+  });
+  return { size: session.battleSize, tokens };
 }
 
 /**
@@ -816,8 +1072,11 @@ export async function playerCanSeeAsset(
   if (await isRevealedRecordImage(db, scope, assetId)) return true;
   const stages = await stagesOf(db, scope);
   if (stages === null) return false;
-  const { backdrop, objects } = stages.player;
+  const { backdrop, objects, battle } = stages.player;
   return (
-    backdrop?.assetId === assetId || objects.some((object) => object.image.assetId === assetId)
+    backdrop?.assetId === assetId ||
+    objects.some((object) => object.image.assetId === assetId) ||
+    // A token on the battle mat (F5.5), whose puppet may be waiting below.
+    (battle?.tokens.some((token) => token.image.assetId === assetId) ?? false)
   );
 }

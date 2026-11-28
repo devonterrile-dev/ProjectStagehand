@@ -20,7 +20,7 @@ import {
   travelModeSchema,
   unitSchema,
 } from './scenes';
-import { depthTickSchema } from './stage';
+import { battleSideSchema, battleSizeSchema, depthTickSchema, squareSchema } from './stage';
 
 const timestamp = z.iso.datetime({ offset: true });
 
@@ -110,6 +110,43 @@ export const stageTravelSchema = z.object({
 });
 export type StageTravel = z.infer<typeof stageTravelSchema>;
 
+/**
+ * A battle token as the GM gets it (F5.5): the live object (a PC or NPC puppet) it stands for,
+ * by its id, so its name and picture come from that object; its side; and its square, or null
+ * while it waits beside the mat.
+ */
+export const gmBattleTokenSchema = z.object({
+  id: z.uuid(),
+  side: battleSideSchema,
+  square: squareSchema.nullable(),
+});
+export type GmBattleToken = z.infer<typeof gmBattleTokenSchema>;
+
+/**
+ * A battle token as a player gets it: only tokens on the mat, each with its own picture, since a
+ * puppet waiting below is not among a player's objects (19.31). `characterId` names a PC's.
+ */
+export const playerBattleTokenSchema = z.object({
+  id: z.uuid(),
+  side: battleSideSchema,
+  image: stageImageSchema,
+  characterId: z.uuid().nullable(),
+  square: squareSchema,
+});
+export type PlayerBattleToken = z.infer<typeof playerBattleTokenSchema>;
+
+export const gmBattleSchema = z.object({
+  size: battleSizeSchema,
+  tokens: z.array(gmBattleTokenSchema),
+});
+export type GmBattle = z.infer<typeof gmBattleSchema>;
+
+export const playerBattleSchema = z.object({
+  size: battleSizeSchema,
+  tokens: z.array(playerBattleTokenSchema),
+});
+export type PlayerBattle = z.infer<typeof playerBattleSchema>;
+
 /** What both views share. */
 const stage = {
   session: playSessionSchema,
@@ -132,6 +169,8 @@ export const playerStageSchema = z.object({
   role: z.literal('player'),
   ...stage,
   objects: z.array(playerStageObjectSchema),
+  /** The battle on the table (F5.5); null when there is none. */
+  battle: playerBattleSchema.nullable(),
 });
 export type PlayerStage = z.infer<typeof playerStageSchema>;
 
@@ -144,6 +183,8 @@ export const gmStageSchema = z.object({
   objects: z.array(gmStageObjectSchema),
   /** Every PC with a player, with its Hope (F3.6): what the desk calls rolls for. */
   party: z.array(partyMemberSchema),
+  /** The battle on the table (F5.5), every token included; null when there is none. */
+  battle: gmBattleSchema.nullable(),
 });
 export type GmStage = z.infer<typeof gmStageSchema>;
 
@@ -201,6 +242,12 @@ export type Presence = z.infer<typeof presenceSchema>;
  * - `takeOverNpc` (F3.8): `objectRequestSchema` → `actionResultSchema`. GM only: a raised NPC
  *   puppet's voice becomes the GM's (presence `voicing`). `releaseNpc`: `releaseRequestSchema`
  *   → `actionResultSchema`. Lowering, removing or loading a scene over that NPC releases it.
+ * - Battle mode (F5.5), each → `actionResultSchema`, GM only: `startBattle`
+ *   (`startBattleRequestSchema`) closes the curtain, pauses any travel and lays out a mat with a
+ *   token beside it for every puppet; `endBattle` (`endBattleRequestSchema`) rolls it up and
+ *   leaves the curtain closed; `moveToken` (`moveTokenRequestSchema`) puts a token on a square,
+ *   or back beside the mat with a null square. Placing an NPC's token reveals its record. While a
+ *   battle is on, `loadScene` and `playTravel` are refused.
  *
  * Browser to server, never answered:
  * - `speaking` (F3.7): `speakingRequestSchema`, whenever the sender starts or stops talking.
@@ -259,6 +306,9 @@ export const PLAY_SOCKET = {
   pauseTravel: 'transition:pause',
   takeOverNpc: 'npc:takeover',
   releaseNpc: 'npc:release',
+  startBattle: 'battle:start',
+  endBattle: 'battle:end',
+  moveToken: 'battle:token.move',
 } as const;
 
 export const joinRequestSchema = z.strictObject({ campaignId: z.uuid() });
@@ -340,6 +390,21 @@ export type ObjectRequest = z.infer<typeof objectRequestSchema>;
 /** Gives the GM's voice back to the GM (F3.8). */
 export const releaseRequestSchema = z.strictObject({});
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
+
+/** Lays a mat of this size out on the table (F5.5). */
+export const startBattleRequestSchema = z.strictObject({ size: battleSizeSchema });
+export type StartBattleRequest = z.infer<typeof startBattleRequestSchema>;
+
+/** Rolls the mat up (F5.5). */
+export const endBattleRequestSchema = z.strictObject({});
+export type EndBattleRequest = z.infer<typeof endBattleRequestSchema>;
+
+/** Puts a token (by its live object's id) on a square, or beside the mat with null (F5.5). */
+export const moveTokenRequestSchema = z.strictObject({
+  id: z.uuid(),
+  square: squareSchema.nullable(),
+});
+export type MoveTokenRequest = z.infer<typeof moveTokenRequestSchema>;
 
 /** What an action is answered with; `message` says why it was refused. */
 export const actionResultSchema = z.discriminatedUnion('ok', [

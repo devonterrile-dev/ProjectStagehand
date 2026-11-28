@@ -2045,4 +2045,69 @@ describe('The live room', () => {
       await end(campaign);
     });
   });
+
+  describe('battle mode (F5.5)', () => {
+    it('lays out the mat, places tokens and rolls it up, the GM only, for everyone', async () => {
+      const campaign = await table('Battle Table', 1);
+      const market = await marketScene(campaign);
+      const martaId = market.objects[2]?.id ?? '';
+      await start(campaign);
+      const director = await seated(gm, campaign);
+      const watcher = await seated(players[0] ?? gm, campaign);
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: market.id })).toEqual({
+        ok: true,
+      });
+
+      expect(await act(watcher.client, PLAY_SOCKET.startBattle, { size: 'small' })).toEqual({
+        ok: false,
+        message: 'Only the GM can do that',
+      });
+      expect(await act(director.client, PLAY_SOCKET.startBattle, { size: 'huge' })).toEqual({
+        ok: false,
+        message: 'Choose a mat size',
+      });
+      const logs = director.client.logs;
+      expect(await act(director.client, PLAY_SOCKET.startBattle, { size: 'small' })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => {
+        expect((last(director.client.stages) as GmStage | undefined)?.battle).toEqual({
+          size: 'small',
+          tokens: [{ id: martaId, side: 'npc', square: null }],
+        });
+        expect((last(watcher.client.stages) as PlayerStage | undefined)?.battle).toEqual({
+          size: 'small',
+          tokens: [],
+        });
+        expect(director.client.logs).toBeGreaterThan(logs);
+      });
+
+      const journal = watcher.client.journal;
+      expect(
+        await act(director.client, PLAY_SOCKET.moveToken, {
+          id: martaId,
+          square: { column: 1, row: 4 },
+        }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        const battle = (last(watcher.client.stages) as PlayerStage | undefined)?.battle;
+        expect(battle?.tokens.map((token) => [token.id, token.square])).toEqual([
+          [martaId, { column: 1, row: 4 }],
+        ]);
+        // Placing Old Marta revealed her: players read the journal again.
+        expect(watcher.client.journal).toBeGreaterThan(journal);
+      });
+
+      expect(await act(director.client, PLAY_SOCKET.loadScene, { sceneId: market.id })).toEqual({
+        ok: false,
+        message: 'End the battle first',
+      });
+      expect(await act(director.client, PLAY_SOCKET.endBattle, {})).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        expect((last(watcher.client.stages) as PlayerStage | undefined)?.battle).toBeNull();
+        expect((last(director.client.stages) as GmStage | undefined)?.battle).toBeNull();
+      });
+      await end(campaign);
+    });
+  });
 });

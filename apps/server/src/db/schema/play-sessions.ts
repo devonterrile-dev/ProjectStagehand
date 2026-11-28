@@ -15,12 +15,13 @@
  * Its events stay: they are the record of the night (§8 `session_events`).
  * Only `src/campaigns/play-sessions.ts` queries these tables.
  */
-import { ROLL_EDGES, SESSION_LOG_KINDS } from '@stagehand/shared';
+import { BATTLE_SIZE_NAMES, ROLL_EDGES, SESSION_LOG_KINDS } from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -37,6 +38,9 @@ import { users } from './auth';
 import { campaigns, characters } from './campaigns';
 import { records } from './records';
 import { propMount, sceneObjectKind, scenes, travelMode } from './scenes';
+
+/** A battle mat's size (F5.5): small (6 × 6), medium (12 × 12) or large (18 × 18). */
+export const battleSize = pgEnum('battle_size', BATTLE_SIZE_NAMES);
 
 export const playSessions = pgTable(
   'play_sessions',
@@ -75,6 +79,8 @@ export const playSessions = pgTable(
      */
     travelDistance: doublePrecision('travel_distance').default(0).notNull(),
     travelSince: timestamp('travel_since', { withTimezone: true }),
+    /** The battle mat on the table (F5.5): its size, or null when there is no battle. */
+    battleSize: battleSize('battle_size'),
   },
   (table) => [
     uniqueIndex('play_sessions_campaign_number_unique').on(table.campaignId, table.number),
@@ -178,6 +184,47 @@ export const playSessionObjects = pgTable(
     check(
       'play_session_objects_passing_shown',
       sql`${table.passFrom} is null or (${table.shown} and ${table.passFrom} >= 0)`,
+    ),
+  ],
+);
+
+/**
+ * The battle's tokens (F5.5, governance §12 "Battle mode"): one for each PC or NPC puppet on the
+ * live stage while a battle is on, on a square of the mat or (both null) waiting beside it. A
+ * token goes with its object (removed from the stage, a scene load, the session's end) and all of
+ * them when the battle ends. One token per square.
+ */
+export const playBattleTokens = pgTable(
+  'play_battle_tokens',
+  {
+    playSessionId: uuid('play_session_id')
+      .notNull()
+      .references(() => playSessions.id, { onDelete: 'cascade' }),
+    /** The live object (a puppet) the token stands for. */
+    objectId: uuid('object_id').notNull(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    column: integer('column'),
+    row: integer('row'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.playSessionId, table.objectId] }),
+    foreignKey({
+      name: 'play_battle_tokens_object_fk',
+      columns: [table.playSessionId, table.objectId],
+      foreignColumns: [playSessionObjects.playSessionId, playSessionObjects.id],
+    }).onDelete('cascade'),
+    index('play_battle_tokens_campaign_id_idx').on(table.campaignId),
+    /** One token per square; tokens beside the mat (null) don't clash. */
+    uniqueIndex('play_battle_tokens_square_unique').on(
+      table.playSessionId,
+      table.column,
+      table.row,
+    ),
+    check(
+      'play_battle_tokens_square',
+      sql`(${table.column} is null) = (${table.row} is null) and (${table.column} is null or (${table.column} between 0 and 17 and ${table.row} between 0 and 17))`,
     ),
   ],
 );

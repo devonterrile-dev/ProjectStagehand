@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BATTLE_SIZES,
+  battleSquares,
+  onMat,
+  squareName,
+  squareSchema,
   DEPTH_TICKS,
   depthTickSchema,
   PASS_SPAN,
@@ -53,5 +58,32 @@ describe('the travel clock (F5.4)', () => {
     expect(passEndsAt(1, playing, 6_000)).toBeCloseTo(12_000);
     expect(passEndsAt(0, playing, 6_000)).toBe(6_000);
     expect(passEndsAt(1, { distance: 1, since: null }, 0)).toBeNull();
+  });
+});
+
+describe('battle mats (F5.5)', () => {
+  it('come in three sizes, 6, 12 and 18 squares a side', () => {
+    expect(BATTLE_SIZES).toEqual({ small: 6, medium: 12, large: 18 });
+    expect(battleSquares('medium')).toBe(12);
+  });
+
+  it('take squares from 0 to 17, whole numbers only', () => {
+    expect(squareSchema.safeParse({ column: 0, row: 17 }).success).toBe(true);
+    expect(squareSchema.safeParse({ column: -1, row: 0 }).success).toBe(false);
+    expect(squareSchema.safeParse({ column: 0, row: 18 }).success).toBe(false);
+    expect(squareSchema.safeParse({ column: 0.5, row: 0 }).success).toBe(false);
+  });
+
+  it('know which squares lie on a mat of each size', () => {
+    expect(onMat('small', { column: 5, row: 5 })).toBe(true);
+    expect(onMat('small', { column: 6, row: 0 })).toBe(false);
+    expect(onMat('small', { column: 0, row: 6 })).toBe(false);
+    expect(onMat('large', { column: 17, row: 17 })).toBe(true);
+  });
+
+  it('name a square by a letter and a number', () => {
+    expect(squareName({ column: 0, row: 0 })).toBe('A1');
+    expect(squareName({ column: 2, row: 3 })).toBe('C4');
+    expect(squareName({ column: 17, row: 17 })).toBe('R18');
   });
 });

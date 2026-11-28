@@ -179,6 +179,8 @@ export const SESSION_LOG_KINDS = [
   'card_recall',
   'track_adjust',
   'level_up',
+  'battle_start',
+  'battle_end',
 ] as const;
 export const sessionLogKindSchema = z.enum(SESSION_LOG_KINDS);
 export type SessionLogKind = z.infer<typeof sessionLogKindSchema>;

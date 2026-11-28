@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   actionResultSchema,
   addObjectRequestSchema,
+  endBattleRequestSchema,
   gmStageSchema,
+  moveTokenRequestSchema,
+  startBattleRequestSchema,
   joinRequestSchema,
   joinResultSchema,
   liveStageSchema,
@@ -45,6 +48,7 @@ const stage = {
   lastRoll: null,
   // The GM's alone; a player's copy drops it.
   party: [],
+  battle: null,
 };
 
 describe('the players’ stage', () => {
@@ -76,6 +80,39 @@ describe('the players’ stage', () => {
     expect(parsed).not.toHaveProperty('party');
     expect(JSON.stringify(parsed)).not.toContain('cursed');
     expect(JSON.stringify(parsed)).not.toContain('ambush');
+  });
+
+  it('holds only battle tokens on the mat, each with its picture (F5.5)', () => {
+    const token = {
+      id: id(5),
+      side: 'monster',
+      image,
+      characterId: null,
+      square: { column: 2, row: 3 },
+    };
+    const parsed = playerStageSchema.parse({
+      role: 'player',
+      ...stage,
+      objects: [],
+      battle: { size: 'small', tokens: [{ ...token, name: 'Goblin boss' }] },
+    });
+
+    expect(parsed.battle).toEqual({ size: 'small', tokens: [token] });
+    expect(JSON.stringify(parsed)).not.toContain('Goblin');
+    for (const wrong of [
+      { ...token, square: null },
+      { ...token, image: null },
+      { ...token, side: 'ally' },
+    ]) {
+      expect(
+        playerStageSchema.safeParse({
+          role: 'player',
+          ...stage,
+          objects: [],
+          battle: { size: 'small', tokens: [wrong] },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it('refuses an object with no image: a player is only sent what can be drawn', () => {
@@ -148,6 +185,28 @@ describe('the GM’s stage', () => {
         travel: { playing: true, distance: -1 },
         scene: null,
         objects: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('holds every battle token, on a square or beside the mat (F5.5)', () => {
+    const battle = {
+      size: 'large',
+      tokens: [
+        { id: id(5), side: 'pc', square: { column: 17, row: 0 } },
+        { id: id(6), side: 'npc', square: null },
+      ],
+    };
+    const parsed = gmStageSchema.parse({ role: 'gm', ...stage, scene: null, objects: [], battle });
+
+    expect(parsed.battle).toEqual(battle);
+    expect(
+      gmStageSchema.safeParse({
+        role: 'gm',
+        ...stage,
+        scene: null,
+        objects: [],
+        battle: { ...battle, size: 'huge' },
       }).success,
     ).toBe(false);
   });
@@ -244,6 +303,24 @@ describe('the live room’s messages', () => {
     expect(ok({ id: id(1), shown: true })).toBe(false);
     expect(objectRequestSchema.safeParse({ id: id(1) }).success).toBe(true);
     expect(objectRequestSchema.safeParse({ id: 'well' }).success).toBe(false);
+  });
+
+  it('lays out a mat by size, and moves a token onto a square or off the mat (F5.5)', () => {
+    expect(PLAY_SOCKET.startBattle).toBe('battle:start');
+    expect(PLAY_SOCKET.endBattle).toBe('battle:end');
+    expect(PLAY_SOCKET.moveToken).toBe('battle:token.move');
+
+    expect(startBattleRequestSchema.safeParse({ size: 'medium' }).success).toBe(true);
+    expect(startBattleRequestSchema.safeParse({ size: 'huge' }).success).toBe(false);
+    expect(endBattleRequestSchema.safeParse({}).success).toBe(true);
+    expect(endBattleRequestSchema.safeParse({ size: 'small' }).success).toBe(false);
+
+    const ok = (request: unknown) => moveTokenRequestSchema.safeParse(request).success;
+    expect(ok({ id: id(1), square: { column: 0, row: 17 } })).toBe(true);
+    expect(ok({ id: id(1), square: null })).toBe(true);
+    expect(ok({ id: id(1), square: { column: 18, row: 0 } })).toBe(false);
+    expect(ok({ id: id(1), square: { column: 1.5, row: 0 } })).toBe(false);
+    expect(ok({ id: id(1) })).toBe(false);
   });
 
   it('takes a scene id to load', () => {

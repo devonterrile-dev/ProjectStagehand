@@ -11,6 +11,8 @@
  * sheets changed, so their players read them again.
  */
 import {
+  battleSizeSchema,
+  battleSquares,
   describeFreeRoll,
   describeRoll,
   partyMemberSchema,
@@ -104,6 +106,8 @@ const rollRevealEventSchema = z.object({ rollId: z.uuid() });
 const sceneLoadEventSchema = z.object({ name: z.string() });
 /** The GM turned Rest on or off (F4.7). */
 export const restEventSchema = z.object({ on: z.boolean() });
+/** The GM laid out a battle mat (F5.5). */
+export const battleStartEventSchema = z.object({ size: battleSizeSchema });
 /** A PC brought a domain card back from the vault (F4.7). */
 /** A PC levelled up (F4.9). */
 const levelUpEventSchema = z.object({ characterName: z.string(), level: z.int() });
@@ -767,8 +771,18 @@ function logText(
       const track = trackAdjustEventSchema.safeParse(data);
       return track.success ? trackText(track.data) : 'Changed a sheet';
     }
+    case 'battle_start': {
+      const battle = battleStartEventSchema.safeParse(data);
+      if (!battle.success) return 'Started a battle';
+      const squares = String(battleSquares(battle.data.size));
+      return `Started a battle (${BATTLE_SIZE_LABELS[battle.data.size]}, ${squares} × ${squares})`;
+    }
+    case 'battle_end':
+      return 'Ended the battle';
   }
 }
+
+const BATTLE_SIZE_LABELS = { small: 'Small', medium: 'Medium', large: 'Large' } as const;
 
 /** "Mira rolled Agility (Climb the wall), hidden". */
 function rollTitle(roll: RollEvent, ruleset: Ruleset): string {

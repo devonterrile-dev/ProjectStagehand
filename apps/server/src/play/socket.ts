@@ -24,6 +24,9 @@ import {
   addObjectRequestSchema,
   cancelRollRequestSchema,
   emoteRequestSchema,
+  endBattleRequestSchema,
+  moveTokenRequestSchema,
+  startBattleRequestSchema,
   freeRollRequestSchema,
   joinRequestSchema,
   joinResultSchema,
@@ -59,8 +62,11 @@ import { makeFreeRoll, type RollAny } from '../campaigns/free-rolls';
 import { presenceMemberOf } from '../campaigns/members';
 import {
   addLiveObject,
+  endBattle,
   loadSceneLive,
   moveLiveObject,
+  moveToken,
+  startBattle,
   removeLiveObject,
   setCurtain,
   setLiveObjectShown,
@@ -547,6 +553,28 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
         );
       });
     }
+
+    // Battle mode (F5.5): the mat, and the tokens on it.
+    onGm(
+      PLAY_SOCKET.startBattle,
+      startBattleRequestSchema,
+      'Choose a mat size',
+      async (scope, request) => {
+        await startBattle(db, scope, request.size, now());
+        return { logged: true };
+      },
+    );
+    onGm(PLAY_SOCKET.endBattle, endBattleRequestSchema, 'Nothing to end', async (scope) => {
+      await endBattle(db, scope);
+      return { logged: true };
+    });
+    onGm(
+      PLAY_SOCKET.moveToken,
+      moveTokenRequestSchema,
+      'That square is not on the mat',
+      (scope, request) => moveToken(db, scope, request.id, request.square),
+      true,
+    );
 
     for (const [event, open] of [
       [PLAY_SOCKET.openCurtain, true],

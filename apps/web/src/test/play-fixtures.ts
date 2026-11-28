@@ -79,6 +79,7 @@ export function playerStage(overrides: Partial<PlayerStage> = {}): PlayerStage {
     travel: null,
     ...ROLL_STAGE,
     objects: [playerObject(1)],
+    battle: null,
     ...overrides,
   };
 }
@@ -94,6 +95,7 @@ export function gmStage(overrides: Partial<GmStage> = {}): GmStage {
     ...ROLL_STAGE,
     scene: { id: id(400), name: 'Ambush at the market' },
     party: [],
+    battle: null,
     objects: [
       gmObject(1, 'Stone Well'),
       gmObject(2, 'Secret Trapdoor', { shown: false }),

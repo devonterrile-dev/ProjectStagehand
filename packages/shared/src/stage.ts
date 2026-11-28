@@ -65,3 +65,54 @@ export function passEndsAt(passFrom: number, clock: TravelClock, now: number): n
   const left = passFrom + PASS_SPAN - travelDistance(clock, now);
   return now + Math.max(0, (left / TRAVEL_SPEED) * 1000);
 }
+
+/**
+ * Battle mode (F5.5, governance §12 "Battle mode"): a square grid mat laid on the table during
+ * any scene. Every square is the same size, so a larger mat covers more of the table.
+ */
+
+/** The mat sizes, by squares a side. */
+export const BATTLE_SIZES = { small: 6, medium: 12, large: 18 } as const;
+export const BATTLE_SIZE_NAMES = ['small', 'medium', 'large'] as const;
+export const battleSizeSchema = z.enum(BATTLE_SIZE_NAMES);
+export type BattleSize = z.infer<typeof battleSizeSchema>;
+
+/** The most squares a side any mat has. */
+export const BATTLE_MAX_SQUARES = BATTLE_SIZES.large;
+
+/** How many squares a side a mat of this size has. */
+export function battleSquares(size: BattleSize): number {
+  return BATTLE_SIZES[size];
+}
+
+/**
+ * A square on the mat: column 0 is the left edge as the table sees it, row 0 the edge nearest
+ * the theater. Both 0 to 17; the mat's size limits them further.
+ */
+export const squareSchema = z.strictObject({
+  column: z
+    .int()
+    .min(0)
+    .max(BATTLE_MAX_SQUARES - 1),
+  row: z
+    .int()
+    .min(0)
+    .max(BATTLE_MAX_SQUARES - 1),
+});
+export type Square = z.infer<typeof squareSchema>;
+
+/** Whether a square lies on a mat of this size. */
+export function onMat(size: BattleSize, square: Square): boolean {
+  const squares = battleSquares(size);
+  return square.column < squares && square.row < squares;
+}
+
+/** A square's name, as the desk says it: a letter for the column and a number for the row (C4). */
+export function squareName(square: Square): string {
+  return `${String.fromCharCode(65 + square.column)}${String(square.row + 1)}`;
+}
+
+/** Which side a token is on, which colors its clip: PCs, NPCs, and NPCs drawn as monsters. */
+export const BATTLE_SIDES = ['pc', 'npc', 'monster'] as const;
+export const battleSideSchema = z.enum(BATTLE_SIDES);
+export type BattleSide = z.infer<typeof battleSideSchema>;

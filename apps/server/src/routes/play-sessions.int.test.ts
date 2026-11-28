@@ -21,10 +21,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, discordUser, SAME_ORIGIN, signIn } from '../../test/auth-helpers';
 import {
   addLiveObject,
+  endBattle,
   loadSceneLive,
   moveLiveObject,
+  moveToken,
   NO_SESSION,
+  playerCanSeeAsset,
   removeLiveObject,
+  startBattle,
   setCurtain,
   setLiveObjectShown,
   setRecordRevealed,
@@ -32,12 +36,14 @@ import {
   settlePasses,
   stagesOf,
 } from '../campaigns/play-sessions';
+import { sessionLog } from '../campaigns/rolls';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
 import type { DbHandle } from '../db/client';
 import {
   assets,
   campaignMembers,
   characters,
+  playBattleTokens,
   playSessionObjects,
   playSessions,
   records,
@@ -117,7 +123,7 @@ describe('Live sessions API', () => {
    */
   async function giveImage(
     target: { id: string },
-    kind: 'character' | 'prop' | 'backdrop',
+    kind: 'character' | 'monster' | 'prop' | 'backdrop',
     c = campaign,
   ): Promise<string> {
     const assetId = randomUUID();
@@ -151,11 +157,45 @@ describe('Live sessions API', () => {
     return assetId;
   }
 
-  /** A record of a placeable type with its image; answers the record and the image's asset. */
-  async function drawn(type: 'prop' | 'item' | 'npc', name: string, c = campaign) {
+  /**
+   * A record of a placeable type with its image; answers the record and the image's asset. An
+   * NPC is drawn as a character, or as a monster when `monster`.
+   */
+  async function drawn(type: 'prop' | 'item' | 'npc', name: string, c = campaign, monster = false) {
     const made = await record({ type, name }, c);
-    const assetId = await giveImage(made, type === 'npc' ? 'character' : 'prop', c);
+    const kind = type !== 'npc' ? 'prop' : monster ? 'monster' : 'character';
+    const assetId = await giveImage(made, kind, c);
     return { record: made, assetId };
+  }
+
+  /** A PC, with an image in use when `withImage`. */
+  async function pc(name: string, withImage: boolean, c: Campaign) {
+    const response = await call('POST', `/api/campaigns/${c.id}/characters`, gm, { name });
+    expect(response.statusCode, response.body).toBe(201);
+    const { id } = response.json<{ id: string }>();
+    if (!withImage) return { id, assetId: '' };
+    const assetId = randomUUID();
+    await handle.db.insert(assets).values({
+      id: assetId,
+      campaignId: c.id,
+      characterId: id,
+      createdBy: gm.id,
+      kind: 'character',
+      status: 'approved',
+      prompt: 'a test image',
+      model: 'test/model',
+      styleBibleVersion: 1,
+      quality: 'medium',
+      aspectRatio: '2:3',
+      originalPath: originalKey(c.id, assetId, 'png'),
+      mediaType: 'image/png',
+      processedPath: processedKey(c.id, assetId),
+      processedWidth: 640,
+      processedHeight: 1024,
+      processingVersion: 3,
+    });
+    await handle.db.update(characters).set({ visualAssetId: assetId }).where(eq(characters.id, id));
+    return { id, assetId };
   }
 
   /** An object as the builder sends it. */
@@ -374,6 +414,8 @@ describe('Live sessions API', () => {
         // No transition scene loaded (F5.4).
         travel: null,
         objects: [],
+        // No battle on the table (F5.5).
+        battle: null,
         // Fear where it starts, Rest off (F4.7), and no rolls yet (F3.6).
         rest: false,
         fear: 3,
@@ -640,39 +682,6 @@ describe('Live sessions API', () => {
     let faceless: { id: string };
     let deskScene: Scene;
     let sessionId: string;
-
-    /** A PC, with an image in use when `withImage`. */
-    async function pc(name: string, withImage: boolean, c: Campaign) {
-      const response = await call('POST', `/api/campaigns/${c.id}/characters`, gm, { name });
-      expect(response.statusCode, response.body).toBe(201);
-      const { id } = response.json<{ id: string }>();
-      if (!withImage) return { id, assetId: '' };
-      const assetId = randomUUID();
-      await handle.db.insert(assets).values({
-        id: assetId,
-        campaignId: c.id,
-        characterId: id,
-        createdBy: gm.id,
-        kind: 'character',
-        status: 'approved',
-        prompt: 'a test image',
-        model: 'test/model',
-        styleBibleVersion: 1,
-        quality: 'medium',
-        aspectRatio: '2:3',
-        originalPath: originalKey(c.id, assetId, 'png'),
-        mediaType: 'image/png',
-        processedPath: processedKey(c.id, assetId),
-        processedWidth: 640,
-        processedHeight: 1024,
-        processingVersion: 3,
-      });
-      await handle.db
-        .update(characters)
-        .set({ visualAssetId: assetId })
-        .where(eq(characters.id, id));
-      return { id, assetId };
-    }
 
     async function revealedAt(recordId: string) {
       const [row] = await handle.db
@@ -1362,6 +1371,271 @@ describe('Live sessions API', () => {
           (error: unknown) => error,
         );
       expect(pgCode(pass)).toBe('23514');
+    });
+  });
+
+  describe('battle mode (F5.5)', () => {
+    let field: Campaign;
+    let scope: CampaignScope;
+    let playerScope: CampaignScope;
+    let barrel: Awaited<ReturnType<typeof drawn>>;
+    let goblin: Awaited<ReturnType<typeof drawn>>;
+    let marta: Awaited<ReturnType<typeof drawn>>;
+    let mira: { id: string; assetId: string };
+    let fieldScene: Scene;
+    let miraObject: string;
+    const T = Date.now();
+
+    const idOf = (target: { record: { id: string } }) =>
+      fieldScene.objects.find((object) => object.record.id === target.record.id)?.id ?? '';
+    const tokenOf = async (id: string) =>
+      (await stages(field)).gm.battle?.tokens.find((token) => token.id === id);
+    async function sessionRow() {
+      const [row] = await handle.db
+        .select()
+        .from(playSessions)
+        .where(and(eq(playSessions.campaignId, field.id), isNull(playSessions.endedAt)));
+      if (row === undefined) throw new Error('no session is running');
+      return row;
+    }
+    async function revealedAt(recordId: string) {
+      const [row] = await handle.db
+        .select({ revealedAt: records.revealedAt })
+        .from(records)
+        .where(eq(records.id, recordId));
+      return row?.revealedAt ?? null;
+    }
+
+    beforeAll(async () => {
+      field = await newCampaign('Battle Campaign');
+      await handle.db
+        .insert(campaignMembers)
+        .values({ campaignId: field.id, userId: player.id, role: 'player' });
+      barrel = await drawn('prop', 'Barrel', field);
+      goblin = await drawn('npc', 'Goblin boss', field, true);
+      marta = await drawn('npc', 'Old Marta', field);
+      mira = await pc('Mira', true, field);
+      fieldScene = await scene(
+        'The ambush',
+        null,
+        [at(barrel.record.id), at(goblin.record.id, { up: 0.1 }), at(marta.record.id, { up: 0.1 })],
+        field,
+      );
+      scope = await scopeOf(gm, field);
+      playerScope = await scopeOf(player, field);
+      await start(field);
+      await loadSceneLive(handle.db, scope, fieldScene.id);
+      miraObject = randomUUID();
+      await addLiveObject(handle.db, scope, { id: miraObject, characterId: mira.id });
+      await setLiveObjectShown(handle.db, scope, miraObject, 'puppet', true);
+      await setCurtain(handle.db, scope, true);
+    });
+
+    afterAll(async () => {
+      if ((await running(gm, field)) !== null) await end(field);
+    });
+
+    it('closes the curtain and gives every puppet, raised or below, a token beside the mat', async () => {
+      await startBattle(handle.db, scope, 'small', T);
+
+      const { gm: forGm, player: forPlayers } = await stages(field);
+      expect(forGm.curtainOpen).toBe(false);
+      expect(forGm.battle).toEqual({
+        size: 'small',
+        tokens: [
+          { id: idOf(goblin), side: 'monster', square: null },
+          { id: idOf(marta), side: 'npc', square: null },
+          { id: miraObject, side: 'pc', square: null },
+        ],
+      });
+      // Tokens beside the mat are the GM's alone (19.31).
+      expect(forPlayers.battle).toEqual({ size: 'small', tokens: [] });
+
+      const log = await sessionLog(handle.db, scope);
+      expect(log[0]).toMatchObject({
+        kind: 'battle_start',
+        text: 'Started a battle (Small, 6 × 6)',
+      });
+      await expect(startBattle(handle.db, scope, 'large', T)).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'A battle is already on',
+      });
+    });
+
+    it("puts a token on a square, revealing an NPC's record, and players see it with its picture", async () => {
+      expect(await revealedAt(goblin.record.id)).toBeNull();
+      expect(await playerCanSeeAsset(handle.db, playerScope, goblin.assetId)).toBe(false);
+
+      await moveToken(handle.db, scope, idOf(goblin), { column: 2, row: 3 });
+
+      expect(await tokenOf(idOf(goblin))).toMatchObject({ square: { column: 2, row: 3 } });
+      expect(await revealedAt(goblin.record.id)).not.toBeNull();
+      const { player: forPlayers } = await stages(field);
+      expect(forPlayers.battle?.tokens).toEqual([
+        {
+          id: idOf(goblin),
+          side: 'monster',
+          image: expect.objectContaining({ assetId: goblin.assetId }) as unknown,
+          characterId: null,
+          square: { column: 2, row: 3 },
+        },
+      ]);
+      // Its puppet waits below, out of the players' objects, yet its picture is theirs to load.
+      expect(forPlayers.objects.some((object) => object.id === idOf(goblin))).toBe(false);
+      expect(await playerCanSeeAsset(handle.db, playerScope, goblin.assetId)).toBe(true);
+
+      await moveToken(handle.db, scope, miraObject, { column: 0, row: 0 });
+      expect((await stages(field)).player.battle?.tokens.map((token) => token.characterId)).toEqual(
+        [null, mira.id],
+      );
+    });
+
+    it('keeps one token a square and every token on the mat', async () => {
+      await expect(
+        moveToken(handle.db, scope, idOf(marta), { column: 2, row: 3 }),
+      ).rejects.toMatchObject({ statusCode: 409, message: 'That square is taken' });
+      await expect(
+        moveToken(handle.db, scope, idOf(marta), { column: 6, row: 0 }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        moveToken(handle.db, scope, randomUUID(), { column: 1, row: 1 }),
+      ).rejects.toMatchObject({ statusCode: 404 });
+      // Moving onto its own square changes nothing.
+      await moveToken(handle.db, scope, idOf(goblin), { column: 2, row: 3 });
+
+      const { id: sessionId } = await sessionRow();
+      const twice = await handle.db
+        .update(playBattleTokens)
+        .set({ column: 0, row: 0 })
+        .where(
+          and(
+            eq(playBattleTokens.playSessionId, sessionId),
+            eq(playBattleTokens.objectId, idOf(goblin)),
+          ),
+        )
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(pgCode(twice)).toBe('23505');
+      const half = await handle.db
+        .update(playBattleTokens)
+        .set({ column: 4, row: null })
+        .where(
+          and(
+            eq(playBattleTokens.playSessionId, sessionId),
+            eq(playBattleTokens.objectId, idOf(marta)),
+          ),
+        )
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(pgCode(half)).toBe('23514');
+    });
+
+    it('takes a token back beside the mat, out of the players’ sight', async () => {
+      await moveToken(handle.db, scope, miraObject, null);
+
+      expect(await tokenOf(miraObject)).toMatchObject({ square: null });
+      expect((await stages(field)).player.battle?.tokens.map((token) => token.id)).toEqual([
+        idOf(goblin),
+      ]);
+    });
+
+    it('gives a puppet added meanwhile a token, none to a prop, and takes a removed one’s away', async () => {
+      const ghost = await drawn('npc', 'Wandering ghost', field);
+      const added = randomUUID();
+      await addLiveObject(handle.db, scope, { id: added, recordId: ghost.record.id });
+      await addLiveObject(handle.db, scope, { id: randomUUID(), recordId: barrel.record.id });
+
+      expect(await tokenOf(added)).toEqual({ id: added, side: 'npc', square: null });
+      expect((await stages(field)).gm.battle?.tokens).toHaveLength(4);
+
+      await removeLiveObject(handle.db, scope, idOf(goblin));
+      expect(await tokenOf(idOf(goblin))).toBeUndefined();
+      expect((await stages(field)).player.battle?.tokens).toEqual([]);
+    });
+
+    it('refuses a scene load while the mat is out', async () => {
+      await expect(loadSceneLive(handle.db, scope, fieldScene.id)).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'End the battle first',
+      });
+    });
+
+    it('rolls the mat up with its tokens and leaves the curtain closed', async () => {
+      await moveToken(handle.db, scope, idOf(marta), { column: 1, row: 1 });
+      await endBattle(handle.db, scope);
+
+      const { gm: forGm, player: forPlayers } = await stages(field);
+      expect(forGm.battle).toBeNull();
+      expect(forPlayers.battle).toBeNull();
+      expect(forGm.curtainOpen).toBe(false);
+      const { id: sessionId } = await sessionRow();
+      expect(
+        await handle.db
+          .select()
+          .from(playBattleTokens)
+          .where(eq(playBattleTokens.playSessionId, sessionId)),
+      ).toEqual([]);
+      expect((await sessionLog(handle.db, scope))[0]).toMatchObject({
+        kind: 'battle_end',
+        text: 'Ended the battle',
+      });
+      await expect(endBattle(handle.db, scope)).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'No battle is on',
+      });
+      await expect(moveToken(handle.db, scope, idOf(marta), null)).rejects.toMatchObject({
+        statusCode: 409,
+      });
+    });
+
+    it('pauses a transition scene’s travel, and refuses Play until the battle ends', async () => {
+      const wilds = await record({ type: 'area', name: 'The Wilds' }, field);
+      const road = await record(
+        {
+          type: 'spot',
+          name: 'Coastal Road',
+          parentId: wilds.id,
+          fields: { spotType: 'transition' },
+        },
+        field,
+      );
+      const roadScene = await scene('On the road', road.id, [at(marta.record.id)], field);
+      await loadSceneLive(handle.db, scope, roadScene.id);
+      await setTravelPlaying(handle.db, scope, true, T);
+
+      await startBattle(handle.db, scope, 'medium', T + 6000);
+
+      expect((await stagesOf(handle.db, scope, T + 60_000))?.gm.travel).toEqual({
+        playing: false,
+        distance: 0.5,
+      });
+      await expect(setTravelPlaying(handle.db, scope, true, T + 7000)).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'End the battle first',
+      });
+      // Pausing is still fine.
+      await setTravelPlaying(handle.db, scope, false, T + 7000);
+    });
+
+    it('goes with the session when it ends', async () => {
+      const { id: sessionId } = await sessionRow();
+      await end(field);
+
+      const [row] = await handle.db
+        .select({ battleSize: playSessions.battleSize })
+        .from(playSessions)
+        .where(eq(playSessions.id, sessionId));
+      expect(row?.battleSize).toBeNull();
+      expect(
+        await handle.db
+          .select()
+          .from(playBattleTokens)
+          .where(eq(playBattleTokens.playSessionId, sessionId)),
+      ).toEqual([]);
     });
   });
 });
