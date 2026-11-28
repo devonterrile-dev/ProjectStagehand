@@ -2073,10 +2073,12 @@ describe('The live room', () => {
       await vi.waitFor(() => {
         expect((last(director.client.stages) as GmStage | undefined)?.battle).toEqual({
           size: 'small',
+          strokes: [],
           tokens: [{ id: martaId, side: 'npc', square: null }],
         });
         expect((last(watcher.client.stages) as PlayerStage | undefined)?.battle).toEqual({
           size: 'small',
+          strokes: [],
           tokens: [],
         });
         expect(director.client.logs).toBeGreaterThan(logs);
@@ -2102,6 +2104,33 @@ describe('The live room', () => {
         ok: false,
         message: 'End the battle first',
       });
+      // Paint (F5.6): the GM's only, and everyone sees the stroke as it arrives.
+      const stroke = randomUUID();
+      expect(
+        await act(watcher.client, PLAY_SOCKET.paintStroke, {
+          id: stroke,
+          tool: 'paint',
+          color: 'red',
+          size: 'fine',
+          points: [1, 1],
+        }),
+      ).toEqual({ ok: false, message: 'Only the GM can do that' });
+      expect(
+        await act(director.client, PLAY_SOCKET.paintStroke, {
+          id: stroke,
+          tool: 'paint',
+          color: 'red',
+          size: 'fine',
+          points: [1, 1, 2, 2],
+        }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() => {
+        const battle = (last(watcher.client.stages) as PlayerStage | undefined)?.battle;
+        expect(battle?.strokes.map((painted) => painted.points)).toEqual([[1, 1, 2, 2]]);
+      });
+      expect(await act(director.client, PLAY_SOCKET.undoStroke, {})).toEqual({ ok: true });
+      expect(await act(director.client, PLAY_SOCKET.clearPaint, {})).toEqual({ ok: true });
+
       expect(await act(director.client, PLAY_SOCKET.endBattle, {})).toEqual({ ok: true });
       await vi.waitFor(() => {
         expect((last(watcher.client.stages) as PlayerStage | undefined)?.battle).toBeNull();

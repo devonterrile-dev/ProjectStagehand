@@ -199,6 +199,7 @@ describe('battleView (F5.5)', () => {
       objects: [...gmStage().objects, gmObject(4, 'Faceless', { kind: 'puppet', image: null })],
       battle: {
         size: 'small',
+        strokes: [],
         tokens: [
           { id: marta.id, side: 'monster', square: null },
           { id: gmObject(4, 'Faceless').id, side: 'npc', square: null },
@@ -208,6 +209,7 @@ describe('battleView (F5.5)', () => {
 
     expect(battleView(CAMPAIGN, stage)).toEqual({
       size: 'small',
+      strokes: [],
       tokens: [
         {
           id: marta.id,
@@ -229,6 +231,7 @@ describe('battleView (F5.5)', () => {
     const stage = playerStage({
       battle: {
         size: 'large',
+        strokes: [],
         tokens: [
           {
             id: marta.id,

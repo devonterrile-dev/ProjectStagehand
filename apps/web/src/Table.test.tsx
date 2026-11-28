@@ -381,7 +381,7 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
     };
     serverSends(
       PLAY_SOCKET.stage,
-      playerStage({ curtainOpen: false, battle: { size: 'medium', tokens: [token] } }),
+      playerStage({ curtainOpen: false, battle: { size: 'medium', strokes: [], tokens: [token] } }),
     );
     // Laid out for everyone: the one view the GM moves for all.
     await waitFor(() => {
@@ -389,6 +389,7 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
     });
     expect(props().battle).toMatchObject({
       size: 'medium',
+      strokes: [],
       tokens: [{ id: token.id, side: 'monster', square: { column: 2, row: 3 } }],
     });
     expect(props().onMoveToken).toBeUndefined();

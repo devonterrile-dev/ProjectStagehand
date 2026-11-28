@@ -20,7 +20,17 @@ import {
   travelModeSchema,
   unitSchema,
 } from './scenes';
-import { battleSideSchema, battleSizeSchema, depthTickSchema, squareSchema } from './stage';
+import {
+  battleSideSchema,
+  battleSizeSchema,
+  depthTickSchema,
+  paintColorSchema,
+  paintSizeSchema,
+  paintToolSchema,
+  PAINT_CHUNK_POINTS,
+  squareSchema,
+  strokePointsSchema,
+} from './stage';
 
 const timestamp = z.iso.datetime({ offset: true });
 
@@ -135,15 +145,31 @@ export const playerBattleTokenSchema = z.object({
 });
 export type PlayerBattleToken = z.infer<typeof playerBattleTokenSchema>;
 
+/**
+ * A stroke of paint on the battle mat (F5.6): painted in a color, or rubbed out (`erase`, no
+ * color), at a brush size, through its points (`strokePointsSchema`). The paint is no secret:
+ * both views get every stroke, in the order drawn.
+ */
+export const strokeSchema = z.object({
+  id: z.uuid(),
+  tool: paintToolSchema,
+  color: paintColorSchema.nullable(),
+  size: paintSizeSchema,
+  points: strokePointsSchema,
+});
+export type Stroke = z.infer<typeof strokeSchema>;
+
 export const gmBattleSchema = z.object({
   size: battleSizeSchema,
   tokens: z.array(gmBattleTokenSchema),
+  strokes: z.array(strokeSchema),
 });
 export type GmBattle = z.infer<typeof gmBattleSchema>;
 
 export const playerBattleSchema = z.object({
   size: battleSizeSchema,
   tokens: z.array(playerBattleTokenSchema),
+  strokes: z.array(strokeSchema),
 });
 export type PlayerBattle = z.infer<typeof playerBattleSchema>;
 
@@ -248,6 +274,9 @@ export type Presence = z.infer<typeof presenceSchema>;
  *   leaves the curtain closed; `moveToken` (`moveTokenRequestSchema`) puts a token on a square,
  *   or back beside the mat with a null square. Placing an NPC's token reveals its record. While a
  *   battle is on, `loadScene` and `playTravel` are refused.
+ * - Painting the mat (F5.6), each → `actionResultSchema`, GM only, while a battle is on:
+ *   `paintStroke` (`paintStrokeRequestSchema`) starts a stroke or adds points to it, by its id;
+ *   `undoStroke` and `clearPaint` (`{}`) take back the last stroke, or every one.
  *
  * Browser to server, never answered:
  * - `speaking` (F3.7): `speakingRequestSchema`, whenever the sender starts or stops talking.
@@ -309,6 +338,9 @@ export const PLAY_SOCKET = {
   startBattle: 'battle:start',
   endBattle: 'battle:end',
   moveToken: 'battle:token.move',
+  paintStroke: 'battle:paint',
+  undoStroke: 'battle:paint.undo',
+  clearPaint: 'battle:paint.clear',
 } as const;
 
 export const joinRequestSchema = z.strictObject({ campaignId: z.uuid() });
@@ -405,6 +437,31 @@ export const moveTokenRequestSchema = z.strictObject({
   square: squareSchema.nullable(),
 });
 export type MoveTokenRequest = z.infer<typeof moveTokenRequestSchema>;
+
+/**
+ * Paints on the battle mat (F5.6): the first message with a stroke's id starts it, and later ones
+ * add their points to it, in the same tool, color and size. An erase has no color; a paint
+ * stroke has one. At most `PAINT_CHUNK_POINTS` points a message.
+ */
+export const paintStrokeRequestSchema = z
+  .strictObject({
+    id: z.uuid(),
+    tool: paintToolSchema,
+    color: paintColorSchema.optional(),
+    size: paintSizeSchema,
+    points: strokePointsSchema.refine(
+      (points) => points.length >= 2 && points.length <= 2 * PAINT_CHUNK_POINTS,
+      'Between 1 and 60 points',
+    ),
+  })
+  .refine(
+    (request) => (request.tool === 'paint') === (request.color !== undefined),
+    'Paint has a color; an erase has none',
+  );
+export type PaintStrokeRequest = z.infer<typeof paintStrokeRequestSchema>;
+
+/** Takes back the last stroke, or clears every one (F5.6). */
+export const paintRequestSchema = z.strictObject({});
 
 /** What an action is answered with; `message` says why it was refused. */
 export const actionResultSchema = z.discriminatedUnion('ok', [

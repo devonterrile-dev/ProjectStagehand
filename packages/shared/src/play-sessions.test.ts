@@ -6,6 +6,8 @@ import {
   endBattleRequestSchema,
   gmStageSchema,
   moveTokenRequestSchema,
+  paintRequestSchema,
+  paintStrokeRequestSchema,
   startBattleRequestSchema,
   joinRequestSchema,
   joinResultSchema,
@@ -94,10 +96,10 @@ describe('the players’ stage', () => {
       role: 'player',
       ...stage,
       objects: [],
-      battle: { size: 'small', tokens: [{ ...token, name: 'Goblin boss' }] },
+      battle: { size: 'small', strokes: [], tokens: [{ ...token, name: 'Goblin boss' }] },
     });
 
-    expect(parsed.battle).toEqual({ size: 'small', tokens: [token] });
+    expect(parsed.battle).toEqual({ size: 'small', strokes: [], tokens: [token] });
     expect(JSON.stringify(parsed)).not.toContain('Goblin');
     for (const wrong of [
       { ...token, square: null },
@@ -109,7 +111,7 @@ describe('the players’ stage', () => {
           role: 'player',
           ...stage,
           objects: [],
-          battle: { size: 'small', tokens: [wrong] },
+          battle: { size: 'small', strokes: [], tokens: [wrong] },
         }).success,
       ).toBe(false);
     }
@@ -192,6 +194,10 @@ describe('the GM’s stage', () => {
   it('holds every battle token, on a square or beside the mat (F5.5)', () => {
     const battle = {
       size: 'large',
+      strokes: [
+        { id: id(7), tool: 'paint', color: 'blue', size: 'broad', points: [1, 1, 2, 2] },
+        { id: id(8), tool: 'erase', color: null, size: 'medium', points: [1.5, 1.5] },
+      ],
       tokens: [
         { id: id(5), side: 'pc', square: { column: 17, row: 0 } },
         { id: id(6), side: 'npc', square: null },
@@ -321,6 +327,32 @@ describe('the live room’s messages', () => {
     expect(ok({ id: id(1), square: { column: 18, row: 0 } })).toBe(false);
     expect(ok({ id: id(1), square: { column: 1.5, row: 0 } })).toBe(false);
     expect(ok({ id: id(1) })).toBe(false);
+  });
+
+  it('paints a stroke in chunks of points, an erase with no color, and undoes or clears (F5.6)', () => {
+    expect(PLAY_SOCKET.paintStroke).toBe('battle:paint');
+    expect(PLAY_SOCKET.undoStroke).toBe('battle:paint.undo');
+    expect(PLAY_SOCKET.clearPaint).toBe('battle:paint.clear');
+
+    const ok = (request: unknown) => paintStrokeRequestSchema.safeParse(request).success;
+    const stroke = { id: id(1), tool: 'paint', color: 'red', size: 'fine', points: [0, 0, 1.5, 2] };
+    expect(ok(stroke)).toBe(true);
+    expect(ok({ ...stroke, tool: 'erase', color: undefined })).toBe(true);
+    // An erase has no color, and paint needs one.
+    expect(ok({ ...stroke, tool: 'erase' })).toBe(false);
+    expect(ok({ ...stroke, color: undefined })).toBe(false);
+    expect(ok({ ...stroke, color: 'pink' })).toBe(false);
+    expect(ok({ ...stroke, size: 'huge' })).toBe(false);
+    // Points come in pairs, on the mat, at least one and at most 60 a message.
+    expect(ok({ ...stroke, points: [1, 2, 3] })).toBe(false);
+    expect(ok({ ...stroke, points: [] })).toBe(false);
+    expect(ok({ ...stroke, points: [0, 18.5] })).toBe(false);
+    expect(ok({ ...stroke, points: [-1, 0] })).toBe(false);
+    expect(ok({ ...stroke, points: Array.from({ length: 120 }, () => 1) })).toBe(true);
+    expect(ok({ ...stroke, points: Array.from({ length: 122 }, () => 1) })).toBe(false);
+
+    expect(paintRequestSchema.safeParse({}).success).toBe(true);
+    expect(paintRequestSchema.safeParse({ id: id(1) }).success).toBe(false);
   });
 
   it('takes a scene id to load', () => {

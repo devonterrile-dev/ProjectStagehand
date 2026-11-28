@@ -612,7 +612,11 @@ describe('The table, for the GM', () => {
       stageWith({
         curtainOpen: false,
         travel: { playing: false, distance: 0.5 },
-        battle: { size: 'small', tokens: [{ id: marta?.id ?? '', side: 'monster', square }] },
+        battle: {
+          size: 'small',
+          strokes: [],
+          tokens: [{ id: marta?.id ?? '', side: 'monster', square }],
+        },
       });
 
     it('lays out a mat of the size picked', async () => {

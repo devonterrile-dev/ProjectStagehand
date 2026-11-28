@@ -26,6 +26,8 @@ import {
   emoteRequestSchema,
   endBattleRequestSchema,
   moveTokenRequestSchema,
+  paintRequestSchema,
+  paintStrokeRequestSchema,
   startBattleRequestSchema,
   freeRollRequestSchema,
   joinRequestSchema,
@@ -62,10 +64,12 @@ import { makeFreeRoll, type RollAny } from '../campaigns/free-rolls';
 import { presenceMemberOf } from '../campaigns/members';
 import {
   addLiveObject,
+  clearPaint,
   endBattle,
   loadSceneLive,
   moveLiveObject,
   moveToken,
+  paintStroke,
   startBattle,
   removeLiveObject,
   setCurtain,
@@ -73,6 +77,7 @@ import {
   setTravelPlaying,
   settlePasses,
   stagesOf,
+  undoStroke,
 } from '../campaigns/play-sessions';
 import {
   callRolls,
@@ -574,6 +579,20 @@ export function registerPlaySocket(io: Server, deps: PlaySocketDeps): PlayLive {
       'That square is not on the mat',
       (scope, request) => moveToken(db, scope, request.id, request.square),
       true,
+    );
+
+    // Painting the mat (F5.6): sent in chunks as it is drawn, and not logged.
+    onGm(
+      PLAY_SOCKET.paintStroke,
+      paintStrokeRequestSchema,
+      'That paint is not on the mat',
+      (scope, request) => paintStroke(db, scope, request),
+    );
+    onGm(PLAY_SOCKET.undoStroke, paintRequestSchema, 'Nothing to undo', (scope) =>
+      undoStroke(db, scope),
+    );
+    onGm(PLAY_SOCKET.clearPaint, paintRequestSchema, 'Nothing to clear', (scope) =>
+      clearPaint(db, scope),
     );
 
     for (const [event, open] of [

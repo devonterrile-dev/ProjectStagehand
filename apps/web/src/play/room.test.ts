@@ -543,7 +543,7 @@ describe('the live room, from the browser', () => {
       const marta = gmStage().objects[2]?.id ?? '';
       const battleStage = (square: { column: number; row: number } | null) =>
         gmStage({
-          battle: { size: 'small', tokens: [{ id: marta, side: 'npc', square }] },
+          battle: { size: 'small', strokes: [], tokens: [{ id: marta, side: 'npc', square }] },
         });
 
       it('lays out a mat and rolls it up', async () => {

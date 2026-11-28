@@ -112,6 +112,7 @@ function TestBattle({ size, count }: { size: BattleSize; count: number }) {
   });
   const battle: BattleView = {
     size,
+    strokes: [],
     tokens: places.flatMap((square, index) => {
       const sample = SAMPLE_CUTOUTS[index % SAMPLE_CUTOUTS.length];
       if (sample === undefined) return [];

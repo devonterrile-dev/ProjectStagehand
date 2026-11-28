@@ -116,3 +116,40 @@ export function squareName(square: Square): string {
 export const BATTLE_SIDES = ['pc', 'npc', 'monster'] as const;
 export const battleSideSchema = z.enum(BATTLE_SIDES);
 export type BattleSide = z.infer<typeof battleSideSchema>;
+
+/**
+ * Painting the battle mat (F5.6, governance §12 "Battle mode"): the GM paints and rubs out
+ * strokes on the mat for everyone. A stroke's points are measured in squares from the grid's far
+ * left corner, as a flat list `[x0, y0, x1, y1, …]`, y running toward the players.
+ */
+export const PAINT_TOOLS = ['paint', 'erase'] as const;
+export const paintToolSchema = z.enum(PAINT_TOOLS);
+export type PaintTool = z.infer<typeof paintToolSchema>;
+
+/** The paint's colors, by name; how each is drawn is the browser's. */
+export const PAINT_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'black'] as const;
+export const paintColorSchema = z.enum(PAINT_COLORS);
+export type PaintColor = z.infer<typeof paintColorSchema>;
+
+/** The brush sizes, and how wide each draws, in squares. */
+export const PAINT_SIZE_NAMES = ['fine', 'medium', 'broad'] as const;
+export const PAINT_SIZES = { fine: 0.12, medium: 0.3, broad: 0.8 } as const;
+export const paintSizeSchema = z.enum(PAINT_SIZE_NAMES);
+export type PaintSize = z.infer<typeof paintSizeSchema>;
+
+/** The most points one stroke holds, and the most on one mat, so the stage stays small. */
+export const STROKE_MAX_POINTS = 400;
+export const PAINT_MAX_POINTS = 6000;
+/** The most points one message carries: well inside what the live room takes in one. */
+export const PAINT_CHUNK_POINTS = 60;
+
+/** A stroke's points: pairs of numbers, each 0 to 18 squares (the server keeps hundredths). */
+export const strokePointsSchema = z
+  .array(z.number().min(0).max(BATTLE_MAX_SQUARES))
+  .refine((numbers) => numbers.length % 2 === 0, 'Points come in pairs');
+
+/** Whether every point of a stroke lies on a mat of this size. */
+export function pointsOnMat(size: BattleSize, points: readonly number[]): boolean {
+  const squares = battleSquares(size);
+  return points.every((value) => value <= squares);
+}

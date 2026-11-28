@@ -21,11 +21,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, discordUser, SAME_ORIGIN, signIn } from '../../test/auth-helpers';
 import {
   addLiveObject,
+  clearPaint,
   endBattle,
   loadSceneLive,
   moveLiveObject,
   moveToken,
   NO_SESSION,
+  paintStroke,
   playerCanSeeAsset,
   removeLiveObject,
   startBattle,
@@ -35,6 +37,7 @@ import {
   setTravelPlaying,
   settlePasses,
   stagesOf,
+  undoStroke,
 } from '../campaigns/play-sessions';
 import { sessionLog } from '../campaigns/rolls';
 import { loadCampaignScope, type CampaignScope } from '../campaigns/scope';
@@ -43,6 +46,7 @@ import {
   assets,
   campaignMembers,
   characters,
+  playBattleStrokes,
   playBattleTokens,
   playSessionObjects,
   playSessions,
@@ -1442,6 +1446,7 @@ describe('Live sessions API', () => {
       expect(forGm.curtainOpen).toBe(false);
       expect(forGm.battle).toEqual({
         size: 'small',
+        strokes: [],
         tokens: [
           { id: idOf(goblin), side: 'monster', square: null },
           { id: idOf(marta), side: 'npc', square: null },
@@ -1449,7 +1454,7 @@ describe('Live sessions API', () => {
         ],
       });
       // Tokens beside the mat are the GM's alone (19.31).
-      expect(forPlayers.battle).toEqual({ size: 'small', tokens: [] });
+      expect(forPlayers.battle).toEqual({ size: 'small', strokes: [], tokens: [] });
 
       const log = await sessionLog(handle.db, scope);
       expect(log[0]).toMatchObject({
@@ -1635,6 +1640,149 @@ describe('Live sessions API', () => {
           .select()
           .from(playBattleTokens)
           .where(eq(playBattleTokens.playSessionId, sessionId)),
+      ).toEqual([]);
+    });
+  });
+  describe('painting the mat (F5.6)', () => {
+    let canvas: Campaign;
+    let scope: CampaignScope;
+    const red = { tool: 'paint' as const, color: 'red' as const, size: 'fine' as const };
+    const rubOut = { tool: 'erase' as const, size: 'broad' as const };
+
+    const strokes = async () => (await stages(canvas)).gm.battle?.strokes ?? null;
+    async function sessionId() {
+      const [row] = await handle.db
+        .select({ id: playSessions.id })
+        .from(playSessions)
+        .where(and(eq(playSessions.campaignId, canvas.id), isNull(playSessions.endedAt)));
+      return row?.id ?? '';
+    }
+
+    beforeAll(async () => {
+      canvas = await newCampaign('Painting Campaign');
+      scope = await scopeOf(gm, canvas);
+      await start(canvas);
+    });
+
+    afterAll(async () => {
+      if ((await running(gm, canvas)) !== null) await end(canvas);
+    });
+
+    it('paints nothing without a battle', async () => {
+      await expect(
+        paintStroke(handle.db, scope, { id: randomUUID(), ...red, points: [1, 1] }),
+      ).rejects.toMatchObject({ statusCode: 409, message: 'No battle is on' });
+      await expect(undoStroke(handle.db, scope)).rejects.toMatchObject({ statusCode: 409 });
+      await expect(clearPaint(handle.db, scope)).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('starts a stroke, adds each chunk to it in hundredths, and shows it to everyone', async () => {
+      await startBattle(handle.db, scope, 'small');
+      expect(await strokes()).toEqual([]);
+      const id = randomUUID();
+
+      await paintStroke(handle.db, scope, { id, ...red, points: [0.5, 0.5, 1.004, 1.5] });
+      await paintStroke(handle.db, scope, { id, ...red, points: [2, 2.25] });
+
+      const stroke = { id, ...red, points: [0.5, 0.5, 1, 1.5, 2, 2.25] };
+      expect(await strokes()).toEqual([stroke]);
+      expect((await stages(canvas)).player.battle?.strokes).toEqual([stroke]);
+    });
+
+    it('keeps a stroke to its brush, and the paint on the mat', async () => {
+      const [first] = (await strokes()) ?? [];
+      await expect(
+        paintStroke(handle.db, scope, {
+          id: first?.id ?? '',
+          ...red,
+          color: 'blue',
+          points: [3, 3],
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'That stroke was painted with another brush',
+      });
+      await expect(
+        paintStroke(handle.db, scope, { id: randomUUID(), ...red, points: [6.5, 1] }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rubs out over the paint, in drawing order, and undoes the last stroke', async () => {
+      const erase = randomUUID();
+      await paintStroke(handle.db, scope, { id: erase, ...rubOut, points: [1, 1] });
+
+      expect((await strokes())?.map((stroke) => [stroke.tool, stroke.color])).toEqual([
+        ['paint', 'red'],
+        ['erase', null],
+      ]);
+      await undoStroke(handle.db, scope);
+      expect((await strokes())?.map((stroke) => stroke.tool)).toEqual(['paint']);
+    });
+
+    it('holds at most 400 points a stroke', async () => {
+      const long = randomUUID();
+      const chunk = Array.from({ length: 120 }, (_, index) => (index % 12) / 2);
+      for (let sent = 0; sent < 6; sent += 1) {
+        await paintStroke(handle.db, scope, { id: long, ...red, points: chunk });
+      }
+      await expect(
+        paintStroke(handle.db, scope, { id: long, ...red, points: chunk }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: "The mat can't hold more paint. Undo or clear some first.",
+      });
+      expect((await strokes())?.at(-1)?.points).toHaveLength(720);
+    });
+
+    it('clears the mat', async () => {
+      await clearPaint(handle.db, scope);
+      expect(await strokes()).toEqual([]);
+      // Clearing a clean mat, or undoing on one, changes nothing.
+      await clearPaint(handle.db, scope);
+      await undoStroke(handle.db, scope);
+    });
+
+    it('keeps a color on paint and none on an erase', async () => {
+      const id = await sessionId();
+      const wrong = await handle.db
+        .insert(playBattleStrokes)
+        .values({
+          playSessionId: id,
+          id: randomUUID(),
+          campaignId: canvas.id,
+          position: 9,
+          tool: 'erase',
+          color: 'red',
+          size: 'fine',
+          points: [1, 1],
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(pgCode(wrong)).toBe('23514');
+    });
+
+    it('rolls the paint up with the mat, and goes with the session', async () => {
+      await paintStroke(handle.db, scope, { id: randomUUID(), ...red, points: [1, 1] });
+      await endBattle(handle.db, scope);
+      const id = await sessionId();
+      expect(
+        await handle.db
+          .select()
+          .from(playBattleStrokes)
+          .where(eq(playBattleStrokes.playSessionId, id)),
+      ).toEqual([]);
+
+      await startBattle(handle.db, scope, 'medium');
+      expect(await strokes()).toEqual([]);
+      await paintStroke(handle.db, scope, { id: randomUUID(), ...rubOut, points: [11, 11] });
+      await end(canvas);
+      expect(
+        await handle.db
+          .select()
+          .from(playBattleStrokes)
+          .where(eq(playBattleStrokes.playSessionId, id)),
       ).toEqual([]);
     });
   });

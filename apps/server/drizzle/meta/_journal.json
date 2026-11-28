@@ -253,6 +253,13 @@
       "when": 1795820776713,
       "tag": "0035_battle_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795825311007,
+      "tag": "0036_battle_paint",
+      "breakpoints": true
     }
   ]
 }

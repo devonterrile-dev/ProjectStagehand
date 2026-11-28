@@ -15,6 +15,7 @@ import type {
   ObjectChanges,
   Presence,
   Square,
+  Stroke,
 } from '@stagehand/shared';
 
 import { stageImageUrl, type StageCutout } from '@/lib/scenes';
@@ -126,6 +127,8 @@ export interface BattleTokenView {
 export interface BattleView {
   size: BattleSize;
   tokens: BattleTokenView[];
+  /** The paint on the mat (F5.6), in drawing order. */
+  strokes: Stroke[];
 }
 
 /**
@@ -143,6 +146,7 @@ export function battleView(
   if (stage.role === 'player') {
     return {
       size: stage.battle.size,
+      strokes: stage.battle.strokes,
       tokens: stage.battle.tokens.map((token) => ({
         id: token.id,
         side: token.side,
@@ -157,6 +161,7 @@ export function battleView(
   const objects = new Map(stage.objects.map((object) => [object.id, object]));
   return {
     size: stage.battle.size,
+    strokes: stage.battle.strokes,
     tokens: stage.battle.tokens.flatMap((token): BattleTokenView[] => {
       const object = objects.get(token.id);
       if (object?.image == null) return [];

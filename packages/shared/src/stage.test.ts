@@ -4,6 +4,8 @@ import {
   BATTLE_SIZES,
   battleSquares,
   onMat,
+  PAINT_SIZES,
+  pointsOnMat,
   squareName,
   squareSchema,
   DEPTH_TICKS,
@@ -85,5 +87,18 @@ describe('battle mats (F5.5)', () => {
     expect(squareName({ column: 0, row: 0 })).toBe('A1');
     expect(squareName({ column: 2, row: 3 })).toBe('C4');
     expect(squareName({ column: 17, row: 17 })).toBe('R18');
+  });
+});
+
+describe('paint on the mat (F5.6)', () => {
+  it('has three brush sizes, in squares', () => {
+    expect(PAINT_SIZES.fine).toBeLessThan(PAINT_SIZES.medium);
+    expect(PAINT_SIZES.medium).toBeLessThan(PAINT_SIZES.broad);
+  });
+
+  it('knows whether a stroke lies on a mat of each size', () => {
+    expect(pointsOnMat('small', [0, 0, 6, 6])).toBe(true);
+    expect(pointsOnMat('small', [0, 0, 6.01, 1])).toBe(false);
+    expect(pointsOnMat('large', [18, 17.5])).toBe(true);
   });
 });

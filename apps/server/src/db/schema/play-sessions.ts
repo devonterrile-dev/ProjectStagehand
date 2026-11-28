@@ -15,7 +15,14 @@
  * Its events stay: they are the record of the night (§8 `session_events`).
  * Only `src/campaigns/play-sessions.ts` queries these tables.
  */
-import { BATTLE_SIZE_NAMES, ROLL_EDGES, SESSION_LOG_KINDS } from '@stagehand/shared';
+import {
+  BATTLE_SIZE_NAMES,
+  PAINT_COLORS,
+  PAINT_SIZE_NAMES,
+  PAINT_TOOLS,
+  ROLL_EDGES,
+  SESSION_LOG_KINDS,
+} from '@stagehand/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -226,6 +233,48 @@ export const playBattleTokens = pgTable(
       'play_battle_tokens_square',
       sql`(${table.column} is null) = (${table.row} is null) and (${table.column} is null or (${table.column} between 0 and 17 and ${table.row} between 0 and 17))`,
     ),
+  ],
+);
+
+/** Painting the battle mat (F5.6): a stroke's tool, color and brush size. */
+export const paintTool = pgEnum('paint_tool', PAINT_TOOLS);
+export const paintColor = pgEnum('paint_color', PAINT_COLORS);
+export const paintSize = pgEnum('paint_size', PAINT_SIZE_NAMES);
+
+/**
+ * The paint on the battle mat (F5.6, governance §12 "Battle mode"): each stroke, painted or rubbed
+ * out, in drawing order. The browser makes a stroke's id and sends its points in chunks, each
+ * added to the stroke. Gone when the GM clears the mat, when the battle ends and when the
+ * session ends.
+ */
+export const playBattleStrokes = pgTable(
+  'play_battle_strokes',
+  {
+    playSessionId: uuid('play_session_id')
+      .notNull()
+      .references(() => playSessions.id, { onDelete: 'cascade' }),
+    id: uuid('id').notNull(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Its place in the drawing order: later strokes are drawn over earlier ones. */
+    position: integer('position').notNull(),
+    tool: paintTool('tool').notNull(),
+    /** Null for an erase. */
+    color: paintColor('color'),
+    size: paintSize('size').notNull(),
+    /** In squares from the grid's far left corner, `[x0, y0, x1, y1, …]`, in hundredths. */
+    points: jsonb('points').$type<number[]>().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.playSessionId, table.id] }),
+    index('play_battle_strokes_session_position_idx').on(table.playSessionId, table.position),
+    index('play_battle_strokes_campaign_id_idx').on(table.campaignId),
+    check(
+      'play_battle_strokes_color',
+      sql`(${table.tool} = 'paint') = (${table.color} is not null)`,
+    ),
+    check('play_battle_strokes_position', sql`${table.position} >= 0`),
   ],
 );
 

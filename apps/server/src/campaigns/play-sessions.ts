@@ -22,12 +22,14 @@
  *
  * Battle mode (F5.5): `play_sessions.battle_size` says a mat is on the table, and
  * `play_battle_tokens` holds a token for each puppet, on a square or beside the mat. A token goes
- * with its object. While a battle is on, a scene load and Play are refused.
+ * with its object. While a battle is on, a scene load and Play are refused. The GM's paint on the
+ * mat is `play_battle_strokes` (F5.6), gone with the battle.
  */
 import {
   gmStageSchema,
   LIVE_OBJECT_START,
   onMat,
+  PAINT_MAX_POINTS,
   PASS_SPAN,
   passOver,
   playerStageSchema,
@@ -40,6 +42,10 @@ import {
   type BattleSize,
   type GmStage,
   type MoveObjectRequest,
+  type PaintStrokeRequest,
+  pointsOnMat,
+  STROKE_MAX_POINTS,
+  type Stroke,
   type PlayerStage,
   type PlaySession,
   type SceneObjectKind,
@@ -48,13 +54,14 @@ import {
   travelDistance,
   type TravelClock,
 } from '@stagehand/shared';
-import { and, asc, count, eq, inArray, isNotNull, isNull, lte, max, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, max, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client';
 import {
   assets,
   campaigns,
   characters,
+  playBattleStrokes,
   playBattleTokens,
   playRollCalls,
   playSessionObjects,
@@ -248,6 +255,8 @@ export async function endSession(db: Database, scope: CampaignScope): Promise<vo
     await tx.delete(playSessionObjects).where(eq(playSessionObjects.playSessionId, ended.id));
     // Rolls nobody made go with the stage (F3.6); the rolls made stay in the log.
     await tx.delete(playRollCalls).where(eq(playRollCalls.playSessionId, ended.id));
+    // And the paint on a mat still out (F5.6).
+    await tx.delete(playBattleStrokes).where(eq(playBattleStrokes.playSessionId, ended.id));
   });
 }
 
@@ -440,7 +449,7 @@ export async function startBattle(
 }
 
 /**
- * Rolls the battle mat up (F5.5, §13 `battle:end`), with its tokens. The curtain stays closed,
+ * Rolls the battle mat up (F5.5, §13 `battle:end`), with its tokens and its paint (F5.6). The curtain stays closed,
  * so the GM can tidy the stage before opening it (19.32). Logged. 409 when no battle is on.
  */
 export async function endBattle(db: Database, scope: CampaignScope): Promise<void> {
@@ -448,6 +457,8 @@ export async function endBattle(db: Database, scope: CampaignScope): Promise<voi
     const session = await lockRunning(tx, scope);
     if (session.battleSize === null) throw httpError(409, NO_BATTLE);
     await tx.delete(playBattleTokens).where(eq(playBattleTokens.playSessionId, session.id));
+    // The paint rolls up with the mat (F5.6).
+    await tx.delete(playBattleStrokes).where(eq(playBattleStrokes.playSessionId, session.id));
     await tx.update(playSessions).set({ battleSize: null }).where(eq(playSessions.id, session.id));
     await logEvent(tx, scope, session, 'battle_end', { actorUserId: scope.userId });
   });
@@ -512,6 +523,102 @@ export async function moveToken(
     if (square !== null && token.column === null) {
       await revealInSight(tx, scope, session, [token.recordId]);
     }
+  });
+}
+
+const PAINT_FULL = "The mat can't hold more paint. Undo or clear some first.";
+
+/** A point in hundredths of a square, as the stroke keeps it. */
+const hundredths = (value: number) => Math.round(value * 100) / 100;
+
+/**
+ * Paints on the battle mat (F5.6, §13 `battle:paint`): a new stroke id starts a stroke after the
+ * others, and a known one adds its points to that stroke, which must be in the same tool, color
+ * and size. 409 when no battle is on, the stroke doesn't match, or the paint would pass
+ * `STROKE_MAX_POINTS` for one stroke or `PAINT_MAX_POINTS` on the mat; 400 for a point off the
+ * mat. Not logged.
+ */
+export async function paintStroke(
+  db: Database,
+  scope: CampaignScope,
+  request: PaintStrokeRequest,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.battleSize === null) throw httpError(409, NO_BATTLE);
+    if (!pointsOnMat(session.battleSize, request.points)) {
+      throw httpError(400, 'That paint is not on the mat');
+    }
+    const points = request.points.map(hundredths);
+    const color = request.color ?? null;
+    const ofSession = eq(playBattleStrokes.playSessionId, session.id);
+
+    // The session's row is held, so no other stroke can arrive meanwhile.
+    const [held] = await tx
+      .select({
+        total: sql<number>`coalesce(sum(jsonb_array_length(${playBattleStrokes.points})), 0)::int`,
+        last: max(playBattleStrokes.position),
+      })
+      .from(playBattleStrokes)
+      .where(ofSession);
+    if ((held?.total ?? 0) + points.length > 2 * PAINT_MAX_POINTS) {
+      throw httpError(409, PAINT_FULL);
+    }
+
+    const [stroke] = await tx
+      .select()
+      .from(playBattleStrokes)
+      .where(and(ofSession, eq(playBattleStrokes.id, request.id)));
+    if (stroke === undefined) {
+      if (points.length > 2 * STROKE_MAX_POINTS) throw httpError(409, PAINT_FULL);
+      await tx.insert(playBattleStrokes).values({
+        playSessionId: session.id,
+        id: request.id,
+        campaignId: scope.campaignId,
+        position: (held?.last ?? -1) + 1,
+        tool: request.tool,
+        color,
+        size: request.size,
+        points,
+      });
+      return;
+    }
+    if (stroke.tool !== request.tool || stroke.color !== color || stroke.size !== request.size) {
+      throw httpError(409, 'That stroke was painted with another brush');
+    }
+    if (stroke.points.length + points.length > 2 * STROKE_MAX_POINTS) {
+      throw httpError(409, PAINT_FULL);
+    }
+    await tx
+      .update(playBattleStrokes)
+      .set({ points: [...stroke.points, ...points] })
+      .where(and(ofSession, eq(playBattleStrokes.id, request.id)));
+  });
+}
+
+/** Takes back the last stroke on the mat (F5.6, §13 `battle:paint.undo`); none, nothing. */
+export async function undoStroke(db: Database, scope: CampaignScope): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.battleSize === null) throw httpError(409, NO_BATTLE);
+    const ofSession = eq(playBattleStrokes.playSessionId, session.id);
+    const [last] = await tx
+      .select({ id: playBattleStrokes.id })
+      .from(playBattleStrokes)
+      .where(ofSession)
+      .orderBy(desc(playBattleStrokes.position))
+      .limit(1);
+    if (last === undefined) return;
+    await tx.delete(playBattleStrokes).where(and(ofSession, eq(playBattleStrokes.id, last.id)));
+  });
+}
+
+/** Clears every stroke from the mat (F5.6, §13 `battle:paint.clear`). */
+export async function clearPaint(db: Database, scope: CampaignScope): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = await lockRunning(tx, scope);
+    if (session.battleSize === null) throw httpError(409, NO_BATTLE);
+    await tx.delete(playBattleStrokes).where(eq(playBattleStrokes.playSessionId, session.id));
   });
 }
 
@@ -931,6 +1038,7 @@ export async function stagesOf(
               side,
               square,
             })),
+            strokes: battle.strokes,
           },
   });
 
@@ -980,6 +1088,7 @@ export async function stagesOf(
                 },
               ];
             }),
+            strokes: battle.strokes,
           },
   });
 
@@ -1003,8 +1112,25 @@ async function battleOf(
   scope: CampaignScope,
   session: SessionRow,
   placed: readonly Placed[],
-): Promise<{ size: BattleSize; tokens: PlacedToken[] } | null> {
+): Promise<{ size: BattleSize; tokens: PlacedToken[]; strokes: Stroke[] } | null> {
   if (session.battleSize === null) return null;
+  // The paint (F5.6), in drawing order: the same for everyone.
+  const strokes = await db
+    .select({
+      id: playBattleStrokes.id,
+      tool: playBattleStrokes.tool,
+      color: playBattleStrokes.color,
+      size: playBattleStrokes.size,
+      points: playBattleStrokes.points,
+    })
+    .from(playBattleStrokes)
+    .where(
+      and(
+        eq(playBattleStrokes.playSessionId, session.id),
+        eq(playBattleStrokes.campaignId, scope.campaignId),
+      ),
+    )
+    .orderBy(asc(playBattleStrokes.position));
   const rows = await db
     .select({
       objectId: playBattleTokens.objectId,
@@ -1056,7 +1182,7 @@ async function battleOf(
           : 'npc';
     return [{ entry, side, square }];
   });
-  return { size: session.battleSize, tokens };
+  return { size: session.battleSize, tokens, strokes };
 }
 
 /**

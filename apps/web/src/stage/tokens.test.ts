@@ -49,6 +49,7 @@ describe('the battle mat’s squares (F5.5)', () => {
 describe('battle tokens (F5.5)', () => {
   const battle: BattleView = {
     size: 'small',
+    strokes: [],
     tokens: [token('a', null), token('b', { column: 1, row: 2 }), token('c', null)],
   };
 
