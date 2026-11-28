@@ -42,6 +42,14 @@ export const STAGE_COLORS = {
   fearBead: '#7d4fc2',
   /** The sheet page's edge while a called roll waits (F3.6). */
   callGlow: '#ffb84a',
+  /** The battle mat (F5.5): tan cloth, a darker edge and grid lines. */
+  mat: '#d9c29a',
+  matEdge: '#b89c6e',
+  matGrid: '#7d6544',
+  /** A battle token's plastic clip and base (F5.5), by side. */
+  clipPc: '#2f6fd6',
+  clipNpc: '#2f9a4a',
+  clipMonster: '#c8322f',
   /** The void: black, so nothing below the scene is seen. */
   void: '#000000',
 } as const;

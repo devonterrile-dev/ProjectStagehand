@@ -1,4 +1,5 @@
 import { useFrame, useThree } from '@react-three/fiber';
+import type { BattleSize } from '@stagehand/shared';
 import { useEffect, useRef } from 'react';
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
 
@@ -21,9 +22,12 @@ const scratch = new Vector3();
  */
 export function StageCamera({
   view = 'stage',
+  battle = null,
   onSettle,
 }: {
   view?: StageView;
+  /** The battle mat's size while a battle is on (F5.5): the Battle and Sheet views follow it. */
+  battle?: BattleSize | null;
   onSettle?: (view: StageView) => void;
 }) {
   const size = useThree((state) => state.size);
@@ -32,12 +36,12 @@ export function StageCamera({
   const arrived = useRef<StageView | null>(null);
   useEffect(() => {
     arrived.current = null;
-  }, [view]);
+  }, [view, battle]);
 
   useFrame((state, delta) => {
     // A canvas that has no size yet has no shape to fit.
     if (size.width <= 0 || size.height <= 0) return;
-    const pose = viewPose(view, size.width / size.height);
+    const pose = viewPose(view, size.width / size.height, battle);
     const [px, py, pz] = pose.position;
     const [tx, ty, tz] = pose.target;
     const { camera } = state;

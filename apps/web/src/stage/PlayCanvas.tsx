@@ -1,8 +1,11 @@
-import type { StageTravel } from '@stagehand/shared';
+import type { Square, StageTravel } from '@stagehand/shared';
 import { memo, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { StageCutout } from '@/lib/scenes';
+import type { BattleView } from '@/play/stage';
 
+import { BattleMat } from './BattleMat';
+import { BattleTokens } from './BattleTokens';
 import type { StageView } from './camera';
 import type { Place } from './placement';
 import { PuppetMenu } from './PuppetMenu';
@@ -83,7 +86,16 @@ export interface PlayCanvasProps {
    * and passers move by from it. Null or left out for a static scene.
    */
   travel?: StageTravel | null;
+  /**
+   * The battle on the table (F5.5): the mat and its tokens; null or left out when there is
+   * none. The camera's Stage view becomes the Battle view meanwhile.
+   */
+  battle?: BattleView | null;
+  /** The GM's table (F5.5): a token was dropped on a square, or (null) off the mat. */
+  onMoveToken?: (id: string, square: Square | null) => void;
 }
+
+const NOTHING: readonly StageCutout[] = [];
 
 /** A player's own PC's puppet and its emote card (F3.7). */
 export interface OwnPuppet {
@@ -98,6 +110,30 @@ export interface OwnPuppet {
 
 /** How long a lowered puppet is still drawn, sinking into the void, once it has left the stage. */
 export const LEAVING_MS = 700;
+
+/** How long the curtain takes to close (`Curtain.tsx`), with a little to spare. */
+const CURTAIN_CLOSED_MS = 1200;
+
+/**
+ * Whether the theater is out of sight behind a closed curtain during a battle (F5.5): the
+ * stage's cutouts aren't drawn meanwhile, so the tokens stand in for them in the draw budget
+ * (§12). True only once the curtain has had time to close; false again at once.
+ */
+function useStageHidden(hidden: boolean): boolean {
+  const [closed, setClosed] = useState(false);
+  // Worked out while rendering: opened again, it shows at once, and closing starts afresh.
+  if (!hidden && closed) setClosed(false);
+  useEffect(() => {
+    if (!hidden) return;
+    const timer = window.setTimeout(() => {
+      setClosed(true);
+    }, CURTAIN_CLOSED_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [hidden]);
+  return hidden && closed;
+}
 
 /**
  * Puppets that have just left `objects` (lowered, or taken off the stage), kept a moment longer
@@ -161,8 +197,11 @@ export const PlayCanvas = memo(function PlayCanvas({
   motion,
   own,
   travel = null,
+  battle = null,
+  onMoveToken,
 }: PlayCanvasProps) {
   const drawn = useLeaving(objects);
+  const stageHidden = useStageHidden(battle !== null && !curtainOpen);
   const [dragging, setDragging] = useState(false);
 
   // The travel anchored to when this stage arrived (F5.4); the canvas reads it each frame.
@@ -173,7 +212,7 @@ export const PlayCanvas = memo(function PlayCanvas({
 
   // The papers on the table are laid out once the camera has arrived where they are: HTML on
   // the table flickers while the camera moves past it.
-  const view = table?.view ?? 'stage';
+  const view = table?.view ?? (battle === null ? 'stage' : 'battle');
   const [arrivedAt, setArrivedAt] = useState<StageView | null>('stage');
   const [headingTo, setHeadingTo] = useState(view);
   if (view !== headingTo) {
@@ -213,6 +252,7 @@ export const PlayCanvas = memo(function PlayCanvas({
       backdropUrl={backdropUrl}
       curtainOpen={curtainOpen}
       view={view}
+      battle={battle?.size ?? null}
       travel={anchor}
       onCameraSettle={setArrivedAt}
       onPointerMissed={() => {
@@ -223,7 +263,7 @@ export const PlayCanvas = memo(function PlayCanvas({
       }}
     >
       <SceneObjects
-        objects={drawn}
+        objects={stageHidden ? NOTHING : drawn}
         selectedId={selectedId}
         glide
         snapId={dragging ? selectedId : null}
@@ -262,6 +302,7 @@ export const PlayCanvas = memo(function PlayCanvas({
               cards={table.sheet.cards}
               waiting={table.sheet.waiting}
               onOpen={table.onOpenSheet}
+              slid={battle !== null}
             />
           )}
           <Dice roll={table.dice} />
@@ -269,6 +310,8 @@ export const PlayCanvas = memo(function PlayCanvas({
           <FearBowl fear={table.fear.count} spendId={table.fear.spendId} />
         </Suspense>
       )}
+      <BattleMat size={battle?.size ?? null} />
+      <BattleTokens battle={battle} {...(onMoveToken === undefined ? {} : { onMoveToken })} />
     </StageCanvas>
   );
 });

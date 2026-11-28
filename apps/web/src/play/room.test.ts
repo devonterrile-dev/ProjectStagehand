@@ -538,6 +538,55 @@ describe('the live room, from the browser', () => {
         expect(state().pending).toEqual({});
       });
     });
+
+    describe('battle mode (F5.5)', () => {
+      const marta = gmStage().objects[2]?.id ?? '';
+      const battleStage = (square: { column: number; row: number } | null) =>
+        gmStage({
+          battle: { size: 'small', tokens: [{ id: marta, side: 'npc', square }] },
+        });
+
+      it('lays out a mat and rolls it up', async () => {
+        await joined(gmStage());
+
+        const starting = room.startBattle('medium');
+        expect(socket.last(PLAY_SOCKET.startBattle).payload).toEqual({ size: 'medium' });
+        socket.last(PLAY_SOCKET.startBattle).answer({ ok: true });
+        expect(await starting).toEqual({ ok: true });
+
+        void room.endBattle();
+        expect(socket.last(PLAY_SOCKET.endBattle).payload).toEqual({});
+      });
+
+      it('shows a token move at once, until the stage has it', async () => {
+        await joined(battleStage(null));
+
+        const moving = room.moveToken(marta, { column: 2, row: 3 });
+        expect(socket.last(PLAY_SOCKET.moveToken).payload).toEqual({
+          id: marta,
+          square: { column: 2, row: 3 },
+        });
+        expect(state().pendingTokens).toEqual({ [marta]: { column: 2, row: 3 } });
+
+        socket.last(PLAY_SOCKET.moveToken).answer({ ok: true });
+        await moving;
+        // Answered, but the stage that has it has not come yet.
+        expect(state().pendingTokens).toEqual({ [marta]: { column: 2, row: 3 } });
+
+        socket.receive(PLAY_SOCKET.stage, battleStage({ column: 2, row: 3 }));
+        expect(state().pendingTokens).toEqual({});
+      });
+
+      it('drops a refused token move, so the token goes back', async () => {
+        await joined(battleStage(null));
+
+        const moving = room.moveToken(marta, { column: 1, row: 1 });
+        socket.last(PLAY_SOCKET.moveToken).answer({ ok: false, message: 'That square is taken' });
+
+        expect(await moving).toEqual({ ok: false, message: 'That square is taken' });
+        expect(state().pendingTokens).toEqual({});
+      });
+    });
   });
 
   describe('closing', () => {
@@ -553,6 +602,7 @@ describe('the live room, from the browser', () => {
         view: null,
         presence: [],
         pending: {},
+        pendingTokens: {},
         journal: 0,
         sheet: 0,
         sheetChanged: null,

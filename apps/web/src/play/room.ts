@@ -17,6 +17,7 @@ import {
   sheetChangedSchema,
   type ActionResult,
   type AddObjectRequest,
+  type BattleSize,
   type Emote,
   type EmotePlayed,
   type FreeDie,
@@ -26,6 +27,7 @@ import {
   type ObjectChanges,
   type Presence,
   type SceneObjectKind,
+  type Square,
 } from '@stagehand/shared';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
@@ -75,6 +77,11 @@ export interface RoomState {
    * desk show them at once, while the stage catches up.
    */
   pending: Readonly<Record<string, ObjectChanges>>;
+  /**
+   * The GM's battle token moves not yet seen back from the server (F5.5), by token: a square,
+   * or null for beside the mat. Drawn at once, while the stage catches up.
+   */
+  pendingTokens: Readonly<Record<string, Square | null>>;
   /**
    * Goes up each time the journal may have changed (F3.5b): the server said so
    * (`journal:changed`), or the browser (re)joined and may have missed it. The page reads the
@@ -134,6 +141,14 @@ export interface PlayRoom {
   setRest(rest: boolean): Promise<ActionResult>;
   /** Plays or pauses the loaded transition scene's travel (F5.4), GM only. */
   setTravel(playing: boolean): Promise<ActionResult>;
+  /** Battle mode (F5.5), GM only: lays out a mat, or rolls it up. */
+  startBattle(size: BattleSize): Promise<ActionResult>;
+  endBattle(): Promise<ActionResult>;
+  /**
+   * Puts a battle token on a square, or beside the mat with null (F5.5), GM only. Shown at once
+   * in `pendingTokens`.
+   */
+  moveToken(id: string, square: Square | null): Promise<ActionResult>;
   /** Puppet motion (F3.7): the GM on any raised puppet, a player on their own PC's. */
   emote(objectId: string, emote: Emote): Promise<ActionResult>;
   /** The dice tray (F4.2): anyone at the table; only the GM privately. */
@@ -179,6 +194,7 @@ const INITIAL: RoomState = {
   view: null,
   presence: [],
   pending: {},
+  pendingTokens: {},
   journal: 0,
   sheet: 0,
   sheetChanged: null,
@@ -193,6 +209,13 @@ function showsChanges(stage: LiveStage, id: string, changes: ObjectChanges): boo
   if (object === undefined) return true;
   const fields: Readonly<Record<string, unknown>> = object;
   return Object.entries(changes).every(([key, value]) => fields[key] === value);
+}
+
+/** Whether the stage already has a battle token where `square` puts it, or no longer has it. */
+function showsToken(stage: LiveStage, id: string, square: Square | null): boolean {
+  const token = stage.battle?.tokens.find((candidate) => candidate.id === id);
+  if (token === undefined) return true;
+  return token.square?.column === square?.column && token.square?.row === square?.row;
 }
 
 /** Bringing an object into sight or out of it: a prop is shown or hidden, a puppet raised or lowered. */
@@ -298,9 +321,48 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     if (Object.keys(left).length !== Object.keys(pending).length) store.setState({ pending: left });
   }
 
+  /** Token moves on their way to the server (F5.5), by token: the newest send for each. */
+  const tokenSends = new Map<string, number>();
+  let tokenSendCount = 0;
+
+  /** Drops from `pendingTokens` what the stage now shows, unless a later move is on its way. */
+  function settleTokens(stage: LiveStage): void {
+    const { pendingTokens } = store.getState();
+    const left = Object.fromEntries(
+      Object.entries(pendingTokens).filter(
+        ([id, square]) => tokenSends.has(id) || !showsToken(stage, id, square),
+      ),
+    );
+    if (Object.keys(left).length !== Object.keys(pendingTokens).length) {
+      store.setState({ pendingTokens: left });
+    }
+  }
+
+  function moveToken(id: string, square: Square | null): Promise<ActionResult> {
+    const { pendingTokens } = store.getState();
+    store.setState({ pendingTokens: { ...pendingTokens, [id]: square } });
+    tokenSendCount += 1;
+    const send = tokenSendCount;
+    tokenSends.set(id, send);
+    return act(PLAY_SOCKET.moveToken, { id, square }).then((result) => {
+      // A later move of the same token is the one to wait for.
+      if (tokenSends.get(id) !== send) return result;
+      tokenSends.delete(id);
+      const { stage, pendingTokens: now } = store.getState();
+      // Refused, or already shown: the server's stage is the one to draw.
+      if (!result.ok || (stage !== null && showsToken(stage, id, square))) {
+        store.setState({
+          pendingTokens: Object.fromEntries(Object.entries(now).filter(([key]) => key !== id)),
+        });
+      }
+      return result;
+    });
+  }
+
   function receive(stage: LiveStage): void {
     store.setState({ stage });
     settle(stage);
+    settleTokens(stage);
     show(onStage(transition, stage));
   }
 
@@ -310,7 +372,8 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
       for (const waiter of move.waiters) waiter({ ok: false, message: NO_ANSWER });
     }
     moves.clear();
-    store.setState({ pending: {} });
+    tokenSends.clear();
+    store.setState({ pending: {}, pendingTokens: {} });
   }
 
   /** Sends an object's queued moves; whatever is queued meanwhile follows after the gap. */
@@ -565,6 +628,9 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     setHope: (characterId, hope) => act(PLAY_SOCKET.setHope, { characterId, hope }),
     setRest: (rest) => act(PLAY_SOCKET.setRest, { rest }),
     setTravel: (playing) => act(playing ? PLAY_SOCKET.playTravel : PLAY_SOCKET.pauseTravel),
+    startBattle: (size) => act(PLAY_SOCKET.startBattle, { size }),
+    endBattle: () => act(PLAY_SOCKET.endBattle, {}),
+    moveToken,
     emote: (objectId, emote) => act(PLAY_SOCKET.emote, { id: objectId, emote }),
     freeRoll: (die, count, hidden) => act(PLAY_SOCKET.freeRoll, { die, count, private: hidden }),
     takeOverNpc: (objectId) => act(PLAY_SOCKET.takeOverNpc, { id: objectId }),

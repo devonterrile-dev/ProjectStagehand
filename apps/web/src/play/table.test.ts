@@ -87,3 +87,13 @@ describe('the sheet page (F3.6)', () => {
     expect(back(sheet)).toEqual(AT_STAGE);
   });
 });
+
+describe('a battle (F5.5)', () => {
+  it('looks at the mat instead of the theater, and steps back to it from the sheet and binder', () => {
+    expect(cameraView(AT_STAGE, true)).toBe('battle');
+    expect(cameraView(AT_STAGE, false)).toBe('stage');
+    expect(cameraView(openSheet(), true)).toBe('sheet');
+    expect(cameraView(back(openSheet()), true)).toBe('battle');
+    expect(cameraView(back(openBinder()), true)).toBe('battle');
+  });
+});

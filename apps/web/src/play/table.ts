@@ -106,10 +106,13 @@ export function noteSubjectOf(state: TableState): NoteSubjectRef | null {
   return null;
 }
 
-/** Where the camera rests. */
-export function cameraView(state: TableState): StageView {
+/**
+ * Where the camera rests. While a battle is on (F5.5), looking up from the table means looking
+ * at the battle mat, not the theater: the curtain is closed meanwhile.
+ */
+export function cameraView(state: TableState, battle = false): StageView {
   if (state.at === 'inspect') return state.writing ? 'note' : 'inspect';
   if (state.at === 'binder') return 'binder';
   if (state.at === 'sheet') return 'sheet';
-  return 'stage';
+  return battle ? 'battle' : 'stage';
 }

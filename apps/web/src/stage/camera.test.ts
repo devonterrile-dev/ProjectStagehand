@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  battleFraming,
   BINDER_FRAMING,
+  SHEET_BATTLE_FRAMING,
   SHEET_FRAMING,
   fitFraming,
   fitStageCamera,
@@ -12,6 +14,7 @@ import {
   STAGE_MARGIN,
   viewPose,
 } from './camera';
+import { BATTLE_MAT, besideSpot, DICE, matSide, SHEET, squareCenter } from './table-layout';
 
 /** Where a point on the theater's front plane lands in the window: -1 to 1 is inside it. */
 function onScreen(aspect: number, x: number, y: number): { x: number; y: number } {
@@ -147,5 +150,49 @@ describe('the table views (F3.5b)', () => {
 
   it('refuses a window with no shape', () => {
     expect(() => fitFraming(NOTE_FRAMING, 0)).toThrow(RangeError);
+  });
+});
+
+describe('the Battle view (F5.5)', () => {
+  it('takes in the mat, the tokens waiting to its left, and the dice beyond it', () => {
+    for (const size of ['small', 'medium', 'large'] as const) {
+      const last = matSide(size) / BATTLE_MAT.square - 1;
+      const points = [
+        squareCenter(size, { column: 0, row: 0 }),
+        squareCenter(size, { column: last, row: last }),
+        squareCenter(size, { column: last, row: 0 }),
+        besideSpot(size, BATTLE_MAT.besideColumns - 1),
+        DICE.hope,
+        DICE.fear,
+        DICE.edge,
+      ];
+      for (const [, aspect] of SHAPES) {
+        const pose = viewPose('battle', aspect, size);
+        expect(pose).toEqual(fitFraming(battleFraming(size), aspect));
+        for (const point of points) {
+          const at = project(pose, aspect, point);
+          expect(Math.abs(at.x), `${size} at ${String(aspect)}`).toBeLessThanOrEqual(1);
+          expect(Math.abs(at.y), `${size} at ${String(aspect)}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('pulls back further for a larger mat, and looks down at it from the players’ side', () => {
+    const distance = (size: 'small' | 'large') => {
+      const pose = viewPose('battle', 16 / 9, size);
+      return Math.hypot(...pose.position.map((v, i) => v - (pose.target[i] ?? 0)));
+    };
+    expect(distance('large')).toBeGreaterThan(distance('small'));
+    const pose = viewPose('battle', 16 / 9, 'medium');
+    expect(pose.position[1]).toBeGreaterThan(pose.target[1]);
+    expect(pose.position[2]).toBeGreaterThan(pose.target[2]);
+  });
+
+  it('is the theater with no battle on, and follows the sheet as it slides back', () => {
+    expect(viewPose('battle', 16 / 9, null)).toEqual(fitStageCamera(16 / 9));
+    expect(viewPose('sheet', 16 / 9, 'small')).toEqual(fitFraming(SHEET_BATTLE_FRAMING, 16 / 9));
+    expect(SHEET_BATTLE_FRAMING.target[2]).toBeCloseTo(SHEET.center[2] + BATTLE_MAT.sheetShift);
+    expect(viewPose('sheet', 16 / 9)).toEqual(fitFraming(SHEET_FRAMING, 16 / 9));
   });
 });

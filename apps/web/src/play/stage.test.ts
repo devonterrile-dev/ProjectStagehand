@@ -9,7 +9,7 @@ import {
   stageImage,
 } from '@/test/play-fixtures';
 
-import { playPath, stageImageUrls, talkingPuppets, theaterView } from './stage';
+import { battleView, playPath, stageImageUrls, talkingPuppets, theaterView } from './stage';
 
 const CAMPAIGN = 'campaign-1';
 const urlOf = (n: number) => `/api/campaigns/${CAMPAIGN}/assets/${stageImage(n).assetId}/image?p=3`;
@@ -182,6 +182,78 @@ describe('stageImageUrls', () => {
     expect(stageImageUrls(CAMPAIGN, gmStage()).sort()).toEqual(
       [urlOf(0), urlOf(1), urlOf(2)].sort(),
     );
+  });
+});
+
+describe('battleView (F5.5)', () => {
+  const marta = gmStage().objects[2];
+  if (marta === undefined) throw new Error('missing fixture');
+
+  it('is nothing with no battle on', () => {
+    expect(battleView(CAMPAIGN, gmStage())).toBeNull();
+    expect(battleView(CAMPAIGN, playerStage())).toBeNull();
+  });
+
+  it('gives the GM every token with its puppet’s name and picture, moves on their way first', () => {
+    const stage = gmStage({
+      objects: [...gmStage().objects, gmObject(4, 'Faceless', { kind: 'puppet', image: null })],
+      battle: {
+        size: 'small',
+        tokens: [
+          { id: marta.id, side: 'monster', square: null },
+          { id: gmObject(4, 'Faceless').id, side: 'npc', square: null },
+        ],
+      },
+    });
+
+    expect(battleView(CAMPAIGN, stage)).toEqual({
+      size: 'small',
+      tokens: [
+        {
+          id: marta.id,
+          side: 'monster',
+          url: urlOf(3),
+          width: 640,
+          height: 1024,
+          name: 'Old Marta',
+          square: null,
+        },
+      ],
+    });
+    expect(
+      battleView(CAMPAIGN, stage, { [marta.id]: { column: 1, row: 2 } })?.tokens[0]?.square,
+    ).toEqual({ column: 1, row: 2 });
+  });
+
+  it('gives a player the tokens on the mat with their own pictures, and asks for them', () => {
+    const stage = playerStage({
+      battle: {
+        size: 'large',
+        tokens: [
+          {
+            id: marta.id,
+            side: 'npc',
+            image: stageImage(7),
+            characterId: null,
+            square: { column: 17, row: 0 },
+          },
+        ],
+      },
+    });
+
+    expect(battleView(CAMPAIGN, stage)?.tokens).toEqual([
+      {
+        id: marta.id,
+        side: 'npc',
+        url: urlOf(7),
+        width: 640,
+        height: 1024,
+        name: null,
+        square: { column: 17, row: 0 },
+      },
+    ]);
+    // Her puppet waits below, out of the player's objects: the token's picture is still loaded.
+    expect(stageImageUrls(CAMPAIGN, stage)).toContain(urlOf(7));
   });
 });
 

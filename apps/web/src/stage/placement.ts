@@ -50,6 +50,19 @@ export function rayAtDepth(ray: PointerRay, z: number): { x: number; y: number }
   return { x: ox + dx * distance, y: oy + dy * distance };
 }
 
+/**
+ * Where the ray crosses the level plane at height `y`, such as the table's top (F5.5), or null
+ * when it never does: it runs level, or the plane is behind the camera.
+ */
+export function rayAtHeight(ray: PointerRay, y: number): { x: number; z: number } | null {
+  const [ox, oy, oz] = ray.origin;
+  const [dx, dy, dz] = ray.direction;
+  if (Math.abs(dy) < 1e-9) return null;
+  const distance = (y - oy) / dy;
+  if (!Number.isFinite(distance) || distance <= 0) return null;
+  return { x: ox + dx * distance, z: oz + dz * distance };
+}
+
 /** The place in the opening of a point on a depth plane, kept inside the opening. */
 export function placeAt(x: number, y: number): Place {
   return { across: clamp01(x / OPENING.width + 0.5), up: clamp01(y / OPENING.height) };

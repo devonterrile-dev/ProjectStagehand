@@ -6,14 +6,21 @@
  * between them: the Stage view (F3.1), the Inspect, Note and Binder views at the table (F3.5b),
  * and the Sheet view (F3.6).
  */
+import type { BattleSize } from '@stagehand/shared';
+
 import { FRAME, OPENING, type Point3 } from './dimensions';
 import {
+  BATTLE_MAT,
+  besideReach,
   BINDER,
   BINDER_PAD,
+  DICE,
   INSPECT_CARD,
   INSPECT_PAD,
   INSPECT_STAGE,
   INSPECT_TITLE,
+  matCenter,
+  matSide,
   SHEET,
   SHEET_CARDS,
 } from './table-layout';
@@ -49,9 +56,9 @@ export interface CameraPose {
 /**
  * The views a player's camera can rest on: the theater; the inspect stage; the sticky pad in
  * front of it, looked down at; the binder with its pad, looked down at (F3.5b); and the
- * player's sheet page in front of them (F3.6).
+ * player's sheet page in front of them (F3.6); and the battle mat (F5.5).
  */
-export const STAGE_VIEWS = ['stage', 'inspect', 'note', 'binder', 'sheet'] as const;
+export const STAGE_VIEWS = ['stage', 'inspect', 'note', 'binder', 'sheet', 'battle'] as const;
 export type StageView = (typeof STAGE_VIEWS)[number];
 
 /**
@@ -154,15 +161,65 @@ export const SHEET_FRAMING: Framing = {
   height: SHEET_CARDS.spread.depth,
 };
 
-const VIEW_POSES: Record<StageView, (aspect: number) => CameraPose> = {
+/** The sheet page and its cards while a battle is on (F5.5): slid back, away from the theater. */
+export const SHEET_BATTLE_FRAMING: Framing = {
+  ...SHEET_FRAMING,
+  target: [SHEET.center[0], SHEET.center[1], SHEET.center[2] + BATTLE_MAT.sheetShift],
+};
+
+/**
+ * The Battle view's tuning (F5.5). `from` is where it looks from, toward the camera: the players'
+ * side, about 52° above the table, low enough that the tokens standing on the mat read as
+ * figures rather than as tops of heads. `tight` is how much of the depth from the dice to the
+ * mat's near edge the view must fit up the screen, by mat size: the tilt foreshortens the table,
+ * so a little under 1 still fits it, and the smaller mats are framed closer.
+ */
+export const BATTLE_VIEW = {
+  from: [0, 1.8, 1.4] as Point3,
+  tight: { small: 0.88, medium: 0.92, large: 1 },
+} as const;
+
+/**
+ * The battle mat (F5.5), looked down at from the players' side: centered on the mat, with the
+ * GM's tokens waiting to its left and, beyond it, the dice on the strip in front of the theater,
+ * so rolls land in sight (19.34). A larger mat pulls the camera back. The Fear bowl, further
+ * right, may sit at the edge of the view or past it.
+ */
+export function battleFraming(size: BattleSize): Framing {
+  const reach = matSide(size) / 2 + BATTLE_MAT.border;
+  const [cx, cy, cz] = matCenter(size);
+  const diceRight = Math.max(DICE.hope[0], DICE.fear[0], DICE.edge[0]) + DICE.size;
+  const across = Math.max(besideReach(size), reach, diceRight - cx);
+  const far = Math.min(DICE.hope[2], DICE.fear[2]) - DICE.size;
+  const near = cz + reach;
+  return {
+    target: [cx, cy, (far + near) / 2],
+    from: BATTLE_VIEW.from,
+    width: 2 * across,
+    height: (near - far) * BATTLE_VIEW.tight[size],
+  };
+}
+
+/** Views that differ while a battle is on (F5.5): the Battle view itself and the slid sheet. */
+type ViewPose = (aspect: number, battle: BattleSize | null) => CameraPose;
+
+const VIEW_POSES: Record<StageView, ViewPose> = {
   stage: fitStageCamera,
   inspect: (aspect) => fitFraming(INSPECT_FRAMING, aspect),
   note: (aspect) => fitFraming(NOTE_FRAMING, aspect),
   binder: (aspect) => fitFraming(BINDER_FRAMING, aspect),
-  sheet: (aspect) => fitFraming(SHEET_FRAMING, aspect),
+  sheet: (aspect, battle) =>
+    fitFraming(battle === null ? SHEET_FRAMING : SHEET_BATTLE_FRAMING, aspect),
+  // With no battle there is no mat: the theater.
+  battle: (aspect, battle) =>
+    battle === null ? fitStageCamera(aspect) : fitFraming(battleFraming(battle), aspect),
 };
 
-/** Where the camera rests for a view, in a window of this shape. */
-export function viewPose(view: StageView, aspect: number): CameraPose {
-  return VIEW_POSES[view](aspect);
+/** Where the camera rests for a view, in a window of this shape, with the battle on (F5.5). */
+export function viewPose(
+  view: StageView,
+  aspect: number,
+  battle: BattleSize | null = null,
+): CameraPose {
+  return VIEW_POSES[view](aspect, battle);
 }

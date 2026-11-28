@@ -1,4 +1,5 @@
 import { Canvas } from '@react-three/fiber';
+import type { BattleSize } from '@stagehand/shared';
 import { Component, Suspense, type ReactNode } from 'react';
 
 import { Backdrop } from './Backdrop';
@@ -34,6 +35,8 @@ export interface StageCanvasProps {
   view?: StageView;
   /** The locked camera has arrived at `view` (F3.5b). */
   onCameraSettle?: (view: StageView) => void;
+  /** The battle mat's size while a battle is on (F5.5), for the camera's Battle and Sheet views. */
+  battle?: BattleSize | null;
   /**
    * A transition scene's travel (F5.4): the backdrop scrolls, and the cutouts inside read it to
    * pass by and walk. Null or left out for a static scene.
@@ -78,6 +81,7 @@ export function StageCanvas({
   cameraRig,
   view = 'stage',
   onCameraSettle,
+  battle = null,
   travel = NO_TRAVEL,
 }: StageCanvasProps) {
   return (
@@ -101,6 +105,7 @@ export function StageCanvas({
         {cameraRig ?? (
           <StageCamera
             view={view}
+            battle={battle}
             {...(onCameraSettle === undefined ? {} : { onSettle: onCameraSettle })}
           />
         )}

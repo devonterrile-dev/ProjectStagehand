@@ -34,7 +34,7 @@ export interface StageMotion {
  * One cutout whose image can't be loaded is left out; the rest of the theater keeps drawing.
  * Without this, a single missing image would take the whole stage down.
  */
-class CutoutBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+export class CutoutBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {

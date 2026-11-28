@@ -8,6 +8,8 @@
  * so the binder lies there, where it can be seen and picked up. The inspect stage is off to the
  * right, out of the Stage view: the camera turns to it.
  */
+import { battleSquares, type BattleSize, type Square } from '@stagehand/shared';
+
 import { FRAME, TABLE, type Point3 } from './dimensions';
 
 const TOP = TABLE.topY;
@@ -175,3 +177,85 @@ export const FEAR_BOWL = {
   height: 0.08,
   bead: 0.032,
 } as const;
+
+/**
+ * The battle mat (F5.5, governance §12 "Battle mode"): a tan sheet with a square grid, laid in
+ * the middle of the table, between the strip in front of the theater and the sheet page, which
+ * slides back by `sheetShift` to make room. Every square is `square` across whatever the size,
+ * so a larger mat covers more of the table. `border` is the plain edge round the grid. Every
+ * size starts at the same far edge (`far`, the theater's side) and reaches toward the players,
+ * so a smaller mat sits up near the dice rather than out in the middle of the table.
+ *
+ * The GM's tokens waiting beside the mat stand in rows of `besideColumns` to its left, from its
+ * far edge toward the players, `beside` apart.
+ */
+export const BATTLE_MAT = {
+  /** Across, the middle of the grid; and the grid's far edge, toward the theater. */
+  x: 0,
+  far: FRONT + 1.0,
+  square: 0.08,
+  border: 0.035,
+  /** Raised a hair off the table, so the two never flicker into each other. */
+  lift: 0.002,
+  sheetShift: 0.5,
+  beside: 0.1,
+  besideColumns: 4,
+  /** Between the mat's border and the nearest row of waiting tokens. */
+  besideGap: 0.06,
+} as const;
+
+/** The grid's side, in world units, for a mat of this size. */
+export function matSide(size: BattleSize): number {
+  return battleSquares(size) * BATTLE_MAT.square;
+}
+
+/** The middle of the grid of a mat of this size, on the table. */
+export function matCenter(size: BattleSize): Point3 {
+  return [BATTLE_MAT.x, TOP, BATTLE_MAT.far + matSide(size) / 2];
+}
+
+/** Where a square's middle is on the table. */
+export function squareCenter(size: BattleSize, square: Square): Point3 {
+  const half = matSide(size) / 2;
+  const [cx, , cz] = matCenter(size);
+  return [
+    cx - half + (square.column + 0.5) * BATTLE_MAT.square,
+    TOP + BATTLE_MAT.lift,
+    cz - half + (square.row + 0.5) * BATTLE_MAT.square,
+  ];
+}
+
+/** The square under a point on the table, or null when it is off the grid. */
+export function squareAt(size: BattleSize, x: number, z: number): Square | null {
+  const half = matSide(size) / 2;
+  const [cx, , cz] = matCenter(size);
+  const column = Math.floor((x - (cx - half)) / BATTLE_MAT.square);
+  const row = Math.floor((z - (cz - half)) / BATTLE_MAT.square);
+  const squares = battleSquares(size);
+  if (column < 0 || row < 0 || column >= squares || row >= squares) return null;
+  return { column, row };
+}
+
+/** Where the GM's `index`th token waiting beside the mat stands: rows to the mat's left. */
+export function besideSpot(size: BattleSize, index: number): Point3 {
+  const half = matSide(size) / 2;
+  const [cx, , cz] = matCenter(size);
+  const column = index % BATTLE_MAT.besideColumns;
+  const row = Math.floor(index / BATTLE_MAT.besideColumns);
+  const right = cx - half - BATTLE_MAT.border - BATTLE_MAT.besideGap;
+  return [
+    right - (column + 0.5) * BATTLE_MAT.beside,
+    TOP,
+    cz - half + (row + 0.5) * BATTLE_MAT.beside,
+  ];
+}
+
+/** How far left of the mat's middle the waiting rows reach, for the Battle view to take in. */
+export function besideReach(size: BattleSize): number {
+  return (
+    matSide(size) / 2 +
+    BATTLE_MAT.border +
+    BATTLE_MAT.besideGap +
+    BATTLE_MAT.besideColumns * BATTLE_MAT.beside
+  );
+}

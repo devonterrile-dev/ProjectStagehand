@@ -5,6 +5,7 @@ import {
   type Emote,
   type FreeDie,
   type ObjectChanges,
+  type Square,
 } from '@stagehand/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -30,7 +31,7 @@ import {
 import { keyAction, type KeyPlacement } from '@/lib/scenes';
 import { createPlayRoom } from '@/play/room';
 import { useVoice } from '@/play/voice';
-import { EMPTY_THEATER, talkingPuppets, theaterView } from '@/play/stage';
+import { battleView, EMPTY_THEATER, talkingPuppets, theaterView } from '@/play/stage';
 import { PlayCanvas, type OwnPuppet } from '@/stage/PlayCanvas';
 import type { Place } from '@/stage/placement';
 
@@ -110,6 +111,7 @@ function Table({ campaign }: { campaign: Campaign }) {
     view,
     presence,
     pending,
+    pendingTokens,
     journal,
     sheet,
     sheetChanged,
@@ -212,6 +214,18 @@ function Table({ campaign }: { campaign: Campaign }) {
         ? EMPTY_THEATER
         : theaterView(campaign.id, view.stage, { hiddenProps: !asPlayers, pending }),
     [campaign.id, view, asPlayers, pending],
+  );
+
+  // The battle on the table (F5.5): the mat and its tokens, the GM's moves drawn at once.
+  const battle = useMemo(
+    () => (view === null ? null : battleView(campaign.id, view.stage, pendingTokens)),
+    [campaign.id, view, pendingTokens],
+  );
+  const onMoveToken = useCallback(
+    (id: string, square: Square | null) => {
+      void room.moveToken(id, square);
+    },
+    [room],
   );
 
   // Puppet motion (F3.7): who is talking and the emotes played, in either theater.
@@ -433,8 +447,9 @@ function Table({ campaign }: { campaign: Campaign }) {
           objects={theater.cutouts}
           curtainOpen={view?.curtainOpen ?? false}
           travel={view?.stage.travel ?? null}
+          battle={battle}
           {...(isGm
-            ? { selectedId: picked, onSelect: setSelectedId, onMove }
+            ? { selectedId: picked, onSelect: setSelectedId, onMove, onMoveToken }
             : { onInspect: table.inspect })}
           table={table.scene}
           motion={motion}

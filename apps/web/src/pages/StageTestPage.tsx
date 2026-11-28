@@ -1,4 +1,10 @@
-import { EMOTE_LABELS, EMOTES, STAGE_MAX_OBJECTS, type Emote } from '@stagehand/shared';
+import {
+  EMOTE_LABELS,
+  EMOTES,
+  STAGE_MAX_OBJECTS,
+  type BattleSize,
+  type Emote,
+} from '@stagehand/shared';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
@@ -21,6 +27,14 @@ export const STAGE_TEST_PATH = '/stage-test';
 export const MEASURE_SECONDS = 30;
 
 const OBJECT_COUNTS = [0, 10, 20, STAGE_MAX_OBJECTS] as const;
+
+/** A battle mat to lay out (F5.5), or none. */
+const BATTLE_CHOICES: readonly { label: string; value: BattleSize | 'off' }[] = [
+  { label: 'Off', value: 'off' },
+  { label: 'Small', value: 'small' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'Large', value: 'large' },
+];
 
 export const NO_FRAMES_MESSAGE =
   'No frames were drawn during the measurement. Keep this tab in front and try again.';
@@ -92,6 +106,8 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
   const [sway, setSway] = useState(true);
   // A transition scene's travel (F5.4): scroll, walk and a prop passing by.
   const [travel, setTravel] = useState(false);
+  // A battle on the table (F5.5): the mat and a token for each object.
+  const [battle, setBattle] = useState<BattleSize | 'off'>('off');
   // Puppet motion (F3.7): every puppet talks, or plays the chosen emote, at once.
   const [talking, setTalking] = useState(false);
   const [micOn, setMicOn] = useState(false);
@@ -149,6 +165,7 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         talking={talking || micTalking}
         emote={emote}
         travel={travel}
+        battle={battle === 'off' ? null : battle}
         maxPixelRatio={maxPixelRatio}
         measure={measurement.run}
         onLive={setLive}
@@ -188,6 +205,7 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
           disabled={measuring}
           onChange={setMaxPixelRatio}
         />
+        <Choice label="Battle" options={BATTLE_CHOICES} value={battle} onChange={setBattle} />
         <Choice
           label="Backdrop"
           options={SAMPLE_BACKDROPS.map((sample) => ({ label: sample.label, value: sample.name }))}

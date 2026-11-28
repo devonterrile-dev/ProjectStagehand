@@ -15,7 +15,7 @@ import type { PlayCanvasProps } from '@/stage/PlayCanvas';
 import { campaign, MIRA, mockApi, record, renderAt, uuid } from '@/test/app-harness';
 import { fakePlaySocket, type FakePlaySocket } from '@/test/fake-play-socket';
 import type { NoteSeed } from '@/test/journal-world';
-import { gmStage, playerObject, playerStage, present } from '@/test/play-fixtures';
+import { gmStage, playerObject, playerStage, present, stageImage } from '@/test/play-fixtures';
 
 // jsdom has no WebGL, so the 3D theater is replaced by a stand-in. It shows where the camera
 // rests and draws the table's HTML pieces as they would be laid on the table (F3.5b, F3.6), and
@@ -364,6 +364,46 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
 
     fireEvent.click(sheet.getByRole('button', { name: 'Put the sheet down' }));
     expect(view()).toBe('stage');
+  });
+
+  it('turns everyone to the battle mat, with the sheet still a look away, and back (F5.5)', async () => {
+    const { coast } = party();
+    await seated(coast, playerStage());
+    fireEvent.click(await screen.findByRole('button', { name: 'Sheet' }));
+    expect(view()).toBe('sheet');
+
+    const token = {
+      id: uuid(),
+      side: 'monster' as const,
+      image: stageImage(5),
+      characterId: null,
+      square: { column: 2, row: 3 },
+    };
+    serverSends(
+      PLAY_SOCKET.stage,
+      playerStage({ curtainOpen: false, battle: { size: 'medium', tokens: [token] } }),
+    );
+    // Laid out for everyone: the one view the GM moves for all.
+    await waitFor(() => {
+      expect(view()).toBe('battle');
+    });
+    expect(props().battle).toMatchObject({
+      size: 'medium',
+      tokens: [{ id: token.id, side: 'monster', square: { column: 2, row: 3 } }],
+    });
+    expect(props().onMoveToken).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sheet' }));
+    expect(view()).toBe('sheet');
+    const sheet = within(await screen.findByRole('region', { name: 'Your sheet' }));
+    fireEvent.click(sheet.getByRole('button', { name: 'Put the sheet down' }));
+    expect(view()).toBe('battle');
+
+    serverSends(PLAY_SOCKET.stage, playerStage({ curtainOpen: false }));
+    await waitFor(() => {
+      expect(view()).toBe('stage');
+    });
+    expect(props().battle).toBeNull();
   });
 
   it('gives a player without a PC no sheet', async () => {

@@ -606,6 +606,79 @@ describe('The table, for the GM', () => {
     });
   });
 
+  describe('battle mode (F5.5)', () => {
+    const marta = gmStage().objects[2];
+    const battling = (square: { column: number; row: number } | null) =>
+      stageWith({
+        curtainOpen: false,
+        travel: { playing: false, distance: 0.5 },
+        battle: { size: 'small', tokens: [{ id: marta?.id ?? '', side: 'monster', square }] },
+      });
+
+    it('lays out a mat of the size picked', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      const section = within(desk().getByRole('region', { name: 'Battle' }));
+
+      fireEvent.click(section.getByRole('button', { name: 'Battle: Medium, 12 × 12' }));
+      expect(socket.last(PLAY_SOCKET.startBattle).payload).toEqual({ size: 'medium' });
+      await answer(PLAY_SOCKET.startBattle, { ok: true });
+    });
+
+    it('lists the tokens, takes one off the mat, and hands the battle to the theater', async () => {
+      await seated(coast, battling({ column: 2, row: 3 }), [GM_HERE]);
+      const section = within(desk().getByRole('region', { name: 'Battle' }));
+      expect(
+        within(section.getByRole('list', { name: 'Tokens' }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Old MartaMonster, red · On C4Take off']);
+      await waitFor(() => {
+        expect(canvasProps?.battle?.tokens.map((token) => token.square)).toEqual([
+          { column: 2, row: 3 },
+        ]);
+      });
+
+      fireEvent.click(section.getByRole('button', { name: 'Take off: Old Marta' }));
+      expect(socket.last(PLAY_SOCKET.moveToken).payload).toEqual({ id: marta?.id, square: null });
+      // Drawn beside the mat at once, while the stage catches up.
+      await waitFor(() => {
+        expect(canvasProps?.battle?.tokens[0]?.square).toBeNull();
+      });
+      await answer(PLAY_SOCKET.moveToken, { ok: true });
+      serverSends(PLAY_SOCKET.stage, battling(null));
+      expect(section.getByText(/Beside the mat/)).toBeDefined();
+
+      // A drop in the theater moves it the same way.
+      act(() => {
+        canvasProps?.onMoveToken?.(marta?.id ?? '', { column: 0, row: 0 });
+      });
+      expect(socket.last(PLAY_SOCKET.moveToken).payload).toEqual({
+        id: marta?.id,
+        square: { column: 0, row: 0 },
+      });
+    });
+
+    it('holds scene loads and Play until the battle ends, which it asks about first', async () => {
+      await seated(coast, battling(null), [GM_HERE]);
+      const scenes = within(desk().getByRole('region', { name: 'Scenes' }));
+      expect(scenes.getByText('End the battle first to load a scene.')).toBeDefined();
+      for (const button of scenes.getAllByRole<HTMLButtonElement>('button', { name: /^Load/ })) {
+        expect(button.disabled).toBe(true);
+      }
+      const travel = within(desk().getByRole('region', { name: 'Transition' }));
+      expect(travel.getByRole<HTMLButtonElement>('button', { name: 'Play' }).disabled).toBe(true);
+
+      const section = within(desk().getByRole('region', { name: 'Battle' }));
+      fireEvent.click(section.getByRole('button', { name: 'End battle' }));
+      const dialog = within(await screen.findByRole('alertdialog'));
+      expect(dialog.getByText('End the battle?')).toBeDefined();
+      fireEvent.click(dialog.getByRole('button', { name: 'End battle' }));
+      await waitFor(() => {
+        expect(socket.last(PLAY_SOCKET.endBattle).payload).toEqual({});
+      });
+    });
+  });
+
   it('shows why an action was refused', async () => {
     await seated(coast, stageWith(), [GM_HERE]);
 

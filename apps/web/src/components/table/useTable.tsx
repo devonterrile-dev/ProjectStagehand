@@ -144,6 +144,14 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
   // while rendering: the documented way to follow what a query answers).
   if (state.at === 'inspect' && record.data === null) setState(AT_STAGE);
 
+  // A battle (F5.5) turns everyone to the mat as it starts: the one view the GM moves for all.
+  const battleOn = stage?.battle != null;
+  const [hadBattle, setHadBattle] = useState(battleOn);
+  if (battleOn !== hadBattle) {
+    setHadBattle(battleOn);
+    if (battleOn) setState(AT_STAGE);
+  }
+
   const postNote = createNote.mutateAsync;
   const makeEntry = createEntry.mutateAsync;
   const goBack = useCallback(() => {
@@ -240,7 +248,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     const inspected = state.at === 'inspect' ? (record.data ?? undefined) : undefined;
 
     return {
-      view: cameraView(state),
+      view: cameraView(state, battleOn),
       inspect:
         state.at === 'inspect'
           ? {
@@ -323,6 +331,7 @@ export function useTable(campaign: Campaign, live: TableLive): Table {
     };
   }, [
     state,
+    battleOn,
     page,
     subject,
     campaign.id,

@@ -17,6 +17,7 @@ import {
   DoubleSide,
   Float32BufferAttribute,
   LatheGeometry,
+  MathUtils,
   Matrix4,
   Quaternion,
   SRGBColorSpace,
@@ -40,7 +41,7 @@ import {
   type DieShape,
 } from './dice';
 import type { Point3 } from './dimensions';
-import { DICE, FEAR_BOWL, FREE_DICE, SHEET, SHEET_CARDS } from './table-layout';
+import { BATTLE_MAT, DICE, FEAR_BOWL, FREE_DICE, SHEET, SHEET_CARDS } from './table-layout';
 import { Paper } from './TablePieces';
 
 /** Keeps a click on a piece from counting as a click on nothing. */
@@ -101,6 +102,7 @@ export function SheetPage({
   cards,
   waiting,
   onOpen,
+  slid = false,
 }: {
   /** The sheet's HTML; null while the player isn't looking at it. */
   page: ReactNode | null;
@@ -108,19 +110,30 @@ export function SheetPage({
   cards: SheetSideCards | null;
   waiting: boolean;
   onOpen: () => void;
+  /** Slid back toward the player, out of the battle mat's way (F5.5). */
+  slid?: boolean;
 }) {
   const looking = page !== null;
   const html = (node: ReactNode | null | undefined) => (looking ? (node ?? null) : null);
   const [x, y, z] = SHEET.center;
   const glow = useRef<MeshBasicMaterial>(null);
+  const slide = useRef<Group>(null);
 
-  useFrame(({ clock }) => {
-    if (glow.current === null) return;
-    glow.current.opacity = waiting ? 0.55 + 0.35 * Math.sin(clock.elapsedTime * 3) : 0;
+  useFrame(({ clock }, delta) => {
+    if (glow.current !== null) {
+      glow.current.opacity = waiting ? 0.55 + 0.35 * Math.sin(clock.elapsedTime * 3) : 0;
+    }
+    if (slide.current !== null) {
+      const to = slid ? BATTLE_MAT.sheetShift : 0;
+      const { position } = slide.current;
+      position.z =
+        Math.abs(position.z - to) < 0.001 ? to : MathUtils.damp(position.z, to, 5, delta);
+    }
   });
 
   return (
     <group
+      ref={slide}
       onClick={(event) => {
         stop(event);
         if (page === null) onOpen();

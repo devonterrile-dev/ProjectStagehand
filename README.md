@@ -641,3 +641,13 @@ Transition scenes (governance §12 "Transition scenes", §13, D-75).
 - **At the table**: such a scene loads paused; the desk's **Transition** section has **Play** and **Pause**. While it plays the backdrop scrolls right to left (every second copy mirrored), PCs and walking NPCs step instead of swaying, and a prop shown or a stationary NPC raised comes in from behind the right wall, slides left and sinks at the left edge (a hanging prop rises), then goes back to hidden, ready to pass again.
 - **One clock, kept by the server** (`play_sessions.travel_distance` and `travel_since`, in opening widths). The speed is `TRAVEL_SPEED` in `packages/shared/src/stage.ts` (one backdrop every 12 s); the walking bounce is `WALK` in `apps/web/src/stage/motion.ts`.
 - **Seeing it without a session**: `/stage-test` has **Travel**: the sample backdrop scrolls, the puppets walk and a prop passes by every 13 seconds.
+
+## Working assumptions (F5.5)
+
+Battle mode, the mat and tokens (governance §12 "Battle mode", §13, D-76).
+
+- **Starting**: the desk's **Battle** section lays out a Small (6 × 6), Medium (12 × 12) or Large (18 × 18) mat. The curtain closes, any travel pauses, and every PC and NPC puppet on the stage (raised or below) gets a token beside the mat. Everyone's camera turns to the mat; a player can still look down at their sheet, which has slid back to make room.
+- **Tokens**: the puppet's picture in a clip on a round base, blue for a PC, green for an NPC, red for an NPC whose picture was drawn as a monster. The GM drags them onto squares (they snap), between squares, or off the mat to put them back beside it; a taken square sends a token back. The desk lists every token with its square (C4) or "Beside the mat", and **Take off**. Players see only the tokens on the mat; placing an NPC's reveals its record.
+- **During a battle** a scene load and **Play** wait until it ends. **End battle** asks first, rolls the mat up and leaves the curtain closed.
+- **Where the numbers are**: square size, mat position, the sheet's slide and the waiting rows are `BATTLE_MAT` in `apps/web/src/stage/table-layout.ts`; token size is `TOKEN` in `apps/web/src/stage/tokens.ts`; colors are in `stage/colors.ts`; the Battle view's angle and how tightly each size is framed are `BATTLE_VIEW` in `stage/camera.ts`.
+- **Seeing it without a session**: `/stage-test` has **Battle** (Off, Small, Medium, Large): the mat with a token for each sample object, to drag and to measure.

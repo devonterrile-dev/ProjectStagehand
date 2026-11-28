@@ -8,7 +8,14 @@
  * that travels with the party walks. Hidden props are not drawn there even for the GM: they
  * come in from behind the right wall once shown, so they have no place of their own to show.
  */
-import type { LiveStage, ObjectChanges, Presence } from '@stagehand/shared';
+import type {
+  BattleSide,
+  BattleSize,
+  LiveStage,
+  ObjectChanges,
+  Presence,
+  Square,
+} from '@stagehand/shared';
 
 import { stageImageUrl, type StageCutout } from '@/lib/scenes';
 
@@ -96,5 +103,74 @@ export function stageImageUrls(campaignId: string, stage: LiveStage): string[] {
   const view = theaterView(campaignId, stage, { hiddenProps: true });
   const urls = view.cutouts.map((cutout) => cutout.url);
   if (view.backdropUrl !== null) urls.push(view.backdropUrl);
+  // The battle's tokens (F5.5), whose puppets may be waiting below.
+  for (const token of battleView(campaignId, stage)?.tokens ?? []) urls.push(token.url);
   return [...new Set(urls)];
+}
+
+/** A battle token as the table draws it (F5.5). */
+export interface BattleTokenView {
+  /** The live object (a puppet) it stands for. */
+  id: string;
+  side: BattleSide;
+  url: string;
+  width: number;
+  height: number;
+  /** The GM's only: what the desk calls it. Null for a player. */
+  name: string | null;
+  /** On a square, or null while it waits beside the mat (the GM's only). */
+  square: Square | null;
+}
+
+/** The battle on the table, as drawn (F5.5). */
+export interface BattleView {
+  size: BattleSize;
+  tokens: BattleTokenView[];
+}
+
+/**
+ * What the table draws of a stage's battle, or null when there is none. The GM's tokens take
+ * their picture and name from their objects, and any move still on its way (`pending`) is drawn
+ * where it is going; a token whose object has no picture is left out. A player's come with
+ * their own pictures, and are all on the mat.
+ */
+export function battleView(
+  campaignId: string,
+  stage: LiveStage,
+  pending: Readonly<Record<string, Square | null>> = {},
+): BattleView | null {
+  if (stage.battle === null) return null;
+  if (stage.role === 'player') {
+    return {
+      size: stage.battle.size,
+      tokens: stage.battle.tokens.map((token) => ({
+        id: token.id,
+        side: token.side,
+        url: stageImageUrl(campaignId, token.image),
+        width: token.image.width,
+        height: token.image.height,
+        name: null,
+        square: token.square,
+      })),
+    };
+  }
+  const objects = new Map(stage.objects.map((object) => [object.id, object]));
+  return {
+    size: stage.battle.size,
+    tokens: stage.battle.tokens.flatMap((token): BattleTokenView[] => {
+      const object = objects.get(token.id);
+      if (object?.image == null) return [];
+      return [
+        {
+          id: token.id,
+          side: token.side,
+          url: stageImageUrl(campaignId, object.image),
+          width: object.image.width,
+          height: object.image.height,
+          name: object.subject.name,
+          square: token.id in pending ? (pending[token.id] ?? null) : token.square,
+        },
+      ];
+    }),
+  };
 }

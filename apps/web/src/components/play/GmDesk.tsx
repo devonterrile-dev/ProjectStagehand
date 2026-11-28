@@ -27,6 +27,7 @@ import { recordPath } from '@/lib/records';
 import { scenesPath, stageImageUrl } from '@/lib/scenes';
 import type { PlayRoom } from '@/play/room';
 
+import { BattleSection, type BattleRoom } from './BattleDesk';
 import { Section } from './DeskSection';
 import { EMOTE_ICONS } from './emote-icons';
 import { PresenceList } from './PresenceList';
@@ -53,7 +54,8 @@ export type DeskRoom = Pick<
   | 'releaseNpc'
   | 'setTravel'
 > &
-  RollRoom;
+  RollRoom &
+  BattleRoom;
 
 interface GmDeskProps {
   campaign: Campaign;
@@ -444,6 +446,8 @@ export function GmDesk({
   }
 
   const idle = connected && !busy;
+  // While a battle is on (F5.5), a scene load and Play wait until it ends.
+  const battling = stage.battle !== null;
   const ruleset = rulesetFor(campaign.rulesetVersion);
   const rolls = { stage, ruleset, room, idle, send };
   const archived = campaign.archivedAt !== null;
@@ -539,7 +543,7 @@ export function GmDesk({
             size="sm"
             className="w-full"
             aria-pressed={stage.travel.playing}
-            disabled={!idle}
+            disabled={!idle || (battling && !stage.travel.playing)}
             onClick={() => {
               const playing = stage.travel?.playing === true;
               void send(() => room.setTravel(!playing));
@@ -548,12 +552,16 @@ export function GmDesk({
             {stage.travel.playing ? 'Pause' : 'Play'}
           </Button>
           <p role="status" className="text-xs text-muted-foreground">
-            {stage.travel.playing
-              ? 'Playing: the backdrop scrolls and the party walks. Props you show and stationary NPCs you raise pass by and go back below at the left edge.'
-              : 'Paused. Props you show and stationary NPCs you raise wait behind the right wall until you play.'}
+            {battling
+              ? 'Paused for the battle. End the battle first to play.'
+              : stage.travel.playing
+                ? 'Playing: the backdrop scrolls and the party walks. Props you show and stationary NPCs you raise pass by and go back below at the left edge.'
+                : 'Paused. Props you show and stationary NPCs you raise wait behind the right wall until you play.'}
           </p>
         </Section>
       )}
+
+      <BattleSection stage={stage} room={room} idle={idle} send={send} />
 
       <RollsSection {...rolls} />
       <FearSection {...rolls} />
@@ -809,6 +817,11 @@ export function GmDesk({
             , then load it here.
           </p>
         )}
+        {battling && (
+          <p role="status" className="text-xs text-muted-foreground">
+            End the battle first to load a scene.
+          </p>
+        )}
         {likelyNext.length > 0 && (
           <>
             <h3 className="text-xs font-medium text-muted-foreground">Likely next</h3>
@@ -818,7 +831,7 @@ export function GmDesk({
                   key={scene.id}
                   scene={scene}
                   onStage={stage.scene?.id === scene.id}
-                  disabled={!idle}
+                  disabled={!idle || battling}
                   onLoad={load}
                 />
               ))}
@@ -832,7 +845,7 @@ export function GmDesk({
               key={scene.id}
               scene={scene}
               onStage={stage.scene?.id === scene.id}
-              disabled={!idle}
+              disabled={!idle || battling}
               onLoad={load}
             />
           ))}
