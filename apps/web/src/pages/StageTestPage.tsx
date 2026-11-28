@@ -108,6 +108,8 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
   const [travel, setTravel] = useState(false);
   // A battle on the table (F5.5): the mat and a token for each object.
   const [battle, setBattle] = useState<BattleSize | 'off'>('off');
+  // Painting on the test mat (F5.6), instead of moving tokens.
+  const [painting, setPainting] = useState(false);
   // Puppet motion (F3.7): every puppet talks, or plays the chosen emote, at once.
   const [talking, setTalking] = useState(false);
   const [micOn, setMicOn] = useState(false);
@@ -166,6 +168,7 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
         emote={emote}
         travel={travel}
         battle={battle === 'off' ? null : battle}
+        painting={painting}
         maxPixelRatio={maxPixelRatio}
         measure={measurement.run}
         onLive={setLive}
@@ -206,6 +209,18 @@ export function StageTestPage({ onResult }: { onResult?: (line: string | null) =
           onChange={setMaxPixelRatio}
         />
         <Choice label="Battle" options={BATTLE_CHOICES} value={battle} onChange={setBattle} />
+        {battle !== 'off' && (
+          <Button
+            size="xs"
+            variant="secondary"
+            aria-pressed={painting}
+            onClick={() => {
+              setPainting((on) => !on);
+            }}
+          >
+            {painting ? 'Stop painting' : 'Paint'}
+          </Button>
+        )}
         <Choice
           label="Backdrop"
           options={SAMPLE_BACKDROPS.map((sample) => ({ label: sample.label, value: sample.name }))}

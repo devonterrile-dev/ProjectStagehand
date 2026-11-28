@@ -132,6 +132,23 @@ export interface BattleView {
 }
 
 /**
+ * The paint as drawn (F5.6): the stage's strokes with the GM's on their way, each in its place
+ * if the stage has begun it and after the rest if not, with every point drawn so far.
+ */
+function withPendingStrokes(
+  strokes: readonly Stroke[],
+  pending: Readonly<Record<string, Stroke>>,
+): Stroke[] {
+  // Whichever copy has more of the stroke: the two only ever grow from the same start.
+  const drawn = strokes.map((stroke) => {
+    const mine = pending[stroke.id];
+    return mine !== undefined && mine.points.length >= stroke.points.length ? mine : stroke;
+  });
+  const known = new Set(strokes.map((stroke) => stroke.id));
+  return [...drawn, ...Object.values(pending).filter((stroke) => !known.has(stroke.id))];
+}
+
+/**
  * What the table draws of a stage's battle, or null when there is none. The GM's tokens take
  * their picture and name from their objects, and any move still on its way (`pending`) is drawn
  * where it is going; a token whose object has no picture is left out. A player's come with
@@ -141,6 +158,7 @@ export function battleView(
   campaignId: string,
   stage: LiveStage,
   pending: Readonly<Record<string, Square | null>> = {},
+  pendingStrokes: Readonly<Record<string, Stroke>> = {},
 ): BattleView | null {
   if (stage.battle === null) return null;
   if (stage.role === 'player') {
@@ -161,7 +179,7 @@ export function battleView(
   const objects = new Map(stage.objects.map((object) => [object.id, object]));
   return {
     size: stage.battle.size,
-    strokes: stage.battle.strokes,
+    strokes: withPendingStrokes(stage.battle.strokes, pendingStrokes),
     tokens: stage.battle.tokens.flatMap((token): BattleTokenView[] => {
       const object = objects.get(token.id);
       if (object?.image == null) return [];

@@ -1,12 +1,14 @@
-import type { Square, StageTravel } from '@stagehand/shared';
+import type { Square, StageTravel, Stroke } from '@stagehand/shared';
 import { memo, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { StageCutout } from '@/lib/scenes';
+import type { StrokeBrush } from '@/play/room';
 import type { BattleView } from '@/play/stage';
 
 import { BattleMat } from './BattleMat';
 import { BattleTokens } from './BattleTokens';
 import type { StageView } from './camera';
+import { MatPaint, type MatBrush } from './MatPaint';
 import type { Place } from './placement';
 import { PuppetMenu } from './PuppetMenu';
 import { SceneObjects, type StageMotion } from './SceneObjects';
@@ -93,9 +95,16 @@ export interface PlayCanvasProps {
   battle?: BattleView | null;
   /** The GM's table (F5.5): a token was dropped on a square, or (null) off the mat. */
   onMoveToken?: (id: string, square: Square | null) => void;
+  /**
+   * The GM's brush on the mat (F5.6): with Paint or Erase in hand a drag on the mat lays a stroke
+   * (`onPaint`) instead of moving a token.
+   */
+  brush?: MatBrush;
+  onPaint?: (stroke: StrokeBrush, points: number[]) => void;
 }
 
 const NOTHING: readonly StageCutout[] = [];
+const NO_STROKES: readonly Stroke[] = [];
 
 /** A player's own PC's puppet and its emote card (F3.7). */
 export interface OwnPuppet {
@@ -199,8 +208,12 @@ export const PlayCanvas = memo(function PlayCanvas({
   travel = null,
   battle = null,
   onMoveToken,
+  brush,
+  onPaint,
 }: PlayCanvasProps) {
   const drawn = useLeaving(objects);
+  // The GM's hand on the mat (F5.6): painting or rubbing out takes the press from the tokens.
+  const painting = brush !== undefined && brush.tool !== 'move';
   const stageHidden = useStageHidden(battle !== null && !curtainOpen);
   const [dragging, setDragging] = useState(false);
 
@@ -310,8 +323,14 @@ export const PlayCanvas = memo(function PlayCanvas({
           <FearBowl fear={table.fear.count} spendId={table.fear.spendId} />
         </Suspense>
       )}
-      <BattleMat size={battle?.size ?? null} />
-      <BattleTokens battle={battle} {...(onMoveToken === undefined ? {} : { onMoveToken })} />
+      <BattleMat size={battle?.size ?? null} strokes={battle?.strokes ?? NO_STROKES} />
+      <BattleTokens
+        battle={battle}
+        {...(onMoveToken === undefined || painting ? {} : { onMoveToken })}
+      />
+      {battle !== null && brush !== undefined && painting && onPaint !== undefined && (
+        <MatPaint size={battle.size} brush={brush} onPaint={onPaint} />
+      )}
     </StageCanvas>
   );
 });

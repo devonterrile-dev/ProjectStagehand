@@ -651,3 +651,13 @@ Battle mode, the mat and tokens (governance §12 "Battle mode", §13, D-76).
 - **During a battle** a scene load and **Play** wait until it ends. **End battle** asks first, rolls the mat up and leaves the curtain closed.
 - **Where the numbers are**: square size, mat position, the sheet's slide and the waiting rows are `BATTLE_MAT` in `apps/web/src/stage/table-layout.ts`; token size is `TOKEN` in `apps/web/src/stage/tokens.ts`; colors are in `stage/colors.ts`; the Battle view's angle and how tightly each size is framed are `BATTLE_VIEW` in `stage/camera.ts`.
 - **Seeing it without a session**: `/stage-test` has **Battle** (Off, Small, Medium, Large): the mat with a token for each sample object, to drag and to measure.
+
+## Working assumptions (F5.6)
+
+Painting the battle mat (governance §12 "Battle mode", §13, D-77).
+
+- **The paint panel** floats at the left edge of the GM's view while a battle is on: **Move tokens**, **Paint** and **Erase**, six colors (picking one picks up the brush), Fine, Medium and Broad, **Undo** (also Ctrl+Z) and **Clear** (asks first). Each battle starts with **Move tokens**.
+- **Painting** is a drag on the mat's cloth; the eraser rubs paint out and the grid shows again. Players see a stroke while the GM is still drawing it: its points go to the server at most every 300 ms.
+- **It lasts** for the battle (a reconnect shows it) and goes with Clear, End battle or the session's end. At most 400 points a stroke and 6,000 on a mat.
+- **Where the numbers are**: brush widths are `PAINT_SIZES` in `packages/shared/src/stage.ts`; the colors are `PAINT_HEX` and the point spacing `PAINT_SPACING` in `apps/web/src/stage/paint.ts`.
+- **Seeing it without a session**: `/stage-test`'s Battle has sample paint and a **Paint** button.

@@ -14,6 +14,7 @@ import { useStore } from 'zustand';
 
 import { FullscreenButton } from '@/components/play/FullscreenButton';
 import { GmDesk } from '@/components/play/GmDesk';
+import { PaintPanel } from '@/components/play/PaintPanel';
 import { PresenceList } from '@/components/play/PresenceList';
 import { VoiceControl } from '@/components/play/VoiceControl';
 import { EmoteCard } from '@/components/table/EmoteCard';
@@ -29,13 +30,17 @@ import {
   useStartPlaySession,
 } from '@/lib/queries';
 import { keyAction, type KeyPlacement } from '@/lib/scenes';
-import { createPlayRoom } from '@/play/room';
+import { createPlayRoom, type StrokeBrush } from '@/play/room';
 import { useVoice } from '@/play/voice';
 import { battleView, EMPTY_THEATER, talkingPuppets, theaterView } from '@/play/stage';
+import type { MatBrush } from '@/stage/MatPaint';
 import { PlayCanvas, type OwnPuppet } from '@/stage/PlayCanvas';
 import type { Place } from '@/stage/placement';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/** The GM's brush at the first battle (F5.6): tokens in hand, red, medium. */
+const START_BRUSH: MatBrush = { tool: 'move', color: 'red', size: 'medium' };
 
 /** A key's move kept inside the opening and on a real depth tick, as the server requires. */
 function insideStage(change: Partial<KeyPlacement>): ObjectChanges {
@@ -112,6 +117,7 @@ function Table({ campaign }: { campaign: Campaign }) {
     presence,
     pending,
     pendingTokens,
+    pendingStrokes,
     journal,
     sheet,
     sheetChanged,
@@ -216,10 +222,12 @@ function Table({ campaign }: { campaign: Campaign }) {
     [campaign.id, view, asPlayers, pending],
   );
 
-  // The battle on the table (F5.5): the mat and its tokens, the GM's moves drawn at once.
+  // The battle on the table (F5.5): the mat and its tokens, the GM's moves drawn at once, and
+  // (F5.6) the paint, the GM's strokes drawn as they go.
   const battle = useMemo(
-    () => (view === null ? null : battleView(campaign.id, view.stage, pendingTokens)),
-    [campaign.id, view, pendingTokens],
+    () =>
+      view === null ? null : battleView(campaign.id, view.stage, pendingTokens, pendingStrokes),
+    [campaign.id, view, pendingTokens, pendingStrokes],
   );
   const onMoveToken = useCallback(
     (id: string, square: Square | null) => {
@@ -227,6 +235,46 @@ function Table({ campaign }: { campaign: Campaign }) {
     },
     [room],
   );
+
+  // The GM's brush on the mat (F5.6), kept in this browser. Each battle starts with tokens in
+  // hand, so a drag moves a token until the GM picks up the brush.
+  const [brush, setBrush] = useState<MatBrush>(START_BRUSH);
+  const battleOn = stage?.battle != null;
+  const [hadBattle, setHadBattle] = useState(battleOn);
+  if (battleOn !== hadBattle) {
+    setHadBattle(battleOn);
+    if (battleOn) setBrush((held) => ({ ...held, tool: 'move' }));
+  }
+  const onPaint = useCallback(
+    (stroke: StrokeBrush, points: number[]) => {
+      void room.paint(stroke, points);
+    },
+    [room],
+  );
+  const undoPaint = useCallback(() => room.undoPaint(), [room]);
+  const clearPaint = useCallback(() => room.clearPaint(), [room]);
+
+  // Ctrl+Z (or Cmd+Z) takes back the last stroke while the GM's battle is on (F5.6).
+  useEffect(() => {
+    if (!isGm || !battleOn) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'z' || !(event.ctrlKey || event.metaKey)) return;
+      if (event.shiftKey || event.altKey || event.defaultPrevented) return;
+      const { target } = event;
+      if (
+        target instanceof Element &&
+        target.closest('input, select, textarea, [contenteditable], [role="dialog"]') !== null
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void undoPaint();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [isGm, battleOn, undoPaint]);
 
   // Puppet motion (F3.7): who is talking and the emotes played, in either theater.
   const motion = useMemo(
@@ -449,12 +497,21 @@ function Table({ campaign }: { campaign: Campaign }) {
           travel={view?.stage.travel ?? null}
           battle={battle}
           {...(isGm
-            ? { selectedId: picked, onSelect: setSelectedId, onMove, onMoveToken }
+            ? { selectedId: picked, onSelect: setSelectedId, onMove, onMoveToken, brush, onPaint }
             : { onInspect: table.inspect })}
           table={table.scene}
           motion={motion}
           {...(own === undefined ? {} : { own })}
         />
+        {isGm && battleOn && (
+          <PaintPanel
+            brush={brush}
+            onBrushChange={setBrush}
+            disabled={!connected}
+            onUndo={undoPaint}
+            onClear={clearPaint}
+          />
+        )}
         <TableNotices
           stage={stage}
           ruleset={ruleset}

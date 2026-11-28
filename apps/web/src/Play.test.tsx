@@ -662,6 +662,74 @@ describe('The table, for the GM', () => {
       });
     });
 
+    it('gives the GM a paint panel only while a battle is on (F5.6)', async () => {
+      await seated(coast, stageWith(), [GM_HERE]);
+      expect(screen.queryByRole('region', { name: 'Paint' })).toBeNull();
+
+      serverSends(PLAY_SOCKET.stage, battling(null));
+      const panel = within(await screen.findByRole('region', { name: 'Paint' }));
+      // Each battle starts with tokens in hand.
+      expect(panel.getByRole('radio', { name: 'Move tokens' }).getAttribute('aria-checked')).toBe(
+        'true',
+      );
+      expect(canvasProps?.brush).toEqual({ tool: 'move', color: 'red', size: 'medium' });
+    });
+
+    it('picks up a brush, paints as the theater draws, and erases (F5.6)', async () => {
+      await seated(coast, battling(null), [GM_HERE]);
+      const panel = within(await screen.findByRole('region', { name: 'Paint' }));
+
+      // Picking a color picks up the brush.
+      fireEvent.click(panel.getByRole('button', { name: 'Blue' }));
+      fireEvent.click(panel.getByRole('button', { name: 'Broad' }));
+      expect(canvasProps?.brush).toEqual({ tool: 'paint', color: 'blue', size: 'broad' });
+
+      const stroke = {
+        id: uuid(),
+        tool: 'paint' as const,
+        color: 'blue' as const,
+        size: 'broad' as const,
+      };
+      act(() => {
+        canvasProps?.onPaint?.(stroke, [1, 2, 1.5, 2.5]);
+      });
+      expect(socket.last(PLAY_SOCKET.paintStroke).payload).toEqual({
+        ...stroke,
+        points: [1, 2, 1.5, 2.5],
+      });
+      // Drawn at once, before the server answers.
+      await waitFor(() => {
+        expect(canvasProps?.battle?.strokes).toEqual([{ ...stroke, points: [1, 2, 1.5, 2.5] }]);
+      });
+
+      fireEvent.click(panel.getByRole('radio', { name: 'Erase' }));
+      expect(canvasProps?.brush?.tool).toBe('erase');
+      fireEvent.click(panel.getByRole('radio', { name: 'Move tokens' }));
+      expect(canvasProps?.brush?.tool).toBe('move');
+    });
+
+    it('undoes from the panel or with Ctrl+Z, and clears once asked (F5.6)', async () => {
+      await seated(coast, battling(null), [GM_HERE]);
+      const panel = within(await screen.findByRole('region', { name: 'Paint' }));
+
+      fireEvent.click(panel.getByRole('button', { name: 'Undo' }));
+      expect(socket.last(PLAY_SOCKET.undoStroke).payload).toEqual({});
+      await answer(PLAY_SOCKET.undoStroke, { ok: true });
+      const undos = () =>
+        socket.requests.filter((request) => request.event === PLAY_SOCKET.undoStroke).length;
+      fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+      expect(undos()).toBe(2);
+      await answer(PLAY_SOCKET.undoStroke, { ok: true });
+
+      fireEvent.click(panel.getByRole('button', { name: 'Clear' }));
+      const dialog = within(await screen.findByRole('alertdialog'));
+      expect(dialog.getByText('Clear the paint?')).toBeDefined();
+      fireEvent.click(dialog.getByRole('button', { name: 'Clear the paint' }));
+      await waitFor(() => {
+        expect(socket.last(PLAY_SOCKET.clearPaint).payload).toEqual({});
+      });
+    });
+
     it('holds scene loads and Play until the battle ends, which it asks about first', async () => {
       await seated(coast, battling(null), [GM_HERE]);
       const scenes = within(desk().getByRole('region', { name: 'Scenes' }));

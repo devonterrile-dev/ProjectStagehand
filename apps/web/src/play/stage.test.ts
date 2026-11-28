@@ -260,6 +260,55 @@ describe('battleView (F5.5)', () => {
   });
 });
 
+describe('battleView paint (F5.6)', () => {
+  const stroke = (id: number, points: number[]) => ({
+    id: `00000000-0000-4000-8000-00000000050${String(id)}`,
+    tool: 'paint' as const,
+    color: 'red' as const,
+    size: 'fine' as const,
+    points,
+  });
+
+  it('draws the GM’s strokes on their way: in their place once begun, else after the rest', () => {
+    const stage = gmStage({
+      battle: { size: 'small', tokens: [], strokes: [stroke(1, [1, 1]), stroke(2, [2, 2])] },
+    });
+
+    const view = battleView(
+      CAMPAIGN,
+      stage,
+      {},
+      {
+        [stroke(1, []).id]: stroke(1, [1, 1, 1.5, 1.5]),
+        [stroke(3, []).id]: stroke(3, [4, 4]),
+      },
+    );
+
+    expect(view?.strokes).toEqual([
+      stroke(1, [1, 1, 1.5, 1.5]),
+      stroke(2, [2, 2]),
+      stroke(3, [4, 4]),
+    ]);
+  });
+
+  it('draws whichever copy of a stroke has more of it', () => {
+    const stage = gmStage({
+      battle: { size: 'small', tokens: [], strokes: [stroke(1, [1, 1, 2, 2, 3, 3])] },
+    });
+
+    const view = battleView(CAMPAIGN, stage, {}, { [stroke(1, []).id]: stroke(1, [1, 1]) });
+
+    expect(view?.strokes).toEqual([stroke(1, [1, 1, 2, 2, 3, 3])]);
+  });
+
+  it('gives a player the paint as the stage has it', () => {
+    const stage = playerStage({
+      battle: { size: 'small', tokens: [], strokes: [stroke(1, [1, 1])] },
+    });
+    expect(battleView(CAMPAIGN, stage)?.strokes).toEqual([stroke(1, [1, 1])]);
+  });
+});
+
 describe('playPath', () => {
   it('is the campaign’s play page', () => {
     expect(playPath('abc')).toBe('/campaigns/abc/play');

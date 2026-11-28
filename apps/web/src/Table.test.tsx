@@ -393,6 +393,9 @@ describe('The sheet page and rolls at the table (F3.6)', () => {
       tokens: [{ id: token.id, side: 'monster', square: { column: 2, row: 3 } }],
     });
     expect(props().onMoveToken).toBeUndefined();
+    // Only the GM paints (F5.6).
+    expect(props().onPaint).toBeUndefined();
+    expect(screen.queryByRole('region', { name: 'Paint' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sheet' }));
     expect(view()).toBe('sheet');

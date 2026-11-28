@@ -539,6 +539,101 @@ describe('the live room, from the browser', () => {
       });
     });
 
+    describe('painting the mat (F5.6)', () => {
+      const brush = {
+        id: '00000000-0000-4000-8000-0000000000aa',
+        tool: 'paint' as const,
+        color: 'red' as const,
+        size: 'fine' as const,
+      };
+      const painted = (points: number[]) =>
+        gmStage({
+          battle: { size: 'small', tokens: [], strokes: [{ ...brush, points }] },
+        });
+      const sends = () =>
+        socket.requests.filter((request) => request.event === PLAY_SOCKET.paintStroke);
+
+      it('draws a stroke at once, and sends what piles up meanwhile as one, after the gap', async () => {
+        await joined(gmStage({ battle: { size: 'small', tokens: [], strokes: [] } }));
+
+        const first = room.paint(brush, [1, 1]);
+        expect(state().pendingStrokes).toEqual({ [brush.id]: { ...brush, points: [1, 1] } });
+        expect(sends().map((send) => send.payload)).toEqual([{ ...brush, points: [1, 1] }]);
+
+        const second = room.paint(brush, [2, 2]);
+        const third = room.paint(brush, [3, 3]);
+        expect(state().pendingStrokes[brush.id]?.points).toEqual([1, 1, 2, 2, 3, 3]);
+        expect(sends()).toHaveLength(1);
+
+        sends()[0]?.answer({ ok: true });
+        expect(await first).toEqual({ ok: true });
+        await vi.advanceTimersByTimeAsync(MOVE_GAP_MS);
+        expect(sends()[1]?.payload).toEqual({ ...brush, points: [2, 2, 3, 3] });
+        sends()[1]?.answer({ ok: true });
+        expect(await second).toEqual({ ok: true });
+        expect(await third).toEqual({ ok: true });
+
+        // Answered, but drawn from here until the stage has every point.
+        expect(state().pendingStrokes[brush.id]?.points).toEqual([1, 1, 2, 2, 3, 3]);
+        socket.receive(PLAY_SOCKET.stage, painted([1, 1, 2, 2, 3, 3]));
+        expect(state().pendingStrokes).toEqual({});
+      });
+
+      it('goes on drawing the whole stroke after the stage has caught up with it', async () => {
+        await joined(gmStage({ battle: { size: 'small', tokens: [], strokes: [] } }));
+
+        void room.paint(brush, [1, 1, 2, 2]);
+        sends()[0]?.answer({ ok: true });
+        await settle();
+        socket.receive(PLAY_SOCKET.stage, painted([1, 1, 2, 2]));
+        // Caught up: the stage's copy is the one drawn.
+        expect(state().pendingStrokes).toEqual({});
+
+        // The pointer moves on: the drawn copy is the whole stroke, not just the newest point.
+        void room.paint(brush, [3, 3]);
+        expect(state().pendingStrokes[brush.id]?.points).toEqual([1, 1, 2, 2, 3, 3]);
+        expect(sends()[1]?.payload).toEqual({ ...brush, points: [3, 3] });
+      });
+
+      it('sends an erase with no color, and long strokes in chunks of 60 points', async () => {
+        await joined(gmStage({ battle: { size: 'small', tokens: [], strokes: [] } }));
+        const erase = { ...brush, tool: 'erase' as const, color: null };
+
+        void room.paint(
+          erase,
+          Array.from({ length: 150 }, (_, index) => (index % 10) / 2),
+        );
+        expect(sends()[0]?.payload).toEqual({
+          id: brush.id,
+          tool: 'erase',
+          size: 'fine',
+          points: Array.from({ length: 120 }, (_, index) => (index % 10) / 2),
+        });
+        sends()[0]?.answer({ ok: true });
+        await vi.advanceTimersByTimeAsync(MOVE_GAP_MS);
+        expect((sends()[1]?.payload as { points: number[] }).points).toHaveLength(30);
+      });
+
+      it('drops a refused stroke, so the mat as the server has it is drawn', async () => {
+        await joined(gmStage({ battle: { size: 'small', tokens: [], strokes: [] } }));
+
+        const painting = room.paint(brush, [1, 1]);
+        sends()[0]?.answer({ ok: false, message: 'No battle is on' });
+
+        expect(await painting).toEqual({ ok: false, message: 'No battle is on' });
+        expect(state().pendingStrokes).toEqual({});
+      });
+
+      it('undoes the last stroke and clears the mat', async () => {
+        await joined(gmStage({ battle: { size: 'small', tokens: [], strokes: [] } }));
+
+        void room.undoPaint();
+        expect(socket.last(PLAY_SOCKET.undoStroke).payload).toEqual({});
+        void room.clearPaint();
+        expect(socket.last(PLAY_SOCKET.clearPaint).payload).toEqual({});
+      });
+    });
+
     describe('battle mode (F5.5)', () => {
       const marta = gmStage().objects[2]?.id ?? '';
       const battleStage = (square: { column: number; row: number } | null) =>
@@ -603,6 +698,7 @@ describe('the live room, from the browser', () => {
         presence: [],
         pending: {},
         pendingTokens: {},
+        pendingStrokes: {},
         journal: 0,
         sheet: 0,
         sheetChanged: null,

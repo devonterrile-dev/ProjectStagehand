@@ -12,6 +12,7 @@ import {
   freeRollSchema,
   joinResultSchema,
   liveStageSchema,
+  PAINT_CHUNK_POINTS,
   PLAY_SOCKET,
   presenceSchema,
   sheetChangedSchema,
@@ -28,6 +29,7 @@ import {
   type Presence,
   type SceneObjectKind,
   type Square,
+  type Stroke,
 } from '@stagehand/shared';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
@@ -82,6 +84,11 @@ export interface RoomState {
    * or null for beside the mat. Drawn at once, while the stage catches up.
    */
   pendingTokens: Readonly<Record<string, Square | null>>;
+  /**
+   * The GM's strokes of paint (F5.6) as drawn so far, by stroke, while the server catches up:
+   * drawn at once, so the brush keeps up with the pointer.
+   */
+  pendingStrokes: Readonly<Record<string, Stroke>>;
   /**
    * Goes up each time the journal may have changed (F3.5b): the server said so
    * (`journal:changed`), or the browser (re)joined and may have missed it. The page reads the
@@ -149,6 +156,15 @@ export interface PlayRoom {
    * in `pendingTokens`.
    */
   moveToken(id: string, square: Square | null): Promise<ActionResult>;
+  /**
+   * Paints on the mat (F5.6), GM only: adds points to a stroke, starting it the first time its id
+   * is seen. Drawn at once in `pendingStrokes`; sent at most every `MOVE_GAP_MS`, in chunks of
+   * up to `PAINT_CHUNK_POINTS`. Answered with the result of the send that carried the last point.
+   */
+  paint(stroke: StrokeBrush, points: readonly number[]): Promise<ActionResult>;
+  /** Takes back the last stroke, or every one (F5.6), GM only. */
+  undoPaint(): Promise<ActionResult>;
+  clearPaint(): Promise<ActionResult>;
   /** Puppet motion (F3.7): the GM on any raised puppet, a player on their own PC's. */
   emote(objectId: string, emote: Emote): Promise<ActionResult>;
   /** The dice tray (F4.2): anyone at the table; only the GM privately. */
@@ -195,6 +211,7 @@ const INITIAL: RoomState = {
   presence: [],
   pending: {},
   pendingTokens: {},
+  pendingStrokes: {},
   journal: 0,
   sheet: 0,
   sheetChanged: null,
@@ -216,6 +233,25 @@ function showsToken(stage: LiveStage, id: string, square: Square | null): boolea
   const token = stage.battle?.tokens.find((candidate) => candidate.id === id);
   if (token === undefined) return true;
   return token.square?.column === square?.column && token.square?.row === square?.row;
+}
+
+/** A stroke's id and brush (F5.6): everything of it but its points. */
+export type StrokeBrush = Omit<Stroke, 'points'>;
+
+/** Whether the stage already has every point of a stroke, or no battle to paint on. */
+function showsStroke(stage: LiveStage, stroke: Stroke): boolean {
+  if (stage.battle === null) return true;
+  const shown = stage.battle.strokes.find((candidate) => candidate.id === stroke.id);
+  return shown !== undefined && shown.points.length >= stroke.points.length;
+}
+
+/** One stroke's points on their way (F5.6): what waits, who waits, and the send in hand. */
+interface StrokeSends {
+  brush: StrokeBrush;
+  queued: number[];
+  waiters: ((result: ActionResult) => void)[];
+  busy: boolean;
+  timer: number | null;
 }
 
 /** Bringing an object into sight or out of it: a prop is shown or hidden, a puppet raised or lowered. */
@@ -359,10 +395,107 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     });
   }
 
+  /** Strokes of paint on their way (F5.6), by stroke. */
+  const strokeSends = new Map<string, StrokeSends>();
+
+  /** Drops from `pendingStrokes` what the stage now has, unless more of it is on its way. */
+  function settleStrokes(stage: LiveStage): void {
+    const { pendingStrokes } = store.getState();
+    const left = Object.fromEntries(
+      Object.entries(pendingStrokes).filter(
+        ([id, stroke]) => strokeSends.has(id) || !showsStroke(stage, stroke),
+      ),
+    );
+    if (Object.keys(left).length !== Object.keys(pendingStrokes).length) {
+      store.setState({ pendingStrokes: left });
+    }
+  }
+
+  function dropStroke(id: string): void {
+    const { pendingStrokes } = store.getState();
+    store.setState({
+      pendingStrokes: Object.fromEntries(
+        Object.entries(pendingStrokes).filter(([key]) => key !== id),
+      ),
+    });
+  }
+
+  /** Sends the next chunk of a stroke; whatever is queued meanwhile follows after the gap. */
+  function flushStroke(id: string): void {
+    const send = strokeSends.get(id);
+    if (send === undefined || send.busy || send.queued.length === 0) return;
+    const points = send.queued.slice(0, 2 * PAINT_CHUNK_POINTS);
+    send.queued = send.queued.slice(points.length);
+    // The last chunk answers everyone waiting; earlier ones answer no one.
+    const waiters = send.queued.length === 0 ? send.waiters : [];
+    if (send.queued.length === 0) send.waiters = [];
+    send.busy = true;
+    const sentAt = Date.now();
+    const { color, ...brush } = send.brush;
+    void act(PLAY_SOCKET.paintStroke, {
+      ...brush,
+      ...(color === null ? {} : { color }),
+      points,
+    }).then((result) => {
+      // Forgotten meanwhile: out of the session.
+      if (strokeSends.get(id) !== send) return;
+      send.busy = false;
+      if (!result.ok) {
+        // Refused: the rest of the stroke would be too.
+        for (const waiter of [...waiters, ...send.waiters]) waiter(result);
+        strokeSends.delete(id);
+        dropStroke(id);
+        return;
+      }
+      for (const waiter of waiters) waiter(result);
+      if (send.queued.length > 0) {
+        send.timer = window.setTimeout(
+          () => {
+            send.timer = null;
+            flushStroke(id);
+          },
+          Math.max(0, MOVE_GAP_MS - (Date.now() - sentAt)),
+        );
+        return;
+      }
+      strokeSends.delete(id);
+      const { stage, pendingStrokes } = store.getState();
+      const drawn = pendingStrokes[id];
+      if (stage !== null && drawn !== undefined && showsStroke(stage, drawn)) dropStroke(id);
+    });
+  }
+
+  function paint(brush: StrokeBrush, points: readonly number[]): Promise<ActionResult> {
+    const { pendingStrokes, stage } = store.getState();
+    // A stroke already caught up with goes on from the stage's copy, never from nothing: the
+    // drawn copy is the whole stroke so far, or it would draw as a stub until the stage caught up.
+    const drawn = pendingStrokes[brush.id] ??
+      stage?.battle?.strokes.find((stroke) => stroke.id === brush.id) ?? { ...brush, points: [] };
+    store.setState({
+      pendingStrokes: {
+        ...pendingStrokes,
+        [brush.id]: { ...drawn, points: [...drawn.points, ...points] },
+      },
+    });
+    let send = strokeSends.get(brush.id);
+    if (send === undefined) {
+      send = { brush, queued: [], waiters: [], busy: false, timer: null };
+      strokeSends.set(brush.id, send);
+    }
+    const current = send;
+    current.queued.push(...points);
+    const answered = new Promise<ActionResult>((resolve) => {
+      current.waiters.push(resolve);
+    });
+    if (!current.busy && current.timer === null) flushStroke(brush.id);
+    return answered;
+  }
+
   function receive(stage: LiveStage): void {
     store.setState({ stage });
     settle(stage);
     settleTokens(stage);
+    settleStrokes(stage);
     show(onStage(transition, stage));
   }
 
@@ -373,7 +506,12 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     }
     moves.clear();
     tokenSends.clear();
-    store.setState({ pending: {}, pendingTokens: {} });
+    for (const send of strokeSends.values()) {
+      if (send.timer !== null) window.clearTimeout(send.timer);
+      for (const waiter of send.waiters) waiter({ ok: false, message: NO_ANSWER });
+    }
+    strokeSends.clear();
+    store.setState({ pending: {}, pendingTokens: {}, pendingStrokes: {} });
   }
 
   /** Sends an object's queued moves; whatever is queued meanwhile follows after the gap. */
@@ -631,6 +769,9 @@ export function createPlayRoom(campaignId: string, deps: RoomDeps = {}): PlayRoo
     startBattle: (size) => act(PLAY_SOCKET.startBattle, { size }),
     endBattle: () => act(PLAY_SOCKET.endBattle, {}),
     moveToken,
+    paint,
+    undoPaint: () => act(PLAY_SOCKET.undoStroke, {}),
+    clearPaint: () => act(PLAY_SOCKET.clearPaint, {}),
     emote: (objectId, emote) => act(PLAY_SOCKET.emote, { id: objectId, emote }),
     freeRoll: (die, count, hidden) => act(PLAY_SOCKET.freeRoll, { die, count, private: hidden }),
     takeOverNpc: (objectId) => act(PLAY_SOCKET.takeOverNpc, { id: objectId }),
